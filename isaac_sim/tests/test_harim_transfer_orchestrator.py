@@ -256,6 +256,33 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         np.testing.assert_allclose(orchestrator.get_amr_position(), expected)
         self.assertLess(abs(orchestrator.get_amr_position()[0] - start[0]), abs((target[0] - start[0]) * 0.25))
 
+    def test_amr_lift_uses_eased_motion_and_settles_before_attach(self):
+        orchestrator, context, _world, _items = self.build_orchestrator(Args())
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.LIFT_UP)
+        orchestrator.step(self.demo.AMR_LIFT_DURATION * 0.25)
+
+        expected = Args.lift_height * self.demo.smoothstep(0.25)
+        self.assertAlmostEqual(orchestrator.lift_offset, expected)
+        self.assertLess(orchestrator.lift_offset, Args.lift_height * 0.25)
+
+        orchestrator.step(self.demo.AMR_LIFT_DURATION * 0.75)
+        self.assertAlmostEqual(orchestrator.lift_offset, Args.lift_height)
+        self.assertEqual(orchestrator.state, self.demo.TransferState.LIFT_UP)
+
+        orchestrator.step(self.demo.AMR_LIFT_SETTLE_TIME + 0.01)
+        self.assertEqual(orchestrator.state, self.demo.TransferState.ATTACH)
+
+    def test_release_forces_suction_open_and_clears_attach_state(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("def force_open_suction_gripper", source)
+        self.assertIn("interface.open_gripper(gripper_path)", source)
+        self.assertIn("active_bin.demo_attached = False", source)
+        self.assertIn("active_bin.demo_attach_T = None", source)
+        self.assertIn("active_bin.is_attached = False", source)
+
     def test_spawned_bins_are_upside_down_to_skip_flip_station(self):
         for _ in range(10):
             position, orientation = self.demo.random_bin_spawn_transform()
@@ -288,6 +315,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("move_start_pose", source)
         self.assertIn("move_duration", source)
         self.assertIn("smoothstep", source)
+        self.assertIn("AMR_LIFT_DURATION", source)
+        self.assertIn("AMR_LIFT_SETTLE_TIME", source)
         self.assertIn("REACH_PICK_MAX_DURATION", source)
         self.assertIn("REACH_PLACE_MAX_DURATION", source)
         self.assertIn("RETURN_READY_DURATION", source)
@@ -335,7 +364,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("task.context = decider_network.context", source)
         self.assertIn("release_duration=0.35", source)
         self.assertIn("POST_RELEASE_CLEARANCE_LIFT", source)
-        self.assertIn("self.context.robot.suction_gripper.open()", source)
+        self.assertIn("force_open_suction_gripper(self.context)", source)
         self.assertIn('"wait_next_bin"', source)
         self.assertIn('return DfDecision("wait_next_bin")', source)
         self.assertIn("deactivate_stage_prims_containing", source)

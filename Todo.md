@@ -1758,3 +1758,50 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `max_release_drift=0.0000`
   - `max_payload_lift=0.1100`
   - `max_dropped_payload_drift=0.0000`
+
+---
+
+## 2026-05-29 GUI release 강제 해제 추가 보강
+
+GUI 확인에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 증상이 다시 관찰되어, release 순간에 scripted attach 상태와 실제 surface gripper 상태를 더 강하게 분리했다. 핵심은 “시각적으로 박스가 그리퍼를 따라가는 경로”를 줄이는 것이다.
+
+수정 내용:
+
+- [x] `force_open_suction_gripper()` 추가
+  - 기존 high-level `suction_gripper.open()` 호출에 더해 internal surface gripper interface의 `open_gripper()`도 직접 호출한다.
+  - GUI에서 surface gripper 상태가 한 프레임 늦게 남아 박스를 붙잡아 보이는 경우를 줄인다.
+- [x] `DemoReleaseBin.enter()`에서 release 대상 bin의 attach 상태를 먼저 끊음
+  - `demo_attached = False`
+  - `demo_attach_T = None`
+  - `is_attached = False`
+  - 그 뒤 kinematic 전환, velocity reset, stack 목표 pose 고정을 수행한다.
+- [x] `DemoReleaseBin.step()` 동안 `force_open_suction_gripper()`를 반복 호출
+  - release state가 유지되는 0.35초 동안 gripper open과 목표 pose hold가 계속 적용된다.
+- [x] 불안정했던 `return_ready` 최소 유지 실험은 제거
+  - `return_ready` 도달 후 추가로 잡아두면 position-only 명령 상태에서 오히려 후반 pick 자세가 흐트러지는 run이 있었다.
+  - 기존 안정 timing으로 되돌리고 release 강제 해제만 남겼다.
+- [x] AMR lift-up/lift-down은 `smoothstep` easing과 settle 시간을 유지
+  - 팔레트가 순간이동하듯 들리는 느낌을 줄인다.
+  - `AMR_LIFT_DURATION = 1.25`, `AMR_LIFT_SETTLE_TIME = 0.25`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 31개 통과
+- [x] Python compile 통과
+- [x] 12000-frame full end-to-end self-test 통과
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0049`
+  - `max_return_ready_error=0.0396`
+  - `max_release_drift=0.0000`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`

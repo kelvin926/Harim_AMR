@@ -159,6 +159,19 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 참고: 현재 데모는 GUI release 안정성을 우선해서 실제 `suction_gripper.close()` joint를 만들지 않고, `demo_carried_bin` 기반 scripted suction attach/release로 진행합니다.
 
+추가 보강: GUI에서 박스가 여전히 그리퍼에 붙어 보이는 경우를 줄이기 위해 release 시점에 `force_open_suction_gripper()`를 호출합니다. 이 함수는 high-level `suction_gripper.open()`뿐 아니라 surface gripper internal interface의 `open_gripper()`도 직접 호출합니다. 또한 `DemoReleaseBin.enter()`에서 release 대상의 `demo_attached`, `demo_attach_T`, `is_attached`를 먼저 끊고, 그 뒤 목표 stack pose로 고정합니다.
+
+최신 검증:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0049`, `max_return_ready_error=0.0396`, `max_release_drift=0.0000`, `max_payload_lift=0.1100`, `max_dropped_payload_drift=0.0000`.
+
 ## 2026-05-29 pre-grip 정렬 추가 보강
 
 `ReachToPick` 직후 `DemoSettleBinAtGripper`가 active bin의 grasp frame을 UR10 end-effector frame에 맞춰 최소 0.30초 동안 보간합니다. GUI에서 박스가 그리퍼에 계속 붙어 보이거나 release 뒤 다시 끌려가는 현상을 줄이기 위해 실제 surface gripper close는 기본 경로에서 제외하고 scripted attach/release만 사용합니다.

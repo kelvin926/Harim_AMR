@@ -31,6 +31,8 @@ RETURN_READY_POSITION_THRESHOLD = 0.04
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
 AMR_LIFT_PLATE_OFFSET_Z = 0.48
+AMR_LIFT_DURATION = 1.25
+AMR_LIFT_SETTLE_TIME = 0.25
 SLIDE_EXIT_DISTANCE = 1.8
 PALLET_TUNNEL_HALF_WIDTH = 0.42
 DROP_WORKSTATION_Z = -0.73
@@ -658,14 +660,14 @@ class HarimTransferOrchestrator:
                     self._transition(TransferState.RESET_CYCLE)
 
         elif self.state == TransferState.LIFT_UP:
-            t = clamp(self.state_time / 1.0, 0.0, 1.0)
+            t = clamp(self.state_time / AMR_LIFT_DURATION, 0.0, 1.0)
             previous_offset = self.lift_offset
-            self.lift_offset = lerp(0.0, self.args.lift_height, t)
+            self.lift_offset = lerp(0.0, self.args.lift_height, smoothstep(t))
             dz = self.lift_offset - previous_offset
             self._set_lift_plate_pose()
             self._reset_pallet_pose()
             self._apply_lift_delta_to_stack(dz)
-            if t >= 1.0:
+            if t >= 1.0 and self.state_time >= AMR_LIFT_DURATION + AMR_LIFT_SETTLE_TIME:
                 self._transition(TransferState.ATTACH)
 
         elif self.state == TransferState.ATTACH:
@@ -673,9 +675,9 @@ class HarimTransferOrchestrator:
             self._transition(TransferState.MOVE_TO_DROP)
 
         elif self.state == TransferState.LIFT_DOWN:
-            t = clamp(self.state_time / 1.0, 0.0, 1.0)
+            t = clamp(self.state_time / AMR_LIFT_DURATION, 0.0, 1.0)
             previous_offset = self.lift_offset
-            self.lift_offset = lerp(self.args.lift_height, 0.0, t)
+            self.lift_offset = lerp(self.args.lift_height, 0.0, smoothstep(t))
             dz = self.lift_offset - previous_offset
             if self.carrying and abs(dz) > 1e-6:
                 for name, (offset, orient) in list(self.item_offsets.items()):
@@ -688,7 +690,7 @@ class HarimTransferOrchestrator:
                     self.pallet_base_offsets[name] = (new_offset, orient)
             self._set_lift_plate_pose()
             self._update_attached_items()
-            if t >= 1.0:
+            if t >= 1.0 and self.state_time >= AMR_LIFT_DURATION + AMR_LIFT_SETTLE_TIME:
                 self._transition(TransferState.DETACH)
 
         elif self.state == TransferState.DETACH:
@@ -888,6 +890,23 @@ def main():
         context.demo_released_bin = bin_state
         clear_demo_carry_context(context)
 
+    def force_open_suction_gripper(context):
+        gripper = getattr(getattr(context, "robot", None), "suction_gripper", None)
+        if gripper is None:
+            return
+        try:
+            gripper.open()
+        except Exception as exc:
+            print(f"[HarimDemo] suction open fallback: {exc}", flush=True)
+
+        interface = getattr(gripper, "_surface_gripper_interface", None)
+        gripper_path = getattr(gripper, "_surface_gripper_path", None)
+        if interface is not None and gripper_path is not None:
+            try:
+                interface.open_gripper(gripper_path)
+            except Exception:
+                pass
+
     def hold_demo_released_bin_at_target(context):
         released_bin = getattr(context, "demo_released_bin", None)
         if released_bin is None:
@@ -1038,10 +1057,7 @@ def main():
 
             self.context.active_bin = active_bin
             pre_grip_offset = getattr(self.context, "demo_pre_grip_initial_offset", None)
-            try:
-                self.context.robot.suction_gripper.open()
-            except Exception as exc:
-                print(f"[HarimDemo] suction pre-open fallback: {exc}", flush=True)
+            force_open_suction_gripper(self.context)
             if args.self_test_debug_bins:
                 if pre_grip_offset is None:
                     print("[HarimDemo] suction close skipped for fallback attach; using scripted attach", flush=True)
@@ -1078,10 +1094,7 @@ def main():
         def enter(self):
             self.entry_time = get_demo_time(self.context)
             print("<open gripper>", flush=True)
-            try:
-                self.context.robot.suction_gripper.open()
-            except Exception as exc:
-                print(f"[HarimDemo] suction open fallback: {exc}", flush=True)
+            force_open_suction_gripper(self.context)
 
             active_bin = self.context.active_bin
             active_bin = get_demo_carried_bin(self.context) or active_bin
@@ -1091,8 +1104,13 @@ def main():
             target_index = len(self.context.stacked_bins)
             self.target_p = get_demo_stack_coordinate(self.context, target_index)
             self.released_bin = active_bin
-            active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
+            active_bin.demo_attached = False
+            active_bin.demo_attach_T = None
+            active_bin.is_attached = False
+            set_kinematic_for_demo(active_bin.bin_obj, True)
+            stop_dynamic_prim(active_bin.bin_obj)
             mark_demo_bin_released(self.context, active_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
+            active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
             stop_dynamic_prim(active_bin.bin_obj)
             set_kinematic_for_demo(active_bin.bin_obj, True)
             print(f"[HarimDemo] demo-placed {active_bin.bin_obj.name} at {self.target_p.tolist()}", flush=True)
@@ -1100,10 +1118,7 @@ def main():
         def step(self):
             if self.released_bin is None or self.target_p is None:
                 return None
-            try:
-                self.context.robot.suction_gripper.open()
-            except Exception:
-                pass
+            force_open_suction_gripper(self.context)
             mark_demo_bin_released(self.context, self.released_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
             hold_demo_released_bin_at_target(self.context)
             if get_demo_time(self.context) - self.entry_time < self.release_duration:
@@ -1159,11 +1174,12 @@ def main():
             )
             current_position = np.array(self.context.robot.arm.get_fk_p(), dtype=float)
             position_error = float(np.linalg.norm(current_position - self.target_position))
+            elapsed = get_demo_time(self.context) - self.entry_time
             if position_error <= self.position_threshold:
                 self._record_final_error(position_error)
                 print(f"[HarimDemo] {self.label} reached; error={position_error:.4f} m", flush=True)
                 return None
-            if get_demo_time(self.context) - self.entry_time < self.duration:
+            if elapsed < self.duration:
                 return self
             self._record_final_error(position_error)
             print(f"[HarimDemo] {self.label} timed release; error={position_error:.4f} m", flush=True)
@@ -1253,7 +1269,11 @@ def main():
                         DfWaitState(wait_time=0.15),
                         DemoReleaseBin(),
                         DemoTimedArmLift(height=POST_RELEASE_CLEARANCE_LIFT, duration=0.35),
-                        DemoTimedArmMoveTo(PICK_READY_EE_POSITION, duration=RETURN_READY_DURATION, label="return_ready"),
+                        DemoTimedArmMoveTo(
+                            PICK_READY_EE_POSITION,
+                            duration=RETURN_READY_DURATION,
+                            label="return_ready",
+                        ),
                         DemoMarkCarriedBinComplete(),
                         DfSetLockState(set_locked_to=False, decider=self),
                     ]
