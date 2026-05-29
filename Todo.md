@@ -2407,3 +2407,48 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `min_stack_support_gap=0.0025`
   - `max_payload_lift=0.1100`
   - `max_dropped_payload_drift=0.0000`
+
+---
+
+## 2026-05-29 GUI release-retreat 보강
+
+GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제를 줄이기 위해 release 동작을 다시 보강했다. 기존에는 `<open gripper>` 직후 같은 place pose에서 짧게 대기한 뒤 별도 lift state로 넘어갔기 때문에, GUI에서는 박스와 흡착 패드가 계속 붙어 있는 것처럼 보일 수 있었다. 이제 release 상태에 들어가면 박스를 즉시 목표 적재 좌표에 고정하고, 같은 상태 안에서 로봇팔을 위로 retreat시켜 흡착 패드와 박스 사이가 바로 벌어지게 했다.
+
+수정 내용:
+
+- [x] `POST_RELEASE_CLEARANCE_LIFT`를 `0.32m`로 확대
+- [x] `RELEASE_RETREAT_DURATION = 0.55s` 추가
+- [x] `DemoReleaseBin`에서 release와 동시에 `MotionCommand(self.retreat_pq)`를 보내도록 변경
+- [x] release된 bin에 `demo_force_released = True` 표시 추가
+- [x] `restore_demo_carried_active_bin()`, `hold_active_bin_for_pick()`, `sync_demo_attached_bin()`에서 release된 bin이 다시 active/carry 상태로 복원되지 않게 차단
+- [x] self-test metric `demo_max_release_retreat_lift` 추가
+- [x] self-test option 추가
+  - Python: `--self-test-min-release-retreat-lift`
+  - PowerShell: `-SelfTestMinReleaseRetreatLift`
+- [x] strict wrapper에 `SelfTestMinReleaseRetreatLift = 0.20` gate 추가
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] unittest 42개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- [x] 로그 파일: `isaacsim_logs/harim_release_retreat_gate_strict_full_e2e_12000.log`
+- [x] 주요 완료 metric:
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_release_drift=0.0000`
+  - `max_release_retreat_lift=0.2499`
+  - `release_gripper_samples=280`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `release_gripper_probe_failures=0`
+  - `joint_settle_count=8`

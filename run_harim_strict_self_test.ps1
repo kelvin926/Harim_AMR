@@ -23,6 +23,7 @@ $RunnerArgs = @{
     SelfTestMaxPreGripOffset = 0.05
     SelfTestMaxReturnReadyError = 0.05
     SelfTestMaxReleaseDrift = 0.005
+    SelfTestMinReleaseRetreatLift = 0.20
     SelfTestRequireGripperOpenAfterRelease = $true
     SelfTestMaxStackLateralGap = 0.03
     SelfTestMaxStackSupportGap = 0.02

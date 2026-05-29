@@ -512,3 +512,14 @@ pickup zone, drop zone, AMR path를 바닥에서 바로 읽을 수 있도록 얇
 - unittest 42개 통과
 - strict wrapper 기반 12000-frame full end-to-end self-test 통과
 - 로그 파일: `isaacsim_logs/harim_floor_markings_strict_full_e2e_12000.log`
+
+## GUI Release-Retreat
+
+GUI에서 박스가 흡착 패드에 계속 붙어 보이는 문제를 줄이기 위해 release 상태 자체에서 팔을 위로 retreat시키도록 바꿨습니다. release된 bin에는 `demo_force_released`를 남겨 active/carry 상태로 다시 복원되지 않게 하고, strict self-test는 `max_release_retreat_lift`가 최소 0.20m 이상인지 확인합니다.
+
+검증 결과:
+
+- unittest 42개 통과
+- strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- 로그 파일: `isaacsim_logs/harim_release_retreat_gate_strict_full_e2e_12000.log`
+- 완료 로그: `max_release_drift=0.0000; max_release_retreat_lift=0.2499; release_gripper_not_open=0; release_gripped_object_max=0`

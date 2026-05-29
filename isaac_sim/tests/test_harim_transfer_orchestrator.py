@@ -178,6 +178,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(self.demo.REACH_PLACE_MAX_DURATION, 3.5)
         self.assertGreaterEqual(self.demo.RETURN_READY_DURATION, 5.0)
         self.assertLessEqual(self.demo.RETURN_READY_POSITION_THRESHOLD, 0.05)
+        self.assertGreaterEqual(self.demo.POST_RELEASE_CLEARANCE_LIFT, 0.28)
+        self.assertGreaterEqual(self.demo.RELEASE_RETREAT_DURATION, 0.45)
 
     def test_completion_signal_controller_toggles_red_green(self):
         red = FakeLight()
@@ -372,6 +374,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("interface.get_gripped_objects_batch([gripper_path])", source)
         self.assertIn("active_bin.demo_attached = False", source)
         self.assertIn("active_bin.demo_attach_T = None", source)
+        self.assertIn("active_bin.demo_force_released = True", source)
+        self.assertIn("active_bin.demo_force_released = False", source)
         self.assertIn("active_bin.is_attached = False", source)
 
     def test_spawned_bins_are_upside_down_to_skip_flip_station(self):
@@ -471,7 +475,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_payload_lift_observed", source)
         self.assertIn("max_dropped_payload_drift", source)
         self.assertIn("task.context = decider_network.context", source)
-        self.assertIn("release_duration=0.35", source)
+        self.assertIn("RELEASE_RETREAT_DURATION", source)
+        self.assertIn("release_duration=RELEASE_RETREAT_DURATION", source)
+        self.assertIn("self.retreat_pq = self.context.robot.arm.get_fk_pq()", source)
+        self.assertIn("self.retreat_pq.p[2] += POST_RELEASE_CLEARANCE_LIFT", source)
+        self.assertIn("self.context.robot.arm.send(MotionCommand(self.retreat_pq))", source)
         self.assertIn("POST_RELEASE_CLEARANCE_LIFT", source)
         self.assertIn("DemoTimedArmJointSettle()", source)
         self.assertIn("robot.set_joint_positions(joint_positions)", source)
@@ -492,6 +500,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-pre-grip-offset", source)
         self.assertIn("--self-test-max-return-ready-error", source)
         self.assertIn("--self-test-max-release-drift", source)
+        self.assertIn("--self-test-min-release-retreat-lift", source)
         self.assertIn("--self-test-require-gripper-open-after-release", source)
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
@@ -511,6 +520,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max pre-grip offset", source)
         self.assertIn("max return-ready error", source)
         self.assertIn("max release drift", source)
+        self.assertIn("release retreat lift", source)
         self.assertIn("release gripper was not open", source)
         self.assertIn("release gripper still reported", source)
         self.assertIn("max stack lateral gap", source)
@@ -530,6 +540,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("max_return_ready_error=", source)
         self.assertIn("max_release_drift=", source)
+        self.assertIn("max_release_retreat_lift=", source)
         self.assertIn("release_gripper_not_open=", source)
         self.assertIn("release_gripped_object_max=", source)
         self.assertIn("joint_settle_count=", source)
@@ -549,6 +560,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("drop_fork_clearance=", source)
         self.assertIn("demo_max_return_ready_error", source)
         self.assertIn("demo_max_release_drift", source)
+        self.assertIn("demo_max_release_retreat_lift", source)
         self.assertIn("preserving failure exit", source)
         self.assertIn("os._exit(1)", source)
         self.assertIn("transfer_cycles=", source)
@@ -560,6 +572,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertIn("$SelfTestRequireGripperOpenAfterRelease", source)
         self.assertIn("--self-test-require-gripper-open-after-release", source)
+        self.assertIn("$SelfTestMinReleaseRetreatLift", source)
         self.assertIn("$SelfTestMaxStackLateralGap", source)
         self.assertIn("$SelfTestMaxStackSupportGap", source)
         self.assertIn("$SelfTestMinStackPalletMargin", source)
@@ -582,6 +595,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-drop-lane-clearance", source)
         self.assertIn("--self-test-min-drop-runner-clearance", source)
         self.assertIn("--self-test-min-drop-fork-clearance", source)
+        self.assertIn("--self-test-min-release-retreat-lift", source)
 
     def test_strict_runner_enables_all_current_realism_gates(self):
         source = STRICT_RUNNER_PATH.read_text(encoding="utf-8")
@@ -598,6 +612,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxReturnReadyError", source)
         self.assertIn("SelfTestMaxReleaseDrift", source)
         self.assertIn("0.005", source)
+        self.assertIn("SelfTestMinReleaseRetreatLift", source)
+        self.assertIn("0.20", source)
         self.assertIn("SelfTestRequireGripperOpenAfterRelease = $true", source)
         self.assertIn("SelfTestMaxStackLateralGap", source)
         self.assertIn("0.03", source)

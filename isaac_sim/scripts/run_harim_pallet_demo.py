@@ -22,7 +22,8 @@ DEFAULT_MOVE_SPEED = 0.65
 PICK_STATION_BIN_POSITION = np.array([0.0, 0.42, -0.15], dtype=float)
 CONVEYOR_PICK_WINDOW_Y = 0.68
 PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
-POST_RELEASE_CLEARANCE_LIFT = 0.22
+POST_RELEASE_CLEARANCE_LIFT = 0.32
+RELEASE_RETREAT_DURATION = 0.55
 POST_RELEASE_JOINT_SETTLE_DURATION = 0.65
 ARM_CLEAR_SETTLE_TIME = 1.8
 REACH_PICK_MAX_DURATION = 12.0
@@ -170,6 +171,12 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if a released bin drifts from its snapped stack pose by more than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-release-retreat-lift",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test unless the arm retreats upward by at least this distance after releasing a bin. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-require-gripper-open-after-release",
@@ -1162,7 +1169,11 @@ def main():
 
     def restore_demo_carried_active_bin(context):
         carried_bin = get_demo_carried_bin(context)
-        if carried_bin is None or not getattr(carried_bin, "demo_attached", False):
+        if (
+            carried_bin is None
+            or getattr(carried_bin, "demo_force_released", False)
+            or not getattr(carried_bin, "demo_attached", False)
+        ):
             return None
         context.active_bin = carried_bin
         carried_bin.is_attached = True
@@ -1177,6 +1188,7 @@ def main():
     def mark_demo_bin_released(context, bin_state, target_position, target_orientation):
         bin_state.demo_attached = False
         bin_state.demo_attach_T = None
+        bin_state.demo_force_released = True
         bin_state.is_attached = False
         bin_state.demo_release_target_p = np.array(target_position, dtype=float)
         bin_state.demo_release_target_q = np.array(target_orientation, dtype=float)
@@ -1255,6 +1267,7 @@ def main():
 
         released_bin.demo_attached = False
         released_bin.demo_attach_T = None
+        released_bin.demo_force_released = True
         released_bin.is_attached = False
         if getattr(context, "active_bin", None) is released_bin:
             context.active_bin = None
@@ -1273,11 +1286,19 @@ def main():
 
     def hold_active_bin_for_pick(context):
         active_bin = get_demo_pre_grip_bin(context) or getattr(context, "active_bin", None)
-        if active_bin is None or getattr(active_bin, "demo_attached", False):
+        if active_bin is None:
+            return
+        if active_bin in getattr(context, "stacked_bins", []):
+            if getattr(context, "active_bin", None) is active_bin:
+                context.active_bin = None
+            return
+        if getattr(active_bin, "demo_force_released", False):
+            if getattr(context, "active_bin", None) is active_bin:
+                context.active_bin = None
+            return
+        if getattr(active_bin, "demo_attached", False):
             return
         context.active_bin = active_bin
-        if active_bin in getattr(context, "stacked_bins", []):
-            return
         if not getattr(active_bin, "demo_pick_stationed", False):
             _position, orientation = active_bin.bin_obj.get_world_pose()
             set_kinematic_for_demo(active_bin.bin_obj, True)
@@ -1305,6 +1326,8 @@ def main():
 
     def place_active_bin_grasp_at_effector(context, active_bin=None):
         active_bin = active_bin or getattr(context, "active_bin", None)
+        if getattr(active_bin, "demo_force_released", False):
+            return None
         target = compute_active_bin_grasp_pose_at_effector(context, active_bin)
         if active_bin is None or target is None:
             return None
@@ -1402,6 +1425,7 @@ def main():
             bin_T = cortex_math_util.pq2T(*active_bin.bin_obj.get_world_pose())
             active_bin.demo_attached = True
             active_bin.demo_attach_T = cortex_math_util.invert_T(eff_T).dot(bin_T)
+            active_bin.demo_force_released = False
             active_bin.is_attached = True
             active_bin.demo_pick_stationed = True
             self.context.demo_carried_bin = active_bin
@@ -1414,11 +1438,13 @@ def main():
             return None
 
     class DemoReleaseBin(DfState):
-        def __init__(self, release_duration=0.35):
+        def __init__(self, release_duration=RELEASE_RETREAT_DURATION):
             self.release_duration = release_duration
             self.entry_time = None
             self.released_bin = None
             self.target_p = None
+            self.retreat_pq = None
+            self.release_start_arm_z = None
 
         def enter(self):
             self.entry_time = get_demo_time(self.context)
@@ -1433,8 +1459,12 @@ def main():
             target_index = len(self.context.stacked_bins)
             self.target_p = get_demo_stack_coordinate(self.context, target_index)
             self.released_bin = active_bin
+            self.retreat_pq = self.context.robot.arm.get_fk_pq()
+            self.release_start_arm_z = float(self.retreat_pq.p[2])
+            self.retreat_pq.p[2] += POST_RELEASE_CLEARANCE_LIFT
             active_bin.demo_attached = False
             active_bin.demo_attach_T = None
+            active_bin.demo_force_released = True
             active_bin.is_attached = False
             set_kinematic_for_demo(active_bin.bin_obj, True)
             stop_dynamic_prim(active_bin.bin_obj)
@@ -1442,6 +1472,7 @@ def main():
             active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
             stop_dynamic_prim(active_bin.bin_obj)
             set_kinematic_for_demo(active_bin.bin_obj, True)
+            self.context.robot.arm.send(MotionCommand(self.retreat_pq))
             if args.self_test_require_gripper_open_after_release:
                 record_release_gripper_state(self.context)
             print(f"[HarimDemo] demo-placed {active_bin.bin_obj.name} at {self.target_p.tolist()}", flush=True)
@@ -1452,14 +1483,30 @@ def main():
             force_open_suction_gripper(self.context)
             mark_demo_bin_released(self.context, self.released_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
             hold_demo_released_bin_at_target(self.context)
+            if self.retreat_pq is not None:
+                self.context.robot.arm.send(MotionCommand(self.retreat_pq))
+            if self.release_start_arm_z is not None:
+                current_arm_z = float(self.context.robot.arm.get_fk_p()[2])
+                self.context.demo_max_release_retreat_lift = max(
+                    float(getattr(self.context, "demo_max_release_retreat_lift", 0.0)),
+                    current_arm_z - self.release_start_arm_z,
+                )
+            if args.self_test_require_gripper_open_after_release:
+                record_release_gripper_state(self.context)
             if get_demo_time(self.context) - self.entry_time < self.release_duration:
                 return self
             return None
 
         def exit(self):
+            if self.released_bin is not None and self.target_p is not None:
+                force_open_suction_gripper(self.context)
+                mark_demo_bin_released(self.context, self.released_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
+                hold_demo_released_bin_at_target(self.context)
             self.entry_time = None
             self.released_bin = None
             self.target_p = None
+            self.retreat_pq = None
+            self.release_start_arm_z = None
 
     class DemoTimedArmLift(DfState):
         def __init__(self, height, duration):
@@ -1658,7 +1705,6 @@ def main():
                         DemoTimedState(behavior.ReachToPlace(), max_duration=REACH_PLACE_MAX_DURATION, label="reach_place"),
                         DfWaitState(wait_time=0.15),
                         DemoReleaseBin(),
-                        DemoTimedArmLift(height=POST_RELEASE_CLEARANCE_LIFT, duration=0.35),
                         DemoTimedArmJointSettle(),
                         DemoTimedArmMoveTo(
                             PICK_READY_EE_POSITION,
@@ -1682,6 +1728,10 @@ def main():
             if not context.has_active_bin:
                 return
             active_bin = context.active_bin
+        if active_bin in getattr(context, "stacked_bins", []) or getattr(active_bin, "demo_force_released", False):
+            if getattr(context, "active_bin", None) is active_bin:
+                context.active_bin = None
+            return
         if not getattr(active_bin, "demo_attached", False):
             return
         attach_T = getattr(active_bin, "demo_attach_T", None)
@@ -2114,6 +2164,7 @@ def main():
     decider_network.context.demo_max_pre_grip_offset = 0.0
     decider_network.context.demo_max_return_ready_error = 0.0
     decider_network.context.demo_max_release_drift = 0.0
+    decider_network.context.demo_max_release_retreat_lift = 0.0
     decider_network.context.demo_release_gripper_samples = 0
     decider_network.context.demo_release_gripper_not_open_samples = 0
     decider_network.context.demo_release_gripped_object_max = 0
@@ -2177,6 +2228,15 @@ def main():
                 self_test_failures.append(
                     f"max release drift {max_release_drift:.4f} m exceeded "
                     f"{args.self_test_max_release_drift:.4f} m"
+                )
+            max_release_retreat_lift = float(getattr(decider_network.context, "demo_max_release_retreat_lift", 0.0))
+            if (
+                args.self_test_min_release_retreat_lift > 0
+                and max_release_retreat_lift < args.self_test_min_release_retreat_lift
+            ):
+                self_test_failures.append(
+                    f"release retreat lift {max_release_retreat_lift:.4f} m was below "
+                    f"{args.self_test_min_release_retreat_lift:.4f} m"
                 )
             release_gripper_samples = int(getattr(decider_network.context, "demo_release_gripper_samples", 0))
             release_gripper_not_open = int(
@@ -2353,6 +2413,7 @@ def main():
                     f"max_pre_grip_offset={max_pre_grip_offset:.4f}; "
                     f"max_return_ready_error={max_return_ready_error:.4f}; "
                     f"max_release_drift={max_release_drift:.4f}; "
+                    f"max_release_retreat_lift={max_release_retreat_lift:.4f}; "
                     f"release_gripper_samples={release_gripper_samples}; "
                     f"release_gripper_not_open={release_gripper_not_open}; "
                     f"release_gripped_object_max={release_gripped_object_max}; "
