@@ -496,3 +496,19 @@ KLT collision/grasp 구조는 유지하면서 carton overlay에 side label과 re
 - unittest 41개 통과
 - strict wrapper 기반 12000-frame full end-to-end self-test 통과
 - 로그 파일: `isaacsim_logs/harim_carton_label_strict_full_e2e_12000.log`
+
+## Floor Marking Visual
+
+pickup zone, drop zone, AMR path를 바닥에서 바로 읽을 수 있도록 얇은 `VisualCuboid` floor marking을 추가했습니다. 물리 충돌은 추가하지 않으므로 AMR/팔레트/박스 동작에는 영향을 주지 않습니다.
+
+추가 visual:
+
+- `AmrPathCenterLine`
+- `PickupZone*`
+- `DropZone*`
+
+검증 결과:
+
+- unittest 42개 통과
+- strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- 로그 파일: `isaacsim_logs/harim_floor_markings_strict_full_e2e_12000.log`

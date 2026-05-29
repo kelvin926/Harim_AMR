@@ -2087,6 +2087,56 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -Accep
 
 ---
 
+## 2026-05-29 floor marking visual 추가
+
+물체와 동작은 안정화됐지만, GUI에서 pickup/drop 위치와 AMR 이동 경로가 바닥에서 구분되지 않으면 설명 영상에서 공정 흐름이 약하게 보인다. 이번 보강에서는 물리 충돌 없는 얇은 `VisualCuboid` floor marking을 추가해 작업 구역과 AMR 동선을 명확하게 했다.
+
+수정 내용:
+
+- [x] floor marking 상수 추가
+  - `FLOOR_MARKING_Z`
+  - `FLOOR_MARKING_THICKNESS`
+  - `AMR_PATH_MARKING_WIDTH`
+  - `WORK_ZONE_MARKING_SIZE`
+  - `WORK_ZONE_MARKING_EDGE_WIDTH`
+  - pickup/drop/path marking color
+- [x] `create_floor_markings()` 추가
+  - `AmrPathCenterLine`: pickup에서 drop까지 이어지는 AMR 이동 차선
+  - `PickupZone*`: 팔레타이징 완료 후 AMR이 진입하는 pickup 작업 구역 outline
+  - `DropZone*`: 하역 작업대가 있는 drop 작업 구역 outline
+- [x] 충돌체는 추가하지 않고 `VisualCuboid`만 사용
+  - 기존 AMR, 팔레트, drop slide 물리/이송 gate에 영향이 없도록 했다.
+- [x] floor marking dimension unittest 추가
+  - marking이 팔레트보다 넓은 작업 구역을 표시하는지 확인
+  - marking thickness가 1 cm 이하인지 확인
+  - pickup/drop 색상이 서로 구분되는지 확인
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+확인 결과:
+
+- [x] Python compile 통과
+- [x] unittest 42개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_floor_markings_strict_full_e2e_12000.log`
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0398`
+  - `max_release_drift=0.0000`
+  - `min_stack_pallet_margin=0.0850`
+  - `max_dropped_payload_drift=0.0000`
+  - `amr_exit_clearance=0.6500`
+
+---
+
 ## 2026-05-29 strict full realism self-test wrapper 추가
 
 현실성 gate가 많아지면서 매번 긴 명령을 직접 입력하면 특정 gate를 빼먹기 쉽다. 이번 보강에서는 지금까지 추가한 모든 full end-to-end realism gate를 한 번에 실행하는 wrapper를 추가했다.

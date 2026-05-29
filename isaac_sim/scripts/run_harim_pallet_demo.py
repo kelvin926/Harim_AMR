@@ -94,6 +94,14 @@ DROP_SLIDE_ROLLER_SCALE = np.array([0.12, 0.08, 0.035], dtype=float)
 DROP_SLIDE_TOP_SUPPORT_SCALE = np.array([1.95, 0.08, 0.035], dtype=float)
 DROP_SLIDE_ROLLER_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_ROLLER_SCALE[2] * 0.5
 DROP_SLIDE_TOP_SUPPORT_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_TOP_SUPPORT_SCALE[2] * 0.5
+FLOOR_MARKING_Z = WORLD_FLOOR_Z + 0.004
+FLOOR_MARKING_THICKNESS = 0.006
+AMR_PATH_MARKING_WIDTH = 0.10
+WORK_ZONE_MARKING_SIZE = np.array([1.65, 1.38], dtype=float)
+WORK_ZONE_MARKING_EDGE_WIDTH = 0.055
+PICKUP_ZONE_MARKING_COLOR = np.array([0.95, 0.74, 0.12], dtype=float)
+DROP_ZONE_MARKING_COLOR = np.array([0.15, 0.58, 0.90], dtype=float)
+AMR_PATH_MARKING_COLOR = np.array([0.95, 0.62, 0.10], dtype=float)
 CARTON_BODY_SCALE = np.array([0.20, 0.29, 0.14], dtype=float)
 CARTON_TAPE_TOP_SCALE = np.array([0.205, 0.030, 0.008], dtype=float)
 CARTON_SIDE_LABEL_SCALE = np.array([0.140, 0.006, 0.055], dtype=float)
@@ -1844,6 +1852,57 @@ def main():
         return CompletionSignalController(red_light=red_light, green_light=green_light)
 
     completion_signal = create_completion_signal()
+
+    def create_floor_markings():
+        marking_parts = []
+
+        def add_zone_outline(prefix, center_x, center_y, color):
+            size_x, size_y = WORK_ZONE_MARKING_SIZE
+            edge = WORK_ZONE_MARKING_EDGE_WIDTH
+            for edge_name, y_offset in (("Front", size_y * 0.5), ("Back", -size_y * 0.5)):
+                marking_parts.append(
+                    world.scene.add(
+                        VisualCuboid(
+                            f"{harim_root}/{prefix}Zone{edge_name}",
+                            name=f"harim_{prefix.lower()}_zone_{edge_name.lower()}",
+                            position=np.array([center_x, center_y + y_offset, FLOOR_MARKING_Z], dtype=float),
+                            scale=np.array([size_x, edge, FLOOR_MARKING_THICKNESS], dtype=float),
+                            color=color,
+                        )
+                    )
+                )
+            for edge_name, x_offset in (("Left", -size_x * 0.5), ("Right", size_x * 0.5)):
+                marking_parts.append(
+                    world.scene.add(
+                        VisualCuboid(
+                            f"{harim_root}/{prefix}Zone{edge_name}",
+                            name=f"harim_{prefix.lower()}_zone_{edge_name.lower()}",
+                            position=np.array([center_x + x_offset, center_y, FLOOR_MARKING_Z], dtype=float),
+                            scale=np.array([edge, size_y, FLOOR_MARKING_THICKNESS], dtype=float),
+                            color=color,
+                        )
+                    )
+                )
+
+        path_center_x = (args.pickup_x + args.drop_x) * 0.5
+        path_center_y = (args.pickup_y + args.drop_y) * 0.5
+        path_length = max(abs(args.drop_x - args.pickup_x), 0.1)
+        marking_parts.append(
+            world.scene.add(
+                VisualCuboid(
+                    f"{harim_root}/AmrPathCenterLine",
+                    name="harim_amr_path_center_line",
+                    position=np.array([path_center_x, path_center_y, FLOOR_MARKING_Z], dtype=float),
+                    scale=np.array([path_length, AMR_PATH_MARKING_WIDTH, FLOOR_MARKING_THICKNESS], dtype=float),
+                    color=AMR_PATH_MARKING_COLOR,
+                )
+            )
+        )
+        add_zone_outline("Pickup", args.pickup_x, args.pickup_y, PICKUP_ZONE_MARKING_COLOR)
+        add_zone_outline("Drop", args.drop_x, args.drop_y, DROP_ZONE_MARKING_COLOR)
+        return marking_parts
+
+    create_floor_markings()
 
     iw_hub_usd = assets_root + "/Isaac/Samples/AnimRobot/iw_hub.usd"
     add_reference_to_stage(iw_hub_usd, f"{harim_root}/iw_hub")

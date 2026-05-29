@@ -231,6 +231,15 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreater(self.demo.CARTON_TAPE_COLOR[0], self.demo.CARTON_TAPE_COLOR[1])
         self.assertGreater(self.demo.CARTON_LABEL_COLOR[0], self.demo.CARTON_BODY_COLOR[0])
 
+    def test_floor_marking_dimensions_are_visual_only_and_thin(self):
+        self.assertGreater(self.demo.WORK_ZONE_MARKING_SIZE[0], self.demo.PALLET_DECK_SCALE[0])
+        self.assertGreater(self.demo.WORK_ZONE_MARKING_SIZE[1], self.demo.PALLET_DECK_SCALE[1])
+        self.assertLessEqual(self.demo.FLOOR_MARKING_THICKNESS, 0.01)
+        self.assertLessEqual(self.demo.WORK_ZONE_MARKING_EDGE_WIDTH, 0.08)
+        self.assertGreaterEqual(self.demo.FLOOR_MARKING_Z, self.demo.WORLD_FLOOR_Z)
+        self.assertGreater(self.demo.PICKUP_ZONE_MARKING_COLOR[0], self.demo.PICKUP_ZONE_MARKING_COLOR[2])
+        self.assertGreater(self.demo.DROP_ZONE_MARKING_COLOR[2], self.demo.DROP_ZONE_MARKING_COLOR[0])
+
     def test_stack_coordinate_clone_preserves_canonical_grid(self):
         original = self.demo.make_stack_coordinates(2, 2, 2)
         cloned = self.demo.clone_stack_coordinates(original)
@@ -388,6 +397,13 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("class DemoTimedArmJointSettle", source)
         self.assertIn("CompletionSignalController", source)
         self.assertIn("StackCompleteSignalGreen", source)
+        self.assertIn("create_floor_markings", source)
+        self.assertIn("AmrPathCenterLine", source)
+        self.assertIn('add_zone_outline("Pickup"', source)
+        self.assertIn('add_zone_outline("Drop"', source)
+        self.assertIn("Zone{edge_name}", source)
+        self.assertIn("FLOOR_MARKING_THICKNESS", source)
+        self.assertIn("WORK_ZONE_MARKING_SIZE", source)
         self.assertIn("ARM_CLEAR_SETTLE_TIME", source)
         self.assertIn("CARTON_BODY_SCALE", source)
         self.assertIn("HarimCartonBody", source)
