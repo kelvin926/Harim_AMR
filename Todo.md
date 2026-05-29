@@ -1,5 +1,24 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Pickup Entry 동적 Clearance 검증
+
+- [x] AMR이 팔레트 밑으로 진입하는 `MOVE_UNDER_PALLET` 전체 구간에서 매 frame 진입 geometry를 샘플링하도록 했다.
+- [x] 최종 handoff 지점만 확인하던 기존 검증에 더해, 진입 중 중심선 lateral drift가 팔레트 tunnel clearance를 얼마나 소모하는지 `min_pickup_entry_tunnel_clearance`로 기록한다.
+- [x] lowered lift fork가 팔레트 deck underside를 뚫거나 과하게 떨어져 보이는 문제를 잡기 위해 진입 중 `max_pickup_entry_lift_gap`, `max_pickup_entry_lift_penetration`을 기록한다.
+- [x] strict self-test gate를 추가했다.
+  - Python: `--self-test-max-pickup-entry-y-error`
+  - Python: `--self-test-min-pickup-entry-tunnel-clearance`
+  - Python: `--self-test-max-pickup-entry-lift-gap`
+  - Python: `--self-test-max-pickup-entry-lift-penetration`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 74개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_pickup_entry_clearance_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_031908_10672.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `pickup_entry_sample_count=217`, `max_pickup_entry_y_error=0.0000`, `min_pickup_entry_tunnel_clearance=0.1600`, `max_pickup_entry_lift_gap=0.0050`, `max_pickup_entry_lift_penetration=0.0000`
+
 ## 2026-05-30 AMR Palletizer Cell Gate 동적 Clearance 검증
 
 - [x] AMR이 팔레타이저 안전펜스 gate를 통과하는 동안 중심선에서 벗어나 설비를 뚫고 지나가는 문제를 잡기 위해 `amr_cell_gate_clearance`를 기록하도록 했다.

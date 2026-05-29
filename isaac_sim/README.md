@@ -1,5 +1,15 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Pickup Entry 동적 Clearance 검증
+
+- AMR이 팔레트 밑으로 진입하는 `MOVE_UNDER_PALLET` 전체 구간에서 매 frame 진입 geometry를 샘플링합니다.
+- 최종 pickup handoff 지점뿐 아니라 진입 중 중심선 lateral drift가 팔레트 tunnel clearance를 얼마나 소모하는지 `min_pickup_entry_tunnel_clearance`로 검증합니다.
+- 진입 중 lowered lift fork와 pallet deck underside 사이의 간격/관통을 `max_pickup_entry_lift_gap`, `max_pickup_entry_lift_penetration`으로 기록합니다.
+- strict self-test에 pickup entry Y error, tunnel clearance, lift gap, lift penetration gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_pickup_entry_clearance_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_031908_10672.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `pickup_entry_sample_count=217`, `max_pickup_entry_y_error=0.0000`, `min_pickup_entry_tunnel_clearance=0.1600`, `max_pickup_entry_lift_gap=0.0050`, `max_pickup_entry_lift_penetration=0.0000`
+
 ## 2026-05-30 AMR Palletizer Cell Gate 동적 Clearance 검증
 
 - AMR이 팔레타이저 안전펜스 gate를 통과하는 동안 중심선에서 벗어나 설비를 뚫고 지나가는 문제를 잡기 위해 `amr_cell_gate_clearance`를 기록합니다.

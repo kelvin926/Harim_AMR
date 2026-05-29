@@ -668,6 +668,30 @@ def parse_args():
         help="Fail the fixed-frame self-test if the lift forks penetrate the pallet underside at pickup handoff by more than this distance. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-pickup-entry-y-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR drifts laterally from the pallet tunnel centerline while entering for pickup. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-pickup-entry-tunnel-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if lateral AMR drift leaves less dynamic clearance in the pallet tunnel while entering for pickup. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-pickup-entry-lift-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the lowered lift forks are farther below the pallet underside while entering for pickup than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-pickup-entry-lift-penetration",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the lowered lift forks penetrate the pallet underside while entering for pickup by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-slide-out-y-error",
         type=float,
         default=0.0,
@@ -2370,6 +2394,11 @@ class HarimTransferOrchestrator:
         self.max_pickup_handoff_xy_error = 0.0
         self.max_pickup_handoff_lift_gap = initial_lift_contact_gap
         self.max_pickup_handoff_lift_penetration = 0.0
+        self.pickup_entry_sample_count = 0
+        self.max_pickup_entry_y_error = 0.0
+        self.min_pickup_entry_tunnel_clearance = compute_pallet_tunnel_clearance()
+        self.max_pickup_entry_lift_gap = initial_lift_contact_gap
+        self.max_pickup_entry_lift_penetration = 0.0
         self.slide_out_sample_count = 0
         self.max_slide_out_y_error = 0.0
         self.max_slide_out_lift_gap = initial_lift_contact_gap
@@ -2625,6 +2654,43 @@ class HarimTransferOrchestrator:
             max(0.0, float(-lift_gap)),
         )
 
+    def _record_pickup_entry_geometry(self):
+        if not self.pallet_parts:
+            return
+        try:
+            deck_pos, _deck_orient = self.pallet_parts[0].get_world_pose()
+        except Exception:
+            return
+        deck_pos = np.array(deck_pos, dtype=float)
+        pallet_center = deck_pos - PALLET_DECK_OFFSETS[0]
+        amr_pos = self.get_amr_position()
+        y_error = abs(float(amr_pos[1] - pallet_center[1]))
+        dynamic_tunnel_clearance = compute_pallet_tunnel_clearance() - y_error
+        lift_top_zs = []
+        for part in self.lift_plate_parts:
+            try:
+                lift_pos, _lift_orient = part.get_world_pose()
+                lift_top_zs.append(float(np.array(lift_pos, dtype=float)[2] + LIFT_FORK_SCALE[2] * 0.5))
+            except Exception:
+                pass
+        if lift_top_zs:
+            lift_top_z = max(lift_top_zs)
+        else:
+            lift_top_z = float(amr_pos[2] + AMR_LIFT_PLATE_OFFSET_Z + self.lift_offset + LIFT_FORK_SCALE[2] * 0.5)
+        deck_underside_z = float(deck_pos[2] - PALLET_DECK_SCALE[2] * 0.5)
+        lift_gap = deck_underside_z - lift_top_z
+        self.pickup_entry_sample_count += 1
+        self.max_pickup_entry_y_error = max(self.max_pickup_entry_y_error, y_error)
+        self.min_pickup_entry_tunnel_clearance = min(
+            self.min_pickup_entry_tunnel_clearance,
+            float(dynamic_tunnel_clearance),
+        )
+        self.max_pickup_entry_lift_gap = max(self.max_pickup_entry_lift_gap, float(lift_gap))
+        self.max_pickup_entry_lift_penetration = max(
+            self.max_pickup_entry_lift_penetration,
+            max(0.0, float(-lift_gap)),
+        )
+
     def _record_slide_out_geometry(self):
         if not self.pallet_parts:
             return
@@ -2692,12 +2758,16 @@ class HarimTransferOrchestrator:
         self.set_amr_pose(next_pos)
         self._set_lift_plate_pose()
         self._sync_payload_pose()
+        if self.state == TransferState.MOVE_UNDER_PALLET:
+            self._record_pickup_entry_geometry()
         if self.state == TransferState.SLIDE_OUT_FROM_PALLET:
             self._record_slide_out_geometry()
         if t >= 1.0:
             self.set_amr_pose(self.move_target)
             self._set_lift_plate_pose()
             self._sync_payload_pose()
+            if self.state == TransferState.MOVE_UNDER_PALLET:
+                self._record_pickup_entry_geometry()
             if self.state == TransferState.SLIDE_OUT_FROM_PALLET:
                 self._record_slide_out_geometry()
             return True
@@ -5481,6 +5551,47 @@ def main():
                     f"pickup handoff lift penetration {max_pickup_handoff_lift_penetration:.4f} m exceeded "
                     f"{args.self_test_max_pickup_handoff_lift_penetration:.4f} m"
                 )
+            pickup_entry_sample_count = int(getattr(orchestrator, "pickup_entry_sample_count", 0))
+            max_pickup_entry_y_error = float(getattr(orchestrator, "max_pickup_entry_y_error", 0.0))
+            min_pickup_entry_tunnel_clearance = float(
+                getattr(orchestrator, "min_pickup_entry_tunnel_clearance", 0.0)
+            )
+            max_pickup_entry_lift_gap = float(getattr(orchestrator, "max_pickup_entry_lift_gap", 0.0))
+            max_pickup_entry_lift_penetration = float(
+                getattr(orchestrator, "max_pickup_entry_lift_penetration", 0.0)
+            )
+            if args.self_test_max_pickup_entry_y_error > 0:
+                if pickup_entry_sample_count <= 0:
+                    self_test_failures.append("pickup entry geometry was not recorded while AMR entered the pallet")
+                elif max_pickup_entry_y_error > args.self_test_max_pickup_entry_y_error:
+                    self_test_failures.append(
+                        f"pickup entry Y error {max_pickup_entry_y_error:.4f} m exceeded "
+                        f"{args.self_test_max_pickup_entry_y_error:.4f} m"
+                    )
+            if args.self_test_min_pickup_entry_tunnel_clearance > 0:
+                if pickup_entry_sample_count <= 0:
+                    self_test_failures.append("pickup entry tunnel clearance was not recorded while AMR entered the pallet")
+                elif min_pickup_entry_tunnel_clearance < args.self_test_min_pickup_entry_tunnel_clearance:
+                    self_test_failures.append(
+                        f"pickup entry tunnel clearance {min_pickup_entry_tunnel_clearance:.4f} m was below "
+                        f"{args.self_test_min_pickup_entry_tunnel_clearance:.4f} m"
+                    )
+            if args.self_test_max_pickup_entry_lift_gap > 0:
+                if pickup_entry_sample_count <= 0:
+                    self_test_failures.append("pickup entry lift gap was not recorded while AMR entered the pallet")
+                elif max_pickup_entry_lift_gap > args.self_test_max_pickup_entry_lift_gap:
+                    self_test_failures.append(
+                        f"pickup entry lift gap {max_pickup_entry_lift_gap:.4f} m exceeded "
+                        f"{args.self_test_max_pickup_entry_lift_gap:.4f} m"
+                    )
+            if (
+                args.self_test_max_pickup_entry_lift_penetration > 0
+                and max_pickup_entry_lift_penetration > args.self_test_max_pickup_entry_lift_penetration
+            ):
+                self_test_failures.append(
+                    f"pickup entry lift penetration {max_pickup_entry_lift_penetration:.4f} m exceeded "
+                    f"{args.self_test_max_pickup_entry_lift_penetration:.4f} m"
+                )
             slide_out_sample_count = int(getattr(orchestrator, "slide_out_sample_count", 0))
             max_slide_out_y_error = float(getattr(orchestrator, "max_slide_out_y_error", 0.0))
             max_slide_out_lift_gap = float(getattr(orchestrator, "max_slide_out_lift_gap", 0.0))
@@ -5951,6 +6062,11 @@ def main():
                     f"max_pickup_handoff_xy_error={max_pickup_handoff_xy_error:.4f}; "
                     f"max_pickup_handoff_lift_gap={max_pickup_handoff_lift_gap:.4f}; "
                     f"max_pickup_handoff_lift_penetration={max_pickup_handoff_lift_penetration:.4f}; "
+                    f"pickup_entry_sample_count={pickup_entry_sample_count}; "
+                    f"max_pickup_entry_y_error={max_pickup_entry_y_error:.4f}; "
+                    f"min_pickup_entry_tunnel_clearance={min_pickup_entry_tunnel_clearance:.4f}; "
+                    f"max_pickup_entry_lift_gap={max_pickup_entry_lift_gap:.4f}; "
+                    f"max_pickup_entry_lift_penetration={max_pickup_entry_lift_penetration:.4f}; "
                     f"slide_out_sample_count={slide_out_sample_count}; "
                     f"max_slide_out_y_error={max_slide_out_y_error:.4f}; "
                     f"max_slide_out_lift_gap={max_slide_out_lift_gap:.4f}; "

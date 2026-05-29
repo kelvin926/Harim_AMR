@@ -555,6 +555,41 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         )
         self.assertAlmostEqual(orchestrator.max_pickup_handoff_lift_penetration, 0.0)
 
+    def test_pickup_entry_records_clearance_while_moving_under_pallet(self):
+        default_height_args = type("DefaultHeightArgs", (Args,), {"amr_z": self.demo.DEFAULT_AMR_Z})
+        orchestrator, context, _world, _items = self.build_orchestrator(default_height_args)
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.LIFT_UP)
+
+        self.assertGreater(orchestrator.pickup_entry_sample_count, 0)
+        self.assertAlmostEqual(orchestrator.max_pickup_entry_y_error, 0.0)
+        self.assertAlmostEqual(
+            orchestrator.min_pickup_entry_tunnel_clearance,
+            self.demo.compute_pallet_tunnel_clearance(),
+        )
+        self.assertAlmostEqual(
+            orchestrator.max_pickup_entry_lift_gap,
+            self.demo.compute_lift_contact_gap(default_height_args.amr_z, 0.0),
+        )
+        self.assertAlmostEqual(orchestrator.max_pickup_entry_lift_penetration, 0.0)
+
+    def test_pickup_entry_tunnel_clearance_accounts_for_lateral_drift(self):
+        default_height_args = type("DefaultHeightArgs", (Args,), {"amr_z": self.demo.DEFAULT_AMR_Z})
+        orchestrator, _context, _world, _items = self.build_orchestrator(default_height_args)
+
+        orchestrator.set_amr_pose([default_height_args.pickup_x, default_height_args.pickup_y + 0.02, default_height_args.amr_z])
+        orchestrator._set_lift_plate_pose()
+        orchestrator._record_pickup_entry_geometry()
+
+        self.assertEqual(orchestrator.pickup_entry_sample_count, 1)
+        self.assertAlmostEqual(orchestrator.max_pickup_entry_y_error, 0.02)
+        self.assertAlmostEqual(
+            orchestrator.min_pickup_entry_tunnel_clearance,
+            self.demo.compute_pallet_tunnel_clearance() - 0.02,
+        )
+        self.assertAlmostEqual(orchestrator.max_pickup_entry_lift_penetration, 0.0)
+
     def test_slide_out_records_fork_clearance_while_exiting_dropped_pallet(self):
         default_height_args = type("DefaultHeightArgs", (Args,), {"amr_z": self.demo.DEFAULT_AMR_Z})
         orchestrator, context, _world, _items = self.build_orchestrator(default_height_args)
@@ -1073,6 +1108,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-pickup-handoff-xy-error", source)
         self.assertIn("--self-test-max-pickup-handoff-lift-gap", source)
         self.assertIn("--self-test-max-pickup-handoff-lift-penetration", source)
+        self.assertIn("--self-test-max-pickup-entry-y-error", source)
+        self.assertIn("--self-test-min-pickup-entry-tunnel-clearance", source)
+        self.assertIn("--self-test-max-pickup-entry-lift-gap", source)
+        self.assertIn("--self-test-max-pickup-entry-lift-penetration", source)
         self.assertIn("--self-test-max-slide-out-y-error", source)
         self.assertIn("--self-test-max-slide-out-lift-gap", source)
         self.assertIn("--self-test-max-slide-out-lift-penetration", source)
@@ -1274,6 +1313,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_pickup_handoff_xy_error=", source)
         self.assertIn("max_pickup_handoff_lift_gap=", source)
         self.assertIn("max_pickup_handoff_lift_penetration=", source)
+        self.assertIn("pickup_entry_sample_count=", source)
+        self.assertIn("max_pickup_entry_y_error=", source)
+        self.assertIn("min_pickup_entry_tunnel_clearance=", source)
+        self.assertIn("max_pickup_entry_lift_gap=", source)
+        self.assertIn("max_pickup_entry_lift_penetration=", source)
+        self.assertIn("pickup entry geometry", source)
+        self.assertIn("pickup entry Y error", source)
+        self.assertIn("pickup entry tunnel clearance", source)
+        self.assertIn("pickup entry lift gap", source)
+        self.assertIn("pickup entry lift penetration", source)
         self.assertIn("slide_out_sample_count=", source)
         self.assertIn("max_slide_out_y_error=", source)
         self.assertIn("max_slide_out_lift_gap=", source)
@@ -1388,6 +1437,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxPickupHandoffXyError", source)
         self.assertIn("$SelfTestMaxPickupHandoffLiftGap", source)
         self.assertIn("$SelfTestMaxPickupHandoffLiftPenetration", source)
+        self.assertIn("$SelfTestMaxPickupEntryYError", source)
+        self.assertIn("$SelfTestMinPickupEntryTunnelClearance", source)
+        self.assertIn("$SelfTestMaxPickupEntryLiftGap", source)
+        self.assertIn("$SelfTestMaxPickupEntryLiftPenetration", source)
         self.assertIn("$SelfTestMaxSlideOutYError", source)
         self.assertIn("$SelfTestMaxSlideOutLiftGap", source)
         self.assertIn("$SelfTestMaxSlideOutLiftPenetration", source)
@@ -1470,6 +1523,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-pickup-handoff-xy-error", source)
         self.assertIn("--self-test-max-pickup-handoff-lift-gap", source)
         self.assertIn("--self-test-max-pickup-handoff-lift-penetration", source)
+        self.assertIn("--self-test-max-pickup-entry-y-error", source)
+        self.assertIn("--self-test-min-pickup-entry-tunnel-clearance", source)
+        self.assertIn("--self-test-max-pickup-entry-lift-gap", source)
+        self.assertIn("--self-test-max-pickup-entry-lift-penetration", source)
         self.assertIn("--self-test-max-slide-out-y-error", source)
         self.assertIn("--self-test-max-slide-out-lift-gap", source)
         self.assertIn("--self-test-max-slide-out-lift-penetration", source)
@@ -1599,6 +1656,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxPickupHandoffXyError", source)
         self.assertIn("SelfTestMaxPickupHandoffLiftGap", source)
         self.assertIn("SelfTestMaxPickupHandoffLiftPenetration", source)
+        self.assertIn("SelfTestMaxPickupEntryYError", source)
+        self.assertIn("SelfTestMinPickupEntryTunnelClearance", source)
+        self.assertIn("SelfTestMaxPickupEntryLiftGap", source)
+        self.assertIn("SelfTestMaxPickupEntryLiftPenetration", source)
         self.assertIn("SelfTestMaxSlideOutYError", source)
         self.assertIn("SelfTestMaxSlideOutLiftGap", source)
         self.assertIn("SelfTestMaxSlideOutLiftPenetration", source)
