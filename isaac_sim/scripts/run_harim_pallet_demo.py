@@ -140,6 +140,15 @@ INFEED_GUIDE_RAIL_X_OFFSETS = (-0.34, 0.34)
 INFEED_GUIDE_INNER_WIDTH = abs(INFEED_GUIDE_RAIL_X_OFFSETS[1] - INFEED_GUIDE_RAIL_X_OFFSETS[0]) - INFEED_GUIDE_RAIL_SCALE[0]
 INFEED_STOP_LINE_Y = float(PICK_STATION_BIN_POSITION[1])
 INFEED_ROLLER_Y_OFFSETS = (-0.32, -0.14, 0.04, 0.22, 0.40)
+SAFETY_FENCE_MIN_X = -0.82
+SAFETY_FENCE_MAX_X = 1.76
+SAFETY_FENCE_MIN_Y = -1.18
+SAFETY_FENCE_MAX_Y = 1.22
+SAFETY_FENCE_POST_SCALE = np.array([0.055, 0.055, 1.05], dtype=float)
+SAFETY_FENCE_RAIL_THICKNESS = 0.035
+SAFETY_FENCE_RAIL_Z_OFFSETS = (0.42, 0.92)
+SAFETY_FENCE_AMR_GATE_WIDTH = 1.44
+SAFETY_FENCE_INFEED_GATE_WIDTH = 0.86
 
 
 def parse_args():
@@ -284,6 +293,24 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the conveyor belt visual is farther below carton bottom than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-safety-fence-part-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many palletizer safety fence parts are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-safety-fence-amr-gate-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the safety fence AMR gate leaves less loaded-pallet side clearance than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-safety-fence-infeed-gate-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the safety fence infeed gate leaves less conveyor side clearance than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -705,6 +732,122 @@ def compute_infeed_conveyor_metrics():
         "infeed_pick_margin": float(INFEED_STOP_LINE_Y - INFEED_CONVEYOR_START_Y),
         "infeed_guide_clearance": float(INFEED_GUIDE_INNER_WIDTH - CARTON_BODY_SCALE[0]),
         "infeed_belt_support_gap": float(carton_bottom_z - INFEED_CONVEYOR_TOP_Z),
+    }
+
+
+def make_safety_fence_specs(pickup_y=DEFAULT_PICKUP_Y):
+    specs = []
+    post_color = np.array([0.95, 0.72, 0.12], dtype=float)
+    rail_color = np.array([0.08, 0.09, 0.10], dtype=float)
+    gate_color = np.array([0.92, 0.18, 0.12], dtype=float)
+    post_center_z = WORLD_FLOOR_Z + SAFETY_FENCE_POST_SCALE[2] * 0.5
+
+    def add_post(name, x, y, color=post_color):
+        specs.append(
+            (
+                name,
+                np.array([x, y, post_center_z], dtype=float),
+                SAFETY_FENCE_POST_SCALE.copy(),
+                color,
+            )
+        )
+
+    def add_x_rail(name, x_min, x_max, y, z_offset, color=rail_color):
+        length = float(x_max - x_min)
+        if length <= 0.08:
+            return
+        specs.append(
+            (
+                name,
+                np.array([(x_min + x_max) * 0.5, y, WORLD_FLOOR_Z + z_offset], dtype=float),
+                np.array([length, SAFETY_FENCE_RAIL_THICKNESS, SAFETY_FENCE_RAIL_THICKNESS], dtype=float),
+                color,
+            )
+        )
+
+    def add_y_rail(name, x, y_min, y_max, z_offset, color=rail_color):
+        length = float(y_max - y_min)
+        if length <= 0.08:
+            return
+        specs.append(
+            (
+                name,
+                np.array([x, (y_min + y_max) * 0.5, WORLD_FLOOR_Z + z_offset], dtype=float),
+                np.array([SAFETY_FENCE_RAIL_THICKNESS, length, SAFETY_FENCE_RAIL_THICKNESS], dtype=float),
+                color,
+            )
+        )
+
+    amr_gate_min_y = float(pickup_y) - SAFETY_FENCE_AMR_GATE_WIDTH * 0.5
+    amr_gate_max_y = float(pickup_y) + SAFETY_FENCE_AMR_GATE_WIDTH * 0.5
+    infeed_gate_min_x = -SAFETY_FENCE_INFEED_GATE_WIDTH * 0.5
+    infeed_gate_max_x = SAFETY_FENCE_INFEED_GATE_WIDTH * 0.5
+
+    post_points = [
+        ("SafetyFencePost_SW", SAFETY_FENCE_MIN_X, SAFETY_FENCE_MIN_Y),
+        ("SafetyFencePost_SE", SAFETY_FENCE_MAX_X, SAFETY_FENCE_MIN_Y),
+        ("SafetyFencePost_NW", SAFETY_FENCE_MIN_X, SAFETY_FENCE_MAX_Y),
+        ("SafetyFencePost_NE", SAFETY_FENCE_MAX_X, SAFETY_FENCE_MAX_Y),
+        ("SafetyFencePost_WGateLow", SAFETY_FENCE_MIN_X, amr_gate_min_y),
+        ("SafetyFencePost_WGateHigh", SAFETY_FENCE_MIN_X, amr_gate_max_y),
+        ("SafetyFencePost_EGateLow", SAFETY_FENCE_MAX_X, amr_gate_min_y),
+        ("SafetyFencePost_EGateHigh", SAFETY_FENCE_MAX_X, amr_gate_max_y),
+        ("SafetyFencePost_InfeedLeft", infeed_gate_min_x, SAFETY_FENCE_MAX_Y),
+        ("SafetyFencePost_InfeedRight", infeed_gate_max_x, SAFETY_FENCE_MAX_Y),
+    ]
+    for name, x, y in post_points:
+        add_post(name, x, y, gate_color if "Gate" in name or "Infeed" in name else post_color)
+
+    for rail_idx, z_offset in enumerate(SAFETY_FENCE_RAIL_Z_OFFSETS):
+        add_x_rail(
+            f"SafetyFenceSouthRail_{rail_idx}",
+            SAFETY_FENCE_MIN_X,
+            SAFETY_FENCE_MAX_X,
+            SAFETY_FENCE_MIN_Y,
+            z_offset,
+        )
+        add_x_rail(
+            f"SafetyFenceNorthRailLeft_{rail_idx}",
+            SAFETY_FENCE_MIN_X,
+            infeed_gate_min_x,
+            SAFETY_FENCE_MAX_Y,
+            z_offset,
+        )
+        add_x_rail(
+            f"SafetyFenceNorthRailRight_{rail_idx}",
+            infeed_gate_max_x,
+            SAFETY_FENCE_MAX_X,
+            SAFETY_FENCE_MAX_Y,
+            z_offset,
+        )
+        for side_name, x in (("West", SAFETY_FENCE_MIN_X), ("East", SAFETY_FENCE_MAX_X)):
+            add_y_rail(
+                f"SafetyFence{side_name}RailLow_{rail_idx}",
+                x,
+                SAFETY_FENCE_MIN_Y,
+                amr_gate_min_y,
+                z_offset,
+            )
+            add_y_rail(
+                f"SafetyFence{side_name}RailHigh_{rail_idx}",
+                x,
+                amr_gate_max_y,
+                SAFETY_FENCE_MAX_Y,
+                z_offset,
+            )
+    return specs
+
+
+def compute_safety_fence_metrics(pickup_y=DEFAULT_PICKUP_Y):
+    specs = make_safety_fence_specs(pickup_y)
+    return {
+        "safety_fence_part_count": len(specs),
+        "safety_fence_amr_gate_clearance": float(
+            SAFETY_FENCE_AMR_GATE_WIDTH - SAFETY_FENCE_POST_SCALE[1] - PALLET_DECK_SCALE[1]
+        ),
+        "safety_fence_infeed_gate_clearance": float(
+            SAFETY_FENCE_INFEED_GATE_WIDTH - SAFETY_FENCE_POST_SCALE[0] - INFEED_CONVEYOR_WIDTH
+        ),
     }
 
 
@@ -2453,6 +2596,24 @@ def main():
 
     create_floor_markings()
 
+    def create_safety_fence_visual():
+        fence_parts = []
+        for part_idx, (part_name, position, scale, color) in enumerate(make_safety_fence_specs(args.pickup_y)):
+            fence_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/{part_name}",
+                        name=f"harim_safety_fence_{part_idx}",
+                        position=position,
+                        scale=scale,
+                        color=color,
+                    )
+                )
+            )
+        return fence_parts
+
+    create_safety_fence_visual()
+
     iw_hub_usd = assets_root + "/Isaac/Samples/AnimRobot/iw_hub.usd"
     add_reference_to_stage(iw_hub_usd, f"{harim_root}/iw_hub")
     wait_for_stage_loading(simulation_app, usd_context, "iw_hub")
@@ -2985,6 +3146,34 @@ def main():
                     self_test_failures.append(
                         f"infeed belt overlapped carton bottom {-infeed_belt_support_gap:.4f} m exceeded 0.0050 m"
                     )
+            safety_fence_metrics = compute_safety_fence_metrics(args.pickup_y)
+            safety_fence_part_count = safety_fence_metrics["safety_fence_part_count"]
+            safety_fence_amr_gate_clearance = safety_fence_metrics["safety_fence_amr_gate_clearance"]
+            safety_fence_infeed_gate_clearance = safety_fence_metrics["safety_fence_infeed_gate_clearance"]
+            if (
+                args.self_test_min_safety_fence_part_count > 0
+                and safety_fence_part_count < args.self_test_min_safety_fence_part_count
+            ):
+                self_test_failures.append(
+                    f"safety fence part count {safety_fence_part_count} was below "
+                    f"{args.self_test_min_safety_fence_part_count}"
+                )
+            if (
+                args.self_test_min_safety_fence_amr_gate_clearance > 0
+                and safety_fence_amr_gate_clearance < args.self_test_min_safety_fence_amr_gate_clearance
+            ):
+                self_test_failures.append(
+                    f"safety fence AMR gate clearance {safety_fence_amr_gate_clearance:.4f} m was below "
+                    f"{args.self_test_min_safety_fence_amr_gate_clearance:.4f} m"
+                )
+            if (
+                args.self_test_min_safety_fence_infeed_gate_clearance > 0
+                and safety_fence_infeed_gate_clearance < args.self_test_min_safety_fence_infeed_gate_clearance
+            ):
+                self_test_failures.append(
+                    f"safety fence infeed gate clearance {safety_fence_infeed_gate_clearance:.4f} m was below "
+                    f"{args.self_test_min_safety_fence_infeed_gate_clearance:.4f} m"
+                )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
@@ -3153,6 +3342,9 @@ def main():
                     f"infeed_pick_margin={infeed_pick_margin:.4f}; "
                     f"infeed_guide_clearance={infeed_guide_clearance:.4f}; "
                     f"infeed_belt_support_gap={infeed_belt_support_gap:.4f}; "
+                    f"safety_fence_part_count={safety_fence_part_count}; "
+                    f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "
+                    f"safety_fence_infeed_gate_clearance={safety_fence_infeed_gate_clearance:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "

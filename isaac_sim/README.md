@@ -564,3 +564,21 @@ GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 구간을 줄
 - 완료 로그: `placed_bins=8; transfer_cycles=1; scripted_place_count=8; max_scripted_place_error=0.0000; max_release_separation=1.6853; release_gripper_not_open=0; release_gripped_object_max=0; drop_dock_stop_count=2`
 
 ---
+## Palletizer Safety Fence Visual
+
+팔레타이저 셀 주변에 충돌 없는 safety fence visual을 추가했습니다. AMR이 통과하는 Y축 gate와 infeed conveyor gate는 열어 두고, self-test에서 gate clearance를 검증합니다.
+
+새 strict gate:
+
+- `SelfTestMinSafetyFencePartCount = 20`
+- `SelfTestMinSafetyFenceAmrGateClearance = 0.25`
+- `SelfTestMinSafetyFenceInfeedGateClearance = 0.20`
+
+검증 결과:
+
+- unittest 47개 통과
+- strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- 로그 파일: `isaacsim_logs/harim_safety_fence_strict_full_e2e_12000.log`
+- 완료 로그: `safety_fence_part_count=24; safety_fence_amr_gate_clearance=0.3050; safety_fence_infeed_gate_clearance=0.2250; placed_bins=8; transfer_cycles=1`
+
+---

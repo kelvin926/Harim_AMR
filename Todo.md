@@ -2647,3 +2647,63 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -Accep
   - `drop_dock_runner_clearance=0.0650`
 
 ---
+## 2026-05-29 팔레타이저 셀 안전 펜스 visual/gate 추가
+
+동작은 안정화됐지만 GUI에서 로봇팔 셀이 산업 현장처럼 보이려면 안전 펜스와 출입 게이트가 필요하다. 이번 보강에서는 물리 충돌을 추가하지 않는 `VisualCuboid` 기반 안전 펜스를 팔레타이저 주변에 추가하고, AMR 통로와 infeed conveyor 유입구에는 충분한 opening을 남겼다.
+
+수정 내용:
+
+- [x] `make_safety_fence_specs()` 추가
+  - 코너/게이트 post
+  - 상/하단 rail 2단
+  - AMR 통과 gate
+  - infeed conveyor gate
+- [x] `create_safety_fence_visual()` 추가
+  - `SafetyFenceSouthRail_*`
+  - `SafetyFenceNorthRailLeft_*`
+  - `SafetyFenceNorthRailRight_*`
+  - `SafetyFencePost_WGateLow`
+  - `SafetyFencePost_WGateHigh`
+  - `SafetyFencePost_EGateLow`
+  - `SafetyFencePost_EGateHigh`
+  - `SafetyFencePost_InfeedLeft`
+  - `SafetyFencePost_InfeedRight`
+- [x] self-test gate 추가
+  - Python: `--self-test-min-safety-fence-part-count`
+  - Python: `--self-test-min-safety-fence-amr-gate-clearance`
+  - Python: `--self-test-min-safety-fence-infeed-gate-clearance`
+  - PowerShell: `-SelfTestMinSafetyFencePartCount`
+  - PowerShell: `-SelfTestMinSafetyFenceAmrGateClearance`
+  - PowerShell: `-SelfTestMinSafetyFenceInfeedGateClearance`
+- [x] strict wrapper gate 추가
+  - `SelfTestMinSafetyFencePartCount = 20`
+  - `SelfTestMinSafetyFenceAmrGateClearance = 0.25`
+  - `SelfTestMinSafetyFenceInfeedGateClearance = 0.20`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] unittest 47개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- [x] 로그 파일: `isaacsim_logs/harim_safety_fence_strict_full_e2e_12000.log`
+- [x] 주요 완료 metric:
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `safety_fence_part_count=24`
+  - `safety_fence_amr_gate_clearance=0.3050`
+  - `safety_fence_infeed_gate_clearance=0.2250`
+  - `scripted_place_count=8`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `max_dropped_payload_drift=0.0000`
+
+---
