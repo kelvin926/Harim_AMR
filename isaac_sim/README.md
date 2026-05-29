@@ -318,3 +318,19 @@ GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 경로를 줄
 - 실패 probe: `max return-ready error 0.0395 m exceeded 0.0010 m`, `$LASTEXITCODE=1`
 - 12000-frame full end-to-end self-test 통과
 - `max_pre_grip_offset=0.0050`, `max_return_ready_error=0.0398`
+
+## 2026-05-29 GUI release hold 보강
+
+GUI에서 로봇팔이 박스를 놓지 않고 계속 들고 가는 것처럼 보이는 문제를 기준으로, release 후 박스를 한 번만 스냅하지 않고 팔이 빠지는 동안에도 목표 적재 좌표에 계속 고정하도록 보강했습니다.
+
+- `mark_demo_bin_released()`로 release 대상 bin에 `demo_release_target_p/q`를 저장합니다.
+- `hold_demo_released_bin_at_target()`가 `demo_released_bin`을 stack 좌표에 반복 고정하고, active/carry 상태를 계속 끊습니다.
+- post-release lift, return-ready, decider loop, frame step 전후에서 release hold를 호출해 GUI 렌더 프레임에서도 박스가 팔을 따라 움직이지 않게 했습니다.
+- `--self-test-max-release-drift` / `-SelfTestMaxReleaseDrift` 옵션을 추가해 release 후 박스 drift를 self-test gate로 확인합니다.
+
+확인 결과:
+
+- unittest 28개 통과
+- Python compile 통과
+- 5200-frame release hold gate 통과: `placed_bins=8`, `max_release_drift=0.0000`
+- 12000-frame full end-to-end self-test 통과: `placed_bins=8; transfer_cycles=1; max_pre_grip_offset=0.0050; max_return_ready_error=0.0395; max_release_drift=0.0000`

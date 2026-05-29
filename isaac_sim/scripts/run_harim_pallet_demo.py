@@ -124,6 +124,12 @@ def parse_args():
         default=0.0,
         help="Fail the fixed-frame self-test if return_ready finishes farther than this distance from its target in meters. 0 disables the check.",
     )
+    parser.add_argument(
+        "--self-test-max-release-drift",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if a released bin drifts from its snapped stack pose by more than this distance in meters. 0 disables the check.",
+    )
     return parser.parse_args()
 
 
@@ -842,6 +848,41 @@ def main():
         context.demo_pre_grip_bin = None
         context.demo_pre_grip_initial_offset = None
 
+    def mark_demo_bin_released(context, bin_state, target_position, target_orientation):
+        bin_state.demo_attached = False
+        bin_state.demo_attach_T = None
+        bin_state.is_attached = False
+        bin_state.demo_release_target_p = np.array(target_position, dtype=float)
+        bin_state.demo_release_target_q = np.array(target_orientation, dtype=float)
+        context.demo_released_bin = bin_state
+        clear_demo_carry_context(context)
+
+    def hold_demo_released_bin_at_target(context):
+        released_bin = getattr(context, "demo_released_bin", None)
+        if released_bin is None:
+            return
+
+        target_p = getattr(released_bin, "demo_release_target_p", None)
+        if target_p is None:
+            return
+        target_q = getattr(released_bin, "demo_release_target_q", UPSIDE_DOWN_BIN_QUAT)
+
+        current_p, _ = released_bin.bin_obj.get_world_pose()
+        release_drift = float(np.linalg.norm(np.array(current_p, dtype=float) - np.array(target_p, dtype=float)))
+        context.demo_max_release_drift = max(
+            float(getattr(context, "demo_max_release_drift", 0.0)),
+            release_drift,
+        )
+
+        released_bin.demo_attached = False
+        released_bin.demo_attach_T = None
+        released_bin.is_attached = False
+        if getattr(context, "active_bin", None) is released_bin:
+            context.active_bin = None
+        released_bin.bin_obj.set_world_pose(position=target_p, orientation=target_q)
+        stop_dynamic_prim(released_bin.bin_obj)
+        set_kinematic_for_demo(released_bin.bin_obj, True)
+
     def get_demo_time(context):
         return float(getattr(context, "demo_sim_time", time.time()))
 
@@ -1020,11 +1061,7 @@ def main():
             self.target_p = get_demo_stack_coordinate(self.context, target_index)
             self.released_bin = active_bin
             active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
-            active_bin.demo_attached = False
-            active_bin.demo_attach_T = None
-            active_bin.is_attached = False
-            self.context.demo_released_bin = active_bin
-            clear_demo_carry_context(self.context)
+            mark_demo_bin_released(self.context, active_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
             stop_dynamic_prim(active_bin.bin_obj)
             set_kinematic_for_demo(active_bin.bin_obj, True)
             print(f"[HarimDemo] demo-placed {active_bin.bin_obj.name} at {self.target_p.tolist()}", flush=True)
@@ -1036,13 +1073,8 @@ def main():
                 self.context.robot.suction_gripper.open()
             except Exception:
                 pass
-            self.released_bin.demo_attached = False
-            self.released_bin.demo_attach_T = None
-            self.released_bin.is_attached = False
-            clear_demo_carry_context(self.context)
-            self.context.demo_released_bin = self.released_bin
-            self.released_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
-            stop_dynamic_prim(self.released_bin.bin_obj)
+            mark_demo_bin_released(self.context, self.released_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
+            hold_demo_released_bin_at_target(self.context)
             if get_demo_time(self.context) - self.entry_time < self.release_duration:
                 return self
             return None
@@ -1065,6 +1097,7 @@ def main():
             self.target_pq.p[2] += self.height
 
         def step(self):
+            hold_demo_released_bin_at_target(self.context)
             self.context.robot.arm.send(MotionCommand(self.target_pq))
             if get_demo_time(self.context) - self.entry_time < self.duration:
                 return self
@@ -1089,6 +1122,7 @@ def main():
             print(f"[HarimDemo] {self.label} start", flush=True)
 
         def step(self):
+            hold_demo_released_bin_at_target(self.context)
             self.context.robot.arm.send(
                 MotionCommand(target_position=self.target_position, posture_config=self.context.robot.default_config)
             )
@@ -1151,6 +1185,7 @@ def main():
 
     class DemoMarkCarriedBinComplete(DfState):
         def enter(self):
+            hold_demo_released_bin_at_target(self.context)
             active_bin = (
                 getattr(self.context, "demo_released_bin", None)
                 or get_demo_carried_bin(self.context)
@@ -1227,6 +1262,7 @@ def main():
 
         def decide(self):
             restore_demo_carried_active_bin(self.context)
+            hold_demo_released_bin_at_target(self.context)
             active_name = self.context.active_bin.bin_obj.name if self.context.has_active_bin else None
             if args.self_test_debug_bins and active_name != getattr(self.context, "demo_last_active_name", None):
                 print(f"[HarimDemo] active-bin -> {active_name}", flush=True)
@@ -1571,6 +1607,7 @@ def main():
     decider_network.context.demo_sim_time = 0.0
     decider_network.context.demo_max_pre_grip_offset = 0.0
     decider_network.context.demo_max_return_ready_error = 0.0
+    decider_network.context.demo_max_release_drift = 0.0
     orchestrator.reset_visual_state()
 
     def force_self_test_stack_complete():
@@ -1585,8 +1622,10 @@ def main():
     def step_demo_frame():
         physics_dt = world.get_physics_dt()
         decider_network.context.demo_sim_time = getattr(decider_network.context, "demo_sim_time", 0.0) + physics_dt
+        hold_demo_released_bin_at_target(decider_network.context)
         world.step(render=not args.headless)
         sync_demo_attached_bin(decider_network.context)
+        hold_demo_released_bin_at_target(decider_network.context)
         force_self_test_stack_complete()
         orchestrator.step(physics_dt)
 
@@ -1622,6 +1661,12 @@ def main():
                     f"max return-ready error {max_return_ready_error:.4f} m exceeded "
                     f"{args.self_test_max_return_ready_error:.4f} m"
                 )
+            max_release_drift = float(getattr(decider_network.context, "demo_max_release_drift", 0.0))
+            if args.self_test_max_release_drift > 0 and max_release_drift > args.self_test_max_release_drift:
+                self_test_failures.append(
+                    f"max release drift {max_release_drift:.4f} m exceeded "
+                    f"{args.self_test_max_release_drift:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -1632,7 +1677,8 @@ def main():
                     f"[HarimDemo] self-test completed after {args.self_test_frames} frames; "
                     f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}; "
                     f"max_pre_grip_offset={max_pre_grip_offset:.4f}; "
-                    f"max_return_ready_error={max_return_ready_error:.4f}",
+                    f"max_return_ready_error={max_return_ready_error:.4f}; "
+                    f"max_release_drift={max_release_drift:.4f}",
                     flush=True,
                 )
         else:

@@ -1665,3 +1665,50 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `stack-count 8/8 after bin_7`
   - `completed transfer cycle 1`
   - `self-test completed after 12000 frames; placed_bins=8; transfer_cycles=1; max_pre_grip_offset=0.0050; max_return_ready_error=0.0398`
+
+---
+
+## 2026-05-29 GUI release hold 보강 메모
+
+GUI에서 확인했을 때 로봇팔이 박스를 놓지 않고 같이 들어 올리는 것처럼 보이는 문제가 있었다. headless 로그는 `<open gripper>`와 `demo-placed`가 정상 출력됐지만, release 이후 arm retreat/return 구간에서 박스 transform을 계속 고정하지 않으면 GUI 프레임에서 stale surface-gripper 상태나 Cortex active 상태가 박스를 다시 끌고 가는 것처럼 보일 수 있다.
+
+수정 내용:
+
+- [x] release 대상 bin에 `demo_release_target_p`, `demo_release_target_q` 저장
+  - `mark_demo_bin_released()`가 `demo_attached`, `demo_attach_T`, `is_attached`를 즉시 해제한다.
+  - 완료 마킹 전까지 `context.demo_released_bin`으로 release 대상을 보존한다.
+- [x] `hold_demo_released_bin_at_target()` 추가
+  - release된 bin을 목표 stack 좌표에 반복 고정한다.
+  - `active_bin`이 release된 bin으로 다시 잡히면 즉시 비운다.
+  - linear/angular velocity를 0으로 만들고 kinematic 상태를 유지한다.
+- [x] post-release lift, return-ready, decider loop, frame step 전후에서 release hold 호출
+  - 팔이 위로 빠지는 동안에도 박스가 팔레트 위 좌표에 남도록 한다.
+  - GUI 렌더 타이밍에서 박스가 그리퍼를 따라 올라가는 것처럼 보이는 경로를 줄인다.
+- [x] release drift self-test gate 추가
+  - Python 옵션: `--self-test-max-release-drift`
+  - PowerShell 옵션: `-SelfTestMaxReleaseDrift`
+  - 완료 로그에 `max_release_drift`를 출력한다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 5200 -SelfTestMinPlacedBins 4 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.02 -SelfTestDebugBins -Cycles 1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 28개 통과
+- [x] Python compile 통과
+- [x] 5200-frame release hold gate 통과
+  - `placed_bins=8`
+  - `max_release_drift=0.0000`
+- [x] 12000-frame full end-to-end self-test 통과
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0050`
+  - `max_return_ready_error=0.0395`
+  - `max_release_drift=0.0000`
