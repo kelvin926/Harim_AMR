@@ -457,6 +457,18 @@ def parse_args():
         help="Fail the fixed-frame self-test if the surface gripper is not open or still reports gripped objects after a scripted release.",
     )
     parser.add_argument(
+        "--self-test-min-attached-grasp-sample-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless the suction-attached carton alignment is sampled at least this many times. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-attached-grasp-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the suction-attached carton lags farther than this distance from the gripper target. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-stack-lateral-gap",
         type=float,
         default=0.0,
@@ -605,6 +617,12 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if any active carton moves farther than this distance between sampled frames. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-attached-bin-frame-displacement",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the suction-attached carton moves farther than this distance between sampled frames. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-max-carried-payload-frame-displacement",
@@ -3988,14 +4006,22 @@ def main():
             t = ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP / max(displacement, 1e-6)
             position = lerp(current_position, target_position, t)
             orientation = quat_lerp(current_orientation, target_orientation, t)
-            context.demo_max_attached_bin_sync_gap = max(
-                float(getattr(context, "demo_max_attached_bin_sync_gap", 0.0)),
-                float(np.linalg.norm(target_position - position)),
-            )
         else:
             position = target_position
             orientation = target_orientation
         active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
+        attached_grasp_error = float(np.linalg.norm(target_position - np.array(position, dtype=float)))
+        context.demo_attached_grasp_sample_count = int(
+            getattr(context, "demo_attached_grasp_sample_count", 0)
+        ) + 1
+        context.demo_max_attached_grasp_error = max(
+            float(getattr(context, "demo_max_attached_grasp_error", 0.0)),
+            attached_grasp_error,
+        )
+        context.demo_max_attached_bin_sync_gap = max(
+            float(getattr(context, "demo_max_attached_bin_sync_gap", 0.0)),
+            attached_grasp_error,
+        )
 
     def hold_active_bin_for_pick(context):
         active_bin = get_demo_pre_grip_bin(context) or getattr(context, "active_bin", None)
@@ -5431,6 +5457,9 @@ def main():
     decider_network.context.demo_release_gripper_not_open_samples = 0
     decider_network.context.demo_release_gripped_object_max = 0
     decider_network.context.demo_release_gripper_probe_failures = 0
+    decider_network.context.demo_attached_grasp_sample_count = 0
+    decider_network.context.demo_max_attached_grasp_error = 0.0
+    decider_network.context.demo_max_attached_bin_sync_gap = 0.0
     decider_network.context.demo_joint_settle_count = 0
     decider_network.context.demo_infeed_active_bin = None
     decider_network.context.demo_active_bin_conveyor_approach_count = 0
@@ -5484,7 +5513,16 @@ def main():
             if bin_obj is not None:
                 try:
                     position, _orientation = bin_obj.get_world_pose()
-                    motion_continuity.sample("active_bin", getattr(bin_obj, "name", "active_bin"), position)
+                    motion_group = "active_bin"
+                    if getattr(context, "demo_released_bin", None) is active_bin:
+                        motion_group = "released_bin"
+                    elif getattr(context, "demo_scripted_place_bin", None) is active_bin:
+                        motion_group = "scripted_place_bin"
+                    elif (
+                        getattr(active_bin, "demo_attached", False)
+                    ):
+                        motion_group = "attached_bin"
+                    motion_continuity.sample(motion_group, getattr(bin_obj, "name", motion_group), position)
                 except Exception:
                     pass
 
@@ -5602,6 +5640,10 @@ def main():
             release_gripper_probe_failures = int(
                 getattr(decider_network.context, "demo_release_gripper_probe_failures", 0)
             )
+            attached_grasp_sample_count = int(
+                getattr(decider_network.context, "demo_attached_grasp_sample_count", 0)
+            )
+            max_attached_grasp_error = float(getattr(decider_network.context, "demo_max_attached_grasp_error", 0.0))
             joint_settle_count = int(getattr(decider_network.context, "demo_joint_settle_count", 0))
             if args.self_test_require_gripper_open_after_release:
                 if placed_count > 0 and release_gripper_samples <= 0:
@@ -5618,6 +5660,22 @@ def main():
                     self_test_failures.append(
                         f"release gripper state probe failed {release_gripper_probe_failures} times"
                     )
+            if (
+                args.self_test_min_attached_grasp_sample_count > 0
+                and attached_grasp_sample_count < args.self_test_min_attached_grasp_sample_count
+            ):
+                self_test_failures.append(
+                    f"attached grasp sample count {attached_grasp_sample_count} was below "
+                    f"{args.self_test_min_attached_grasp_sample_count}"
+                )
+            if (
+                args.self_test_max_attached_grasp_error > 0
+                and max_attached_grasp_error > args.self_test_max_attached_grasp_error
+            ):
+                self_test_failures.append(
+                    f"attached bin grasp error {max_attached_grasp_error:.4f} m exceeded "
+                    f"{args.self_test_max_attached_grasp_error:.4f} m"
+                )
             stack_geometry = compute_stack_geometry_metrics(
                 stack_coordinates,
                 args.stack_cols,
@@ -5867,15 +5925,18 @@ def main():
             motion_continuity_sample_count = motion_continuity.sample_count("amr")
             motion_continuity_tracked_item_count = motion_continuity.tracked_item_count()
             active_bin_motion_sample_count = motion_continuity.sample_count("active_bin")
+            attached_bin_motion_sample_count = motion_continuity.sample_count("attached_bin")
             carried_payload_motion_sample_count = motion_continuity.sample_count("carried_payload")
             arm_ee_motion_sample_count = motion_continuity.sample_count("arm_ee")
             max_amr_frame_displacement = motion_continuity.max_displacement("amr")
             max_arm_ee_frame_displacement = motion_continuity.max_displacement("arm_ee")
             max_active_bin_frame_displacement = motion_continuity.max_displacement("active_bin")
+            max_attached_bin_frame_displacement = motion_continuity.max_displacement("attached_bin")
             max_carried_payload_frame_displacement = motion_continuity.max_displacement("carried_payload")
             amr_motion_detail = motion_continuity.max_detail("amr")
             arm_ee_motion_detail = motion_continuity.max_detail("arm_ee")
             active_bin_motion_detail = motion_continuity.max_detail("active_bin")
+            attached_bin_motion_detail = motion_continuity.max_detail("attached_bin")
             carried_payload_motion_detail = motion_continuity.max_detail("carried_payload")
 
             def format_motion_detail(detail):
@@ -5921,6 +5982,15 @@ def main():
                         f"active bin frame displacement {max_active_bin_frame_displacement:.4f} m exceeded "
                         f"{args.self_test_max_active_bin_frame_displacement:.4f} m"
                         f"{format_motion_detail(active_bin_motion_detail)}"
+                    )
+            if args.self_test_max_attached_bin_frame_displacement > 0:
+                if attached_bin_motion_sample_count <= 0:
+                    self_test_failures.append("attached bin motion continuity was not sampled")
+                elif max_attached_bin_frame_displacement > args.self_test_max_attached_bin_frame_displacement:
+                    self_test_failures.append(
+                        f"attached bin frame displacement {max_attached_bin_frame_displacement:.4f} m exceeded "
+                        f"{args.self_test_max_attached_bin_frame_displacement:.4f} m"
+                        f"{format_motion_detail(attached_bin_motion_detail)}"
                     )
             if args.self_test_max_carried_payload_frame_displacement > 0:
                 if carried_payload_motion_sample_count <= 0:
@@ -6749,6 +6819,8 @@ def main():
                     f"release_gripper_not_open={release_gripper_not_open}; "
                     f"release_gripped_object_max={release_gripped_object_max}; "
                     f"release_gripper_probe_failures={release_gripper_probe_failures}; "
+                    f"attached_grasp_sample_count={attached_grasp_sample_count}; "
+                    f"max_attached_grasp_error={max_attached_grasp_error:.4f}; "
                     f"joint_settle_count={joint_settle_count}; "
                     f"max_stack_lateral_gap={max_stack_lateral_gap:.4f}; "
                     f"min_stack_lateral_gap={min_stack_lateral_gap:.4f}; "
@@ -6788,10 +6860,12 @@ def main():
                     f"motion_continuity_tracked_item_count={motion_continuity_tracked_item_count}; "
                     f"arm_ee_motion_sample_count={arm_ee_motion_sample_count}; "
                     f"active_bin_motion_sample_count={active_bin_motion_sample_count}; "
+                    f"attached_bin_motion_sample_count={attached_bin_motion_sample_count}; "
                     f"carried_payload_motion_sample_count={carried_payload_motion_sample_count}; "
                     f"max_amr_frame_displacement={max_amr_frame_displacement:.4f}; "
                     f"max_arm_ee_frame_displacement={max_arm_ee_frame_displacement:.4f}; "
                     f"max_active_bin_frame_displacement={max_active_bin_frame_displacement:.4f}; "
+                    f"max_attached_bin_frame_displacement={max_attached_bin_frame_displacement:.4f}; "
                     f"max_carried_payload_frame_displacement={max_carried_payload_frame_displacement:.4f}; "
                     f"safety_fence_part_count={safety_fence_part_count}; "
                     f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "

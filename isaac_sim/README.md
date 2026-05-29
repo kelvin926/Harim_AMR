@@ -1,5 +1,16 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Attached Grasp Alignment Gate 및 Motion Group 분리
+
+- 흡착 운반 중 박스가 suction gripper target에서 얼마나 벌어지는지 `demo_max_attached_grasp_error`로 계측합니다.
+- strict self-test에 attached grasp sample/error gate와 attached-bin frame displacement gate를 추가했습니다.
+- motion continuity는 이제 `active_bin`, `attached_bin`, `scripted_place_bin`, `released_bin` phase를 분리해, 같은 박스가 단계 전환을 할 때 이전 phase 좌표와 비교되어 거짓 순간이동으로 잡히는 일을 줄입니다.
+- 안정성을 위해 흡착 박스 보간은 `ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP = 0.05`로 유지하고, gripper lag는 별도 strict gate로 감시합니다.
+- 검증 로그: `isaacsim_logs/harim_attached_grasp_gate_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_064001_32876.gif`
+- 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `attached_grasp_sample_count=2287`, `max_attached_grasp_error=0.1569`, `max_attached_bin_frame_displacement=0.0500`, `max_active_bin_frame_displacement=0.0108`, `max_arm_ee_frame_displacement=0.2092`
+
 ## 2026-05-30 Robot Arm End-Effector Continuity Gate 및 복귀 순간이동 제거
 
 - 로봇팔 end-effector 위치를 `MotionContinuityTracker`로 매 프레임 샘플링하고, strict self-test에서 `--self-test-max-arm-ee-frame-displacement`로 검증합니다.

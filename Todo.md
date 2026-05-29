@@ -1,5 +1,22 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Attached Grasp Alignment Gate 및 Motion Group 분리
+
+- [x] 흡착 중인 박스가 UR10 suction gripper target에서 과하게 벌어지는지 `demo_attached_grasp_sample_count`, `demo_max_attached_grasp_error`로 계측하도록 했다.
+- [x] strict self-test에 `--self-test-min-attached-grasp-sample-count`, `--self-test-max-attached-grasp-error`, `--self-test-max-attached-bin-frame-displacement`를 추가했다.
+- [x] motion continuity group을 `active_bin`, `attached_bin`, `scripted_place_bin`, `released_bin`으로 분리했다. 같은 박스가 pick station, gripper 운반, scripted place, release 단계로 넘어갈 때 이전 phase 좌표와 비교되어 거짓 순간이동으로 잡히는 문제를 줄이기 위한 분리다.
+- [x] 흡착 박스는 `ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP = 0.05`로 유지했다. 더 공격적인 catch-up은 UR10 RMPflow 자세 연속성을 깨는 run이 있어 폐기하고, 현재 안정 기준에서는 gripper lag를 별도 gate로 감시한다.
+- [x] strict wrapper 기준은 `SelfTestMinAttachedGraspSampleCount = 1000`, `SelfTestMaxAttachedGraspError = 0.20`, `SelfTestMaxAttachedBinFrameDisplacement = 0.08`로 설정했다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 80개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_attached_grasp_gate_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_064001_32876.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - GIF 크기: `960x540`, `151` frames
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `attached_grasp_sample_count=2287`, `max_attached_grasp_error=0.1569`, `attached_bin_motion_sample_count=2279`, `max_attached_bin_frame_displacement=0.0500`, `max_active_bin_frame_displacement=0.0108`, `max_arm_ee_frame_displacement=0.2092`
+
 ## 2026-05-30 Robot Arm End-Effector Continuity Gate 및 복귀 순간이동 제거
 
 - [x] 로봇팔 end-effector 위치를 매 프레임 `MotionContinuityTracker`에 추가 샘플링했다.
