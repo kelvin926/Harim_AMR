@@ -115,6 +115,20 @@ CARTON_SIDE_STRIPE_SCALE = np.array([0.030, 0.007, 0.065], dtype=float)
 CARTON_BODY_COLOR = np.array([0.72, 0.48, 0.26], dtype=float)
 CARTON_TAPE_COLOR = np.array([0.86, 0.10, 0.08], dtype=float)
 CARTON_LABEL_COLOR = np.array([0.94, 0.90, 0.80], dtype=float)
+INFEED_CONVEYOR_START_Y = float(PICK_STATION_BIN_POSITION[1] - 0.22)
+INFEED_CONVEYOR_END_Y = float(CONVEYOR_PICK_WINDOW_Y + 0.42)
+INFEED_CONVEYOR_WIDTH = 0.58
+INFEED_CONVEYOR_THICKNESS = 0.035
+INFEED_CONVEYOR_TOP_GAP = 0.008
+INFEED_CONVEYOR_TOP_Z = float(PICK_STATION_BIN_POSITION[2] - CARTON_BODY_SCALE[2] * 0.5 - INFEED_CONVEYOR_TOP_GAP)
+INFEED_CONVEYOR_CENTER_Y = (INFEED_CONVEYOR_START_Y + INFEED_CONVEYOR_END_Y) * 0.5
+INFEED_CONVEYOR_LENGTH = INFEED_CONVEYOR_END_Y - INFEED_CONVEYOR_START_Y
+INFEED_GUIDE_RAIL_Y_SCALE = INFEED_CONVEYOR_LENGTH
+INFEED_GUIDE_RAIL_SCALE = np.array([0.035, INFEED_GUIDE_RAIL_Y_SCALE, 0.08], dtype=float)
+INFEED_GUIDE_RAIL_X_OFFSETS = (-0.34, 0.34)
+INFEED_GUIDE_INNER_WIDTH = abs(INFEED_GUIDE_RAIL_X_OFFSETS[1] - INFEED_GUIDE_RAIL_X_OFFSETS[0]) - INFEED_GUIDE_RAIL_SCALE[0]
+INFEED_STOP_LINE_Y = float(PICK_STATION_BIN_POSITION[1])
+INFEED_ROLLER_Y_OFFSETS = (-0.32, -0.14, 0.04, 0.22, 0.40)
 
 
 def parse_args():
@@ -217,6 +231,30 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if load restraint visuals leave less pallet deck margin than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-infeed-conveyor-length",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the infeed conveyor visual is shorter than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-infeed-spawn-margin",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the conveyor visual does not extend past the spawn point by at least this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-infeed-guide-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if infeed guide rails leave less carton side clearance than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-infeed-belt-support-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the conveyor belt visual is farther below carton bottom than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -603,6 +641,17 @@ def compute_load_restraint_metrics(
         "load_restraint_part_count": len(specs),
         "min_load_restraint_pallet_margin": float(min_margin),
         "max_load_restraint_pallet_overhang": float(max(0.0, -min_margin)),
+    }
+
+
+def compute_infeed_conveyor_metrics():
+    carton_bottom_z = float(PICK_STATION_BIN_POSITION[2] - CARTON_BODY_SCALE[2] * 0.5)
+    return {
+        "infeed_conveyor_length": float(INFEED_CONVEYOR_LENGTH),
+        "infeed_spawn_margin": float(INFEED_CONVEYOR_END_Y - CONVEYOR_PICK_WINDOW_Y),
+        "infeed_pick_margin": float(INFEED_STOP_LINE_Y - INFEED_CONVEYOR_START_Y),
+        "infeed_guide_clearance": float(INFEED_GUIDE_INNER_WIDTH - CARTON_BODY_SCALE[0]),
+        "infeed_belt_support_gap": float(carton_bottom_z - INFEED_CONVEYOR_TOP_Z),
     }
 
 
@@ -2002,6 +2051,111 @@ def main():
     harim_root = "/World/HarimDemo"
     omni.kit.commands.execute("CreatePrim", prim_path=harim_root, prim_type="Xform")
 
+    def create_infeed_conveyor_visual():
+        visual_parts = []
+        belt_color = np.array([0.11, 0.12, 0.13], dtype=float)
+        rail_color = np.array([0.60, 0.64, 0.66], dtype=float)
+        roller_color = np.array([0.34, 0.37, 0.39], dtype=float)
+        sensor_color = np.array([0.08, 0.11, 0.14], dtype=float)
+        beam_color = np.array([0.95, 0.78, 0.12], dtype=float)
+
+        visual_parts.append(
+            world.scene.add(
+                VisualCuboid(
+                    f"{harim_root}/InfeedConveyorBelt",
+                    name="harim_infeed_conveyor_belt",
+                    position=np.array(
+                        [
+                            0.0,
+                            INFEED_CONVEYOR_CENTER_Y,
+                            INFEED_CONVEYOR_TOP_Z - INFEED_CONVEYOR_THICKNESS * 0.5,
+                        ],
+                        dtype=float,
+                    ),
+                    scale=np.array(
+                        [INFEED_CONVEYOR_WIDTH, INFEED_CONVEYOR_LENGTH, INFEED_CONVEYOR_THICKNESS],
+                        dtype=float,
+                    ),
+                    color=belt_color,
+                )
+            )
+        )
+        for rail_idx, x_offset in enumerate(INFEED_GUIDE_RAIL_X_OFFSETS):
+            visual_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/InfeedGuideRail_{rail_idx}",
+                        name=f"harim_infeed_guide_rail_{rail_idx}",
+                        position=np.array(
+                            [
+                                x_offset,
+                                INFEED_CONVEYOR_CENTER_Y,
+                                INFEED_CONVEYOR_TOP_Z + INFEED_GUIDE_RAIL_SCALE[2] * 0.5,
+                            ],
+                            dtype=float,
+                        ),
+                        scale=INFEED_GUIDE_RAIL_SCALE,
+                        color=rail_color,
+                    )
+                )
+            )
+        for roller_idx, y_offset in enumerate(INFEED_ROLLER_Y_OFFSETS):
+            visual_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/InfeedRoller_{roller_idx}",
+                        name=f"harim_infeed_roller_{roller_idx}",
+                        position=np.array(
+                            [
+                                0.0,
+                                INFEED_CONVEYOR_CENTER_Y + y_offset,
+                                INFEED_CONVEYOR_TOP_Z + 0.006,
+                            ],
+                            dtype=float,
+                        ),
+                        scale=np.array([INFEED_CONVEYOR_WIDTH * 0.92, 0.028, 0.014], dtype=float),
+                        color=roller_color,
+                    )
+                )
+            )
+        visual_parts.append(
+            world.scene.add(
+                VisualCuboid(
+                    f"{harim_root}/InfeedStopLine",
+                    name="harim_infeed_stop_line",
+                    position=np.array([0.0, INFEED_STOP_LINE_Y, INFEED_CONVEYOR_TOP_Z + 0.014], dtype=float),
+                    scale=np.array([INFEED_CONVEYOR_WIDTH * 0.88, 0.018, 0.010], dtype=float),
+                    color=beam_color,
+                )
+            )
+        )
+        for sensor_idx, x_offset in enumerate((-INFEED_CONVEYOR_WIDTH * 0.58, INFEED_CONVEYOR_WIDTH * 0.58)):
+            visual_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/InfeedPhotoEye_{sensor_idx}",
+                        name=f"harim_infeed_photo_eye_{sensor_idx}",
+                        position=np.array([x_offset, INFEED_STOP_LINE_Y, INFEED_CONVEYOR_TOP_Z + 0.10], dtype=float),
+                        scale=np.array([0.045, 0.045, 0.12], dtype=float),
+                        color=sensor_color,
+                    )
+                )
+            )
+        visual_parts.append(
+            world.scene.add(
+                VisualCuboid(
+                    f"{harim_root}/InfeedPhotoEyeBeam",
+                    name="harim_infeed_photo_eye_beam",
+                    position=np.array([0.0, INFEED_STOP_LINE_Y, INFEED_CONVEYOR_TOP_Z + 0.115], dtype=float),
+                    scale=np.array([INFEED_CONVEYOR_WIDTH * 0.80, 0.010, 0.010], dtype=float),
+                    color=beam_color,
+                )
+            )
+        )
+        return visual_parts
+
+    create_infeed_conveyor_visual()
+
     def create_completion_signal():
         signal_x = args.pickup_x + 0.92
         signal_y = args.pickup_y - 0.92
@@ -2507,6 +2661,46 @@ def main():
                     f"load restraint pallet margin {min_load_restraint_pallet_margin:.4f} m was below "
                     f"{args.self_test_min_load_restraint_pallet_margin:.4f} m"
                 )
+            infeed_metrics = compute_infeed_conveyor_metrics()
+            infeed_conveyor_length = infeed_metrics["infeed_conveyor_length"]
+            infeed_spawn_margin = infeed_metrics["infeed_spawn_margin"]
+            infeed_pick_margin = infeed_metrics["infeed_pick_margin"]
+            infeed_guide_clearance = infeed_metrics["infeed_guide_clearance"]
+            infeed_belt_support_gap = infeed_metrics["infeed_belt_support_gap"]
+            if (
+                args.self_test_min_infeed_conveyor_length > 0
+                and infeed_conveyor_length < args.self_test_min_infeed_conveyor_length
+            ):
+                self_test_failures.append(
+                    f"infeed conveyor length {infeed_conveyor_length:.4f} m was below "
+                    f"{args.self_test_min_infeed_conveyor_length:.4f} m"
+                )
+            if (
+                args.self_test_min_infeed_spawn_margin > 0
+                and infeed_spawn_margin < args.self_test_min_infeed_spawn_margin
+            ):
+                self_test_failures.append(
+                    f"infeed spawn margin {infeed_spawn_margin:.4f} m was below "
+                    f"{args.self_test_min_infeed_spawn_margin:.4f} m"
+                )
+            if (
+                args.self_test_min_infeed_guide_clearance > 0
+                and infeed_guide_clearance < args.self_test_min_infeed_guide_clearance
+            ):
+                self_test_failures.append(
+                    f"infeed guide clearance {infeed_guide_clearance:.4f} m was below "
+                    f"{args.self_test_min_infeed_guide_clearance:.4f} m"
+                )
+            if args.self_test_max_infeed_belt_support_gap > 0:
+                if infeed_belt_support_gap > args.self_test_max_infeed_belt_support_gap:
+                    self_test_failures.append(
+                        f"infeed belt support gap {infeed_belt_support_gap:.4f} m exceeded "
+                        f"{args.self_test_max_infeed_belt_support_gap:.4f} m"
+                    )
+                if infeed_belt_support_gap < -0.005:
+                    self_test_failures.append(
+                        f"infeed belt overlapped carton bottom {-infeed_belt_support_gap:.4f} m exceeded 0.0050 m"
+                    )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
@@ -2626,6 +2820,11 @@ def main():
                     f"load_restraint_part_count={load_restraint_part_count}; "
                     f"min_load_restraint_pallet_margin={min_load_restraint_pallet_margin:.4f}; "
                     f"max_load_restraint_pallet_overhang={max_load_restraint_pallet_overhang:.4f}; "
+                    f"infeed_conveyor_length={infeed_conveyor_length:.4f}; "
+                    f"infeed_spawn_margin={infeed_spawn_margin:.4f}; "
+                    f"infeed_pick_margin={infeed_pick_margin:.4f}; "
+                    f"infeed_guide_clearance={infeed_guide_clearance:.4f}; "
+                    f"infeed_belt_support_gap={infeed_belt_support_gap:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "

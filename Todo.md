@@ -2349,6 +2349,73 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 ---
 
+## 2026-05-29 infeed conveyor visual 및 gate 추가
+
+공정 1번인 "컨베이어로 박스 유입"이 로그와 박스 spawn만으로는 GUI에서 약하게 보였다. 이번 보강에서는 pick station 앞단에 infeed conveyor belt, guide rail, stop line, photo-eye sensor visual을 추가해 박스가 컨베이어 설비에서 들어와 로봇팔이 집는 장면으로 읽히도록 했다.
+
+수정 내용:
+
+- [x] infeed conveyor geometry 상수 추가
+  - `INFEED_CONVEYOR_START_Y`
+  - `INFEED_CONVEYOR_END_Y`
+  - `INFEED_CONVEYOR_WIDTH`
+  - `INFEED_CONVEYOR_TOP_Z`
+  - `INFEED_GUIDE_RAIL_X_OFFSETS`
+  - `INFEED_STOP_LINE_Y`
+  - `INFEED_ROLLER_Y_OFFSETS`
+- [x] `create_infeed_conveyor_visual()` 추가
+  - `InfeedConveyorBelt`
+  - `InfeedGuideRail_*`
+  - `InfeedRoller_*`
+  - `InfeedStopLine`
+  - `InfeedPhotoEye_*`
+  - `InfeedPhotoEyeBeam`
+- [x] `compute_infeed_conveyor_metrics()` 추가
+  - conveyor 길이
+  - spawn 지점 이후 여유
+  - pick/stop line 이전 여유
+  - guide rail 내부 clearance
+  - belt top과 carton bottom 사이 support gap
+- [x] strict self-test gate 추가
+  - Python: `--self-test-min-infeed-conveyor-length`
+  - Python: `--self-test-min-infeed-spawn-margin`
+  - Python: `--self-test-min-infeed-guide-clearance`
+  - Python: `--self-test-max-infeed-belt-support-gap`
+  - PowerShell wrapper도 동일 옵션 추가
+- [x] strict wrapper 기본 gate 추가
+  - `SelfTestMinInfeedConveyorLength = 0.80`
+  - `SelfTestMinInfeedSpawnMargin = 0.30`
+  - `SelfTestMinInfeedGuideClearance = 0.40`
+  - `SelfTestMaxInfeedBeltSupportGap = 0.02`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] unittest 45개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- [x] 로그 파일: `isaacsim_logs/harim_infeed_conveyor_strict_full_e2e_12000.log`
+- [x] 주요 완료 metric:
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `infeed_conveyor_length=0.9000`
+  - `infeed_spawn_margin=0.4200`
+  - `infeed_pick_margin=0.2200`
+  - `infeed_guide_clearance=0.4450`
+  - `infeed_belt_support_gap=0.0080`
+  - `max_release_drift=0.0000`
+  - `max_dropped_payload_drift=0.0000`
+
+---
+
 ## 2026-05-29 적재물 banding / load restraint visual 추가
 
 팔레트 위 박스가 안정적으로 이동하더라도, GUI에서 단순히 박스만 얹혀 있으면 AMR이 무거운 적재물을 안전하게 운반한다는 느낌이 약하다. 이번 보강에서는 적재 완료 후에만 나타나는 짙은색 banding/load restraint visual을 추가해 박스 묶음이 팔레트 위에 고정된 것처럼 보이게 했다.

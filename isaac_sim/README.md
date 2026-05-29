@@ -534,3 +534,14 @@ GUI에서 박스가 흡착 패드에 계속 붙어 보이는 문제를 줄이기
 - strict wrapper 기반 12000-frame full end-to-end self-test 통과
 - 로그 파일: `isaacsim_logs/harim_load_restraint_strict_full_e2e_12000.log`
 - 완료 로그: `load_restraint_part_count=6; min_load_restraint_pallet_margin=0.0670; max_load_restraint_pallet_overhang=0.0000`
+
+## Infeed Conveyor Visual
+
+박스 유입 공정이 GUI에서 더 명확하게 보이도록 pick station 앞단에 infeed conveyor belt, guide rail, stop line, photo-eye sensor visual을 추가했습니다. strict self-test는 conveyor 길이, spawn 지점 이후 여유, guide rail clearance, belt support gap을 확인합니다.
+
+검증 결과:
+
+- unittest 45개 통과
+- strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- 로그 파일: `isaacsim_logs/harim_infeed_conveyor_strict_full_e2e_12000.log`
+- 완료 로그: `infeed_conveyor_length=0.9000; infeed_spawn_margin=0.4200; infeed_guide_clearance=0.4450; infeed_belt_support_gap=0.0080`
