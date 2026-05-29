@@ -238,3 +238,19 @@ AMR waypoint 이동은 이제 시작점과 목표점을 저장한 뒤 `smoothste
 - unittest 22개 통과
 - Python compile 통과
 - 7000-frame full end-to-end self-test 통과: `placed_bins=8; transfer_cycles=1`
+
+## 2026-05-29 적재 좌표 정렬 보강
+
+공식 `ReachToPlace`는 아래 박스와 맞추기 위해 `context.stack_coordinates`를 조금씩 수정할 수 있습니다. 이 때문에 위층 일부 박스가 canonical grid에서 몇 mm 정도 벗어나는 로그가 나왔습니다. 데모에서는 팔레트 위 격자 적재가 깔끔하게 보여야 하므로 release 좌표를 별도로 보존한 canonical grid에 스냅하도록 바꿨습니다.
+
+- `clone_stack_coordinates()`로 stack coordinate를 deep-copy합니다.
+- `context.stack_coordinates`는 Cortex behavior가 사용하고, `demo_stack_coordinates`는 release 스냅 기준으로 사용합니다.
+- reset cycle 때 두 좌표 목록을 모두 새 copy로 복구합니다.
+- 단위 테스트에서 deep-copy가 유지되는지 확인합니다.
+
+확인 결과:
+
+- unittest 23개 통과
+- Python compile 통과
+- 7000-frame full end-to-end self-test 통과
+- `bin_0`부터 `bin_7`까지 모두 canonical grid 좌표에 place됨

@@ -214,6 +214,10 @@ def make_stack_coordinates(cols, rows, layers):
     return coords
 
 
+def clone_stack_coordinates(stack_coordinates):
+    return [np.array(coord, dtype=float).copy() for coord in stack_coordinates]
+
+
 def random_bin_spawn_transform():
     x = 0.0
     y = CONVEYOR_PICK_WINDOW_Y
@@ -536,7 +540,8 @@ class HarimTransferOrchestrator:
 
         self.world.reset()
         self.world.play()
-        self.context.stack_coordinates = self.stack_coordinates
+        self.context.stack_coordinates = clone_stack_coordinates(self.stack_coordinates)
+        self.context.demo_stack_coordinates = clone_stack_coordinates(self.stack_coordinates)
         self.reset_visual_state()
         self._transition(TransferState.WAIT_STACK_COMPLETE)
 
@@ -765,6 +770,12 @@ def main():
     def get_demo_time(context):
         return float(getattr(context, "demo_sim_time", time.time()))
 
+    def get_demo_stack_coordinate(context, index):
+        canonical_coordinates = getattr(context, "demo_stack_coordinates", None)
+        if canonical_coordinates is not None:
+            return np.array(canonical_coordinates[index], dtype=float)
+        return np.array(context.stack_coordinates[index], dtype=float)
+
     def hold_active_bin_for_pick(context):
         active_bin = get_demo_pre_grip_bin(context) or getattr(context, "active_bin", None)
         if active_bin is None or getattr(active_bin, "demo_attached", False):
@@ -926,7 +937,7 @@ def main():
                 return
 
             target_index = len(self.context.stacked_bins)
-            self.target_p = np.array(self.context.stack_coordinates[target_index], dtype=float)
+            self.target_p = get_demo_stack_coordinate(self.context, target_index)
             self.released_bin = active_bin
             active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
             active_bin.demo_attached = False
@@ -1190,13 +1201,14 @@ def main():
     )
     robot.register_obstacle(obs)
 
-    stack_coordinates = make_stack_coordinates(args.stack_cols, args.stack_rows, args.stack_layers)
+    stack_coordinates = clone_stack_coordinates(make_stack_coordinates(args.stack_cols, args.stack_rows, args.stack_layers))
     task = BinStackingTask("/World/Ur10Table", ur10_assets)
     task.set_up_scene(world.scene)
     world.add_task(task)
 
     decider_network = make_no_flip_decider_network(robot, lambda _diagnostic: None)
-    decider_network.context.stack_coordinates = stack_coordinates
+    decider_network.context.stack_coordinates = clone_stack_coordinates(stack_coordinates)
+    decider_network.context.demo_stack_coordinates = clone_stack_coordinates(stack_coordinates)
     task.context = decider_network.context
     world.add_decider_network(decider_network)
 
@@ -1393,7 +1405,8 @@ def main():
 
     world.reset()
     world.play()
-    decider_network.context.stack_coordinates = stack_coordinates
+    decider_network.context.stack_coordinates = clone_stack_coordinates(stack_coordinates)
+    decider_network.context.demo_stack_coordinates = clone_stack_coordinates(stack_coordinates)
     decider_network.context.demo_sim_time = 0.0
     orchestrator.reset_visual_state()
 

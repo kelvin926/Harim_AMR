@@ -154,6 +154,15 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def test_default_drop_distance_is_over_ten_meters(self):
         self.assertGreaterEqual(self.demo.DEFAULT_DROP_X - self.demo.DEFAULT_PICKUP_X, 10.0)
 
+    def test_stack_coordinate_clone_preserves_canonical_grid(self):
+        original = self.demo.make_stack_coordinates(2, 2, 2)
+        cloned = self.demo.clone_stack_coordinates(original)
+
+        cloned[0][0] += 1.0
+
+        self.assertNotAlmostEqual(original[0][0], cloned[0][0])
+        np.testing.assert_allclose(original[0], np.array([1.05, -0.62, -0.51]))
+
     def test_amr_starts_far_from_table_side_and_approaches_from_drop_side(self):
         orchestrator, _context, _world, _items = self.build_orchestrator(Args())
 
@@ -215,6 +224,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("compute_active_bin_grasp_pose_at_effector", source)
         self.assertIn("place_active_bin_grasp_at_effector", source)
         self.assertIn("get_demo_pre_grip_bin", source)
+        self.assertIn("clone_stack_coordinates", source)
+        self.assertIn("get_demo_stack_coordinate", source)
+        self.assertIn("demo_stack_coordinates", source)
         self.assertIn("get_demo_time", source)
         self.assertIn("demo_sim_time", source)
         self.assertIn('getattr(self.context, "demo_pre_grip_bin", None) is not None', source)

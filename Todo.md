@@ -1460,3 +1460,39 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `slide-released pallet assembly at drop pose`
   - `completed transfer cycle 1`
   - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`
+
+---
+
+## 2026-05-29 적재 좌표 흔들림 보강 메모
+
+최신 end-to-end 로그에서 위층 박스 일부가 `1.0509`, `0.8368`처럼 canonical stack grid에서 몇 mm씩 벗어나는 것을 확인했다. 원인은 공식 `ReachToPlace`가 아래 박스 위치에 맞추려고 `context.stack_coordinates` 배열 자체를 조금씩 수정하는 데 있었다. 영상용 팔레타이징은 팔레트 위 격자 적재가 깔끔하게 보여야 하므로 release 좌표는 별도의 canonical grid를 쓰도록 수정했다.
+
+수정 내용:
+
+- [x] `clone_stack_coordinates()` 추가
+  - stack coordinate list를 deep-copy해 공식 behavior가 수정해도 원본 grid가 보존되도록 한다.
+- [x] `demo_stack_coordinates` 추가
+  - Cortex behavior용 `context.stack_coordinates`와 demo release용 canonical coordinates를 분리한다.
+- [x] `DemoReleaseBin`은 `get_demo_stack_coordinate()`를 통해 canonical 좌표에 스냅한다.
+- [x] reset cycle 때도 `context.stack_coordinates`와 `demo_stack_coordinates`를 모두 새 copy로 복구한다.
+- [x] coordinate clone이 deep-copy인지 확인하는 unittest 추가.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 7000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 23개 통과
+- [x] Python compile 통과
+- [x] 7000-frame end-to-end self-test 통과
+  - `bin_0`부터 `bin_7`까지 모두 canonical grid 좌표에 place됨
+  - `stack-count 8/8 after bin_7`
+  - `attached 8 stacked items and 12 pallet parts`
+  - `completed transfer cycle 1`
+  - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`
