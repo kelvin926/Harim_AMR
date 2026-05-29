@@ -1,5 +1,19 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Review GIF Grasp Gap Panel 추가
+
+- [x] 사용자가 매번 실행 결과를 눈으로 확인할 수 있도록 저장되는 review GIF의 status panel에 흡착 중 최대 grasp alignment 오차를 `grasp max: N.NNN m` 형태로 표시하도록 했다.
+- [x] 이 변경은 시뮬레이션 모션이나 self-test 기준을 바꾸지 않는 시각 진단 개선이다. 박스가 로봇팔 흡착점과 얼마나 벌어졌는지를 GIF만 열어도 바로 확인하기 위한 용도다.
+- [x] 코드상 표시값은 기존 self-test metric인 `demo_max_attached_grasp_error`를 사용한다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 84개 통과
+  - 600-frame smoke self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_review_gif_grasp_panel_smoke_600.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_084924_5872.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `max_attached_grasp_error=0.1164`, `review_gif_frame_count=9`
+
 ## 2026-05-30 AMR/Lift Orientation Drift Gate 추가
 
 - [x] AMR 본체가 계획 yaw에서 틀어지는 좌표계 오류를 잡기 위해 `max_amr_orientation_error`를 계측하도록 했다.

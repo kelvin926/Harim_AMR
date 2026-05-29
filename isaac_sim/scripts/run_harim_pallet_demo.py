@@ -2641,6 +2641,7 @@ class DemoGifRecorder:
         total_stack = len(getattr(context, "stack_coordinates", []))
         lift_offset = float(getattr(orchestrator, "lift_offset", 0.0))
         cycles = int(getattr(orchestrator, "completed_cycles", 0))
+        grasp_gap = float(getattr(context, "demo_max_attached_grasp_error", 0.0))
         lines = [
             "status",
             f"state: {state_name}",
@@ -2648,6 +2649,7 @@ class DemoGifRecorder:
             f"stack: {stack_count}/{total_stack}",
             f"cycles: {cycles}",
             f"lift: {lift_offset:.3f} m",
+            f"grasp max: {grasp_gap:.3f} m",
         ]
         y = top + 12
         for idx, line in enumerate(lines):

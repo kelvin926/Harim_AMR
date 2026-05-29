@@ -1084,6 +1084,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("def _draw_fallback_frame", source)
         self.assertIn("demo_motion_phase", source)
         self.assertIn("phase:", source)
+        self.assertIn("grasp max:", source)
         self.assertIn("def _short_panel_value", source)
         self.assertIn("PICK_READY_EE_POSITION", source)
         self.assertIn("class DemoTimedArmMoveTo", source)
