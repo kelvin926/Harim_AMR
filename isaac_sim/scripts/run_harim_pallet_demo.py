@@ -103,6 +103,11 @@ WORK_ZONE_MARKING_EDGE_WIDTH = 0.055
 PICKUP_ZONE_MARKING_COLOR = np.array([0.95, 0.74, 0.12], dtype=float)
 DROP_ZONE_MARKING_COLOR = np.array([0.15, 0.58, 0.90], dtype=float)
 AMR_PATH_MARKING_COLOR = np.array([0.95, 0.62, 0.10], dtype=float)
+LOAD_RESTRAINT_EXPECTED_PARTS = 6
+LOAD_RESTRAINT_STRAP_WIDTH = 0.035
+LOAD_RESTRAINT_STRAP_THICKNESS = 0.012
+LOAD_RESTRAINT_SURFACE_OFFSET = 0.006
+LOAD_RESTRAINT_COLOR = np.array([0.05, 0.08, 0.12], dtype=float)
 CARTON_BODY_SCALE = np.array([0.20, 0.29, 0.14], dtype=float)
 CARTON_TAPE_TOP_SCALE = np.array([0.205, 0.030, 0.008], dtype=float)
 CARTON_SIDE_LABEL_SCALE = np.array([0.140, 0.006, 0.055], dtype=float)
@@ -200,6 +205,18 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the carton stack footprint leaves less pallet deck margin than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-load-restraint-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many load restraint visual parts are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-load-restraint-pallet-margin",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if load restraint visuals leave less pallet deck margin than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -470,6 +487,125 @@ def compute_stack_pallet_footprint_metrics(
     }
 
 
+def compute_stack_extents(stack_coordinates):
+    coords = clone_stack_coordinates(stack_coordinates)
+    if not coords:
+        return None
+    return {
+        "min_x": min(float(coord[0]) - CARTON_BODY_SCALE[0] * 0.5 for coord in coords),
+        "max_x": max(float(coord[0]) + CARTON_BODY_SCALE[0] * 0.5 for coord in coords),
+        "min_y": min(float(coord[1]) - CARTON_BODY_SCALE[1] * 0.5 for coord in coords),
+        "max_y": max(float(coord[1]) + CARTON_BODY_SCALE[1] * 0.5 for coord in coords),
+        "min_z": min(float(coord[2]) - CARTON_BODY_SCALE[2] * 0.5 for coord in coords),
+        "max_z": max(float(coord[2]) + CARTON_BODY_SCALE[2] * 0.5 for coord in coords),
+    }
+
+
+def compute_load_restraint_specs(
+    stack_coordinates,
+    pallet_center_x=DEFAULT_PICKUP_X,
+    pallet_center_y=DEFAULT_PICKUP_Y,
+):
+    extents = compute_stack_extents(stack_coordinates)
+    if extents is None:
+        return []
+
+    min_x = extents["min_x"]
+    max_x = extents["max_x"]
+    min_y = extents["min_y"]
+    max_y = extents["max_y"]
+    min_z = extents["min_z"]
+    max_z = extents["max_z"]
+    center_x = (min_x + max_x) * 0.5
+    center_y = (min_y + max_y) * 0.5
+    center_z = (min_z + max_z) * 0.5
+    x_span = (max_x - min_x) + 2.0 * LOAD_RESTRAINT_SURFACE_OFFSET
+    y_span = (max_y - min_y) + 2.0 * LOAD_RESTRAINT_SURFACE_OFFSET
+    z_span = (max_z - min_z) + 2.0 * LOAD_RESTRAINT_SURFACE_OFFSET
+    top_z = max_z + LOAD_RESTRAINT_SURFACE_OFFSET + LOAD_RESTRAINT_STRAP_THICKNESS * 0.5
+    front_y = max_y + LOAD_RESTRAINT_SURFACE_OFFSET + LOAD_RESTRAINT_STRAP_THICKNESS * 0.5
+    back_y = min_y - LOAD_RESTRAINT_SURFACE_OFFSET - LOAD_RESTRAINT_STRAP_THICKNESS * 0.5
+    right_x = max_x + LOAD_RESTRAINT_SURFACE_OFFSET + LOAD_RESTRAINT_STRAP_THICKNESS * 0.5
+    left_x = min_x - LOAD_RESTRAINT_SURFACE_OFFSET - LOAD_RESTRAINT_STRAP_THICKNESS * 0.5
+
+    def offset(world_position):
+        position = np.array(world_position, dtype=float)
+        return position - np.array([pallet_center_x, pallet_center_y, PALLET_CENTER_Z], dtype=float)
+
+    return [
+        (
+            "LoadStrapTopLongitudinal",
+            offset([center_x, center_y, top_z]),
+            np.array([LOAD_RESTRAINT_STRAP_WIDTH, y_span, LOAD_RESTRAINT_STRAP_THICKNESS], dtype=float),
+        ),
+        (
+            "LoadStrapTopLateral",
+            offset([center_x, center_y, top_z + LOAD_RESTRAINT_STRAP_THICKNESS]),
+            np.array([x_span, LOAD_RESTRAINT_STRAP_WIDTH, LOAD_RESTRAINT_STRAP_THICKNESS], dtype=float),
+        ),
+        (
+            "LoadStrapFrontVertical",
+            offset([center_x, front_y, center_z]),
+            np.array([LOAD_RESTRAINT_STRAP_WIDTH, LOAD_RESTRAINT_STRAP_THICKNESS, z_span], dtype=float),
+        ),
+        (
+            "LoadStrapBackVertical",
+            offset([center_x, back_y, center_z]),
+            np.array([LOAD_RESTRAINT_STRAP_WIDTH, LOAD_RESTRAINT_STRAP_THICKNESS, z_span], dtype=float),
+        ),
+        (
+            "LoadStrapLeftVertical",
+            offset([left_x, center_y, center_z]),
+            np.array([LOAD_RESTRAINT_STRAP_THICKNESS, LOAD_RESTRAINT_STRAP_WIDTH, z_span], dtype=float),
+        ),
+        (
+            "LoadStrapRightVertical",
+            offset([right_x, center_y, center_z]),
+            np.array([LOAD_RESTRAINT_STRAP_THICKNESS, LOAD_RESTRAINT_STRAP_WIDTH, z_span], dtype=float),
+        ),
+    ]
+
+
+def compute_load_restraint_metrics(
+    stack_coordinates,
+    pallet_center_x=DEFAULT_PICKUP_X,
+    pallet_center_y=DEFAULT_PICKUP_Y,
+):
+    specs = compute_load_restraint_specs(stack_coordinates, pallet_center_x, pallet_center_y)
+    if not specs:
+        return {
+            "load_restraint_part_count": 0,
+            "min_load_restraint_pallet_margin": 0.0,
+            "max_load_restraint_pallet_overhang": 0.0,
+        }
+
+    pallet_min_x = float(pallet_center_x) - PALLET_DECK_SCALE[0] * 0.5
+    pallet_max_x = float(pallet_center_x) + PALLET_DECK_SCALE[0] * 0.5
+    pallet_min_y = float(pallet_center_y) - PALLET_DECK_SCALE[1] * 0.5
+    pallet_max_y = float(pallet_center_y) + PALLET_DECK_SCALE[1] * 0.5
+
+    min_margin = float("inf")
+    for _name, part_offset, scale in specs:
+        center = np.array([pallet_center_x, pallet_center_y, PALLET_CENTER_Z], dtype=float) + part_offset
+        part_min_x = center[0] - scale[0] * 0.5
+        part_max_x = center[0] + scale[0] * 0.5
+        part_min_y = center[1] - scale[1] * 0.5
+        part_max_y = center[1] + scale[1] * 0.5
+        min_margin = min(
+            min_margin,
+            float(part_min_x - pallet_min_x),
+            float(pallet_max_x - part_max_x),
+            float(part_min_y - pallet_min_y),
+            float(pallet_max_y - part_max_y),
+        )
+
+    return {
+        "load_restraint_part_count": len(specs),
+        "min_load_restraint_pallet_margin": float(min_margin),
+        "max_load_restraint_pallet_overhang": float(max(0.0, -min_margin)),
+    }
+
+
 def compute_lift_contact_gap(amr_z=DEFAULT_AMR_Z, lift_offset=0.0):
     pallet_underside_z = PALLET_DECK_UNDERSIDE_Z + float(lift_offset)
     lift_plate_top_z = float(amr_z) + AMR_LIFT_PLATE_OFFSET_Z + float(lift_offset) + LIFT_FORK_SCALE[2] * 0.5
@@ -560,6 +696,8 @@ class HarimTransferOrchestrator:
         pallet_parts,
         stack_coordinates,
         args,
+        pallet_part_offsets=None,
+        load_restraint_parts=None,
         lift_plate_parts=None,
         amr_lift_prim=None,
         completion_signal=None,
@@ -572,6 +710,12 @@ class HarimTransferOrchestrator:
         self.lift_plate = lift_plate
         self.lift_plate_parts = list(lift_plate_parts) if lift_plate_parts is not None else [lift_plate]
         self.pallet_parts = pallet_parts
+        self.pallet_part_offsets = (
+            tuple(np.array(offset, dtype=float) for offset in pallet_part_offsets)
+            if pallet_part_offsets is not None
+            else PALLET_PART_OFFSETS
+        )
+        self.load_restraint_parts = list(load_restraint_parts) if load_restraint_parts is not None else []
         self.stack_coordinates = stack_coordinates
         self.args = args
         self.completion_signal = completion_signal
@@ -651,8 +795,18 @@ class HarimTransferOrchestrator:
         self.set_amr_pose(self.start_pose)
         self._set_lift_plate_pose()
         self._reset_pallet_pose()
+        self._set_load_restraint_visibility(False)
         if self.completion_signal is not None:
             self.completion_signal.set_completed(False)
+
+    def _set_load_restraint_visibility(self, visible):
+        for part in self.load_restraint_parts:
+            set_visibility = getattr(part, "set_visibility", None)
+            if set_visibility is not None:
+                try:
+                    set_visibility(bool(visible))
+                except Exception:
+                    pass
 
     def set_amr_pose(self, position):
         self.amr.set_world_pose(position=np.array(position, dtype=float), orientation=yaw_to_quat(self.amr_yaw))
@@ -695,7 +849,7 @@ class HarimTransferOrchestrator:
 
     def _reset_pallet_pose(self):
         center = np.array([self.args.pickup_x, self.args.pickup_y, PALLET_CENTER_Z + self.lift_offset], dtype=float)
-        for part, offset in zip(self.pallet_parts, PALLET_PART_OFFSETS):
+        for part, offset in zip(self.pallet_parts, self.pallet_part_offsets):
             part.set_world_pose(position=center + offset, orientation=yaw_to_quat(0.0))
 
     def _move_amr_toward_target(self, dt):
@@ -762,6 +916,7 @@ class HarimTransferOrchestrator:
     def _lock_stack_items(self):
         self.locked_stack_poses = {}
         self.payload_lift_baseline_poses = {}
+        self._set_load_restraint_visibility(True)
         for item in self._get_stacked_items():
             try:
                 pos, orient = item.get_world_pose()
@@ -2065,6 +2220,8 @@ def main():
     lift_plate = lift_plate_parts[0]
 
     pallet_parts = []
+    pallet_part_offsets = list(PALLET_PART_OFFSETS)
+    load_restraint_parts = []
     plank_color = np.array([0.62, 0.44, 0.23])
     groove_color = np.array([0.30, 0.20, 0.10])
     block_color = np.array([0.42, 0.29, 0.15])
@@ -2122,6 +2279,21 @@ def main():
             )
         )
     )
+    for strap_idx, (strap_name, strap_offset, strap_scale) in enumerate(
+        compute_load_restraint_specs(stack_coordinates, args.pickup_x, args.pickup_y)
+    ):
+        strap = world.scene.add(
+            VisualCuboid(
+                f"{harim_root}/{strap_name}",
+                name=f"harim_load_restraint_{strap_idx}",
+                scale=strap_scale,
+                visible=False,
+                color=LOAD_RESTRAINT_COLOR,
+            )
+        )
+        pallet_parts.append(strap)
+        pallet_part_offsets.append(strap_offset)
+        load_restraint_parts.append(strap)
 
     class SelfTestBinState:
         def __init__(self, bin_obj):
@@ -2151,6 +2323,8 @@ def main():
         lift_plate=lift_plate,
         lift_plate_parts=lift_plate_parts,
         pallet_parts=pallet_parts,
+        pallet_part_offsets=pallet_part_offsets,
+        load_restraint_parts=load_restraint_parts,
         stack_coordinates=stack_coordinates,
         args=args,
         completion_signal=completion_signal,
@@ -2309,6 +2483,30 @@ def main():
                     f"stack pallet margin {min_stack_pallet_margin:.4f} m was below "
                     f"{args.self_test_min_stack_pallet_margin:.4f} m"
                 )
+            load_restraint_metrics = compute_load_restraint_metrics(
+                stack_coordinates,
+                args.pickup_x,
+                args.pickup_y,
+            )
+            load_restraint_part_count = load_restraint_metrics["load_restraint_part_count"]
+            min_load_restraint_pallet_margin = load_restraint_metrics["min_load_restraint_pallet_margin"]
+            max_load_restraint_pallet_overhang = load_restraint_metrics["max_load_restraint_pallet_overhang"]
+            if (
+                args.self_test_min_load_restraint_count > 0
+                and load_restraint_part_count < args.self_test_min_load_restraint_count
+            ):
+                self_test_failures.append(
+                    f"load restraint count {load_restraint_part_count} was below "
+                    f"{args.self_test_min_load_restraint_count}"
+                )
+            if (
+                args.self_test_min_load_restraint_pallet_margin > 0
+                and min_load_restraint_pallet_margin < args.self_test_min_load_restraint_pallet_margin
+            ):
+                self_test_failures.append(
+                    f"load restraint pallet margin {min_load_restraint_pallet_margin:.4f} m was below "
+                    f"{args.self_test_min_load_restraint_pallet_margin:.4f} m"
+                )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
@@ -2425,6 +2623,9 @@ def main():
                     f"min_stack_support_gap={min_stack_support_gap:.4f}; "
                     f"min_stack_pallet_margin={min_stack_pallet_margin:.4f}; "
                     f"max_stack_pallet_overhang={max_stack_pallet_overhang:.4f}; "
+                    f"load_restraint_part_count={load_restraint_part_count}; "
+                    f"min_load_restraint_pallet_margin={min_load_restraint_pallet_margin:.4f}; "
+                    f"max_load_restraint_pallet_overhang={max_load_restraint_pallet_overhang:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "

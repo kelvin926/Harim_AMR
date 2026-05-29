@@ -31,6 +31,7 @@ class FakePosePrim:
         self.orientation = np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
         self.linear_velocity = None
         self.angular_velocity = None
+        self.visible = None
 
     def set_world_pose(self, position=None, orientation=None):
         if position is not None:
@@ -46,6 +47,9 @@ class FakePosePrim:
 
     def set_angular_velocity(self, velocity):
         self.angular_velocity = np.array(velocity, dtype=float)
+
+    def set_visibility(self, visible):
+        self.visible = bool(visible)
 
 
 class FakeLight:
@@ -131,10 +135,20 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.demo = load_demo_module()
 
-    def build_orchestrator(self, args, amr_lift_prim=None, completion_signal=None):
+    def build_orchestrator(
+        self,
+        args,
+        amr_lift_prim=None,
+        completion_signal=None,
+        pallet_parts=None,
+        pallet_part_offsets=None,
+        load_restraint_parts=None,
+    ):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
         context = FakeContext(items)
         world = FakeWorld()
+        if pallet_parts is None:
+            pallet_parts = [FakePosePrim(f"pallet_{idx}") for idx in range(len(self.demo.PALLET_PART_OFFSETS))]
         orchestrator = self.demo.HarimTransferOrchestrator(
             world=world,
             context=context,
@@ -142,7 +156,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             amr_prim=FakePosePrim("iw_hub"),
             amr_lift_prim=amr_lift_prim,
             lift_plate=FakePosePrim("lift_plate"),
-            pallet_parts=[FakePosePrim(f"pallet_{idx}") for idx in range(len(self.demo.PALLET_PART_OFFSETS))],
+            pallet_parts=pallet_parts,
+            pallet_part_offsets=pallet_part_offsets,
+            load_restraint_parts=load_restraint_parts,
             stack_coordinates=self.demo.make_stack_coordinates(2, 2, 1),
             args=args,
             completion_signal=completion_signal,
@@ -270,6 +286,55 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertGreaterEqual(metrics["min_stack_pallet_margin"], 0.08)
         self.assertAlmostEqual(metrics["max_stack_pallet_overhang"], 0.0)
+
+    def test_load_restraint_visuals_wrap_stack_inside_pallet_deck(self):
+        coordinates = self.demo.make_stack_coordinates(2, 2, 2)
+        specs = self.demo.compute_load_restraint_specs(
+            coordinates,
+            self.demo.DEFAULT_PICKUP_X,
+            self.demo.DEFAULT_PICKUP_Y,
+        )
+        metrics = self.demo.compute_load_restraint_metrics(
+            coordinates,
+            self.demo.DEFAULT_PICKUP_X,
+            self.demo.DEFAULT_PICKUP_Y,
+        )
+
+        self.assertEqual(len(specs), self.demo.LOAD_RESTRAINT_EXPECTED_PARTS)
+        self.assertEqual(metrics["load_restraint_part_count"], self.demo.LOAD_RESTRAINT_EXPECTED_PARTS)
+        self.assertGreaterEqual(metrics["min_load_restraint_pallet_margin"], 0.06)
+        self.assertAlmostEqual(metrics["max_load_restraint_pallet_overhang"], 0.0)
+        for _name, _offset, scale in specs:
+            self.assertTrue(
+                np.any(
+                    np.isclose(
+                        scale,
+                        self.demo.LOAD_RESTRAINT_STRAP_THICKNESS,
+                    )
+                )
+            )
+
+    def test_load_restraints_are_hidden_until_stack_complete(self):
+        load_restraints = [FakePosePrim("strap_0"), FakePosePrim("strap_1")]
+        pallet_parts = [FakePosePrim(f"pallet_{idx}") for idx in range(len(self.demo.PALLET_PART_OFFSETS))]
+        pallet_parts.extend(load_restraints)
+        pallet_part_offsets = list(self.demo.PALLET_PART_OFFSETS)
+        pallet_part_offsets.extend([np.array([0.0, 0.0, 0.20]), np.array([0.1, 0.0, 0.20])])
+        orchestrator, context, _world, _items = self.build_orchestrator(
+            Args(),
+            pallet_parts=pallet_parts,
+            pallet_part_offsets=pallet_part_offsets,
+            load_restraint_parts=load_restraints,
+        )
+
+        for strap in load_restraints:
+            self.assertFalse(strap.visible)
+
+        context.stack_complete = True
+        orchestrator.step(0.1)
+
+        for strap in load_restraints:
+            self.assertTrue(strap.visible)
 
     def test_lift_plate_sits_just_below_pallet_underside(self):
         contact_gap = self.demo.compute_lift_contact_gap(self.demo.DEFAULT_AMR_Z)
@@ -403,6 +468,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("StackCompleteSignalGreen", source)
         self.assertIn("create_floor_markings", source)
         self.assertIn("AmrPathCenterLine", source)
+        self.assertIn("compute_load_restraint_specs", source)
+        self.assertIn("LoadStrapTopLongitudinal", source)
+        self.assertIn("load_restraint_parts", source)
+        self.assertIn("_set_load_restraint_visibility", source)
         self.assertIn('add_zone_outline("Pickup"', source)
         self.assertIn('add_zone_outline("Drop"', source)
         self.assertIn("Zone{edge_name}", source)
@@ -505,6 +574,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
         self.assertIn("--self-test-min-stack-pallet-margin", source)
+        self.assertIn("--self-test-min-load-restraint-count", source)
+        self.assertIn("--self-test-min-load-restraint-pallet-margin", source)
         self.assertIn("--self-test-min-payload-lift", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
@@ -527,6 +598,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max stack support gap", source)
         self.assertIn("stack vertical overlap", source)
         self.assertIn("stack pallet margin", source)
+        self.assertIn("load restraint count", source)
+        self.assertIn("load restraint pallet margin", source)
         self.assertIn("payload lift", source)
         self.assertIn("max dropped payload drift", source)
         self.assertIn("AMR exit clearance", source)
@@ -548,6 +621,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_stack_support_gap=", source)
         self.assertIn("min_stack_pallet_margin=", source)
         self.assertIn("max_stack_pallet_overhang=", source)
+        self.assertIn("load_restraint_part_count=", source)
+        self.assertIn("min_load_restraint_pallet_margin=", source)
+        self.assertIn("max_load_restraint_pallet_overhang=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("amr_exit_clearance=", source)
@@ -576,6 +652,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxStackLateralGap", source)
         self.assertIn("$SelfTestMaxStackSupportGap", source)
         self.assertIn("$SelfTestMinStackPalletMargin", source)
+        self.assertIn("$SelfTestMinLoadRestraintCount", source)
+        self.assertIn("$SelfTestMinLoadRestraintPalletMargin", source)
         self.assertIn("$SelfTestMinAmrExitClearance", source)
         self.assertIn("$SelfTestMaxLiftContactGap", source)
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
@@ -587,6 +665,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
         self.assertIn("--self-test-min-stack-pallet-margin", source)
+        self.assertIn("--self-test-min-load-restraint-count", source)
+        self.assertIn("--self-test-min-load-restraint-pallet-margin", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
@@ -621,6 +701,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("0.02", source)
         self.assertIn("SelfTestMinStackPalletMargin", source)
         self.assertIn("0.08", source)
+        self.assertIn("SelfTestMinLoadRestraintCount", source)
+        self.assertIn("6", source)
+        self.assertIn("SelfTestMinLoadRestraintPalletMargin", source)
+        self.assertIn("0.06", source)
         self.assertIn("SelfTestMinPayloadLift", source)
         self.assertIn("0.10", source)
         self.assertIn("SelfTestMaxDroppedPayloadDrift", source)

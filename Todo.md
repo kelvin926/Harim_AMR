@@ -2346,6 +2346,64 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `release_gripped_object_max=0`
   - `release_gripper_probe_failures=0`
   - `joint_settle_count=8`
+
+---
+
+## 2026-05-29 적재물 banding / load restraint visual 추가
+
+팔레트 위 박스가 안정적으로 이동하더라도, GUI에서 단순히 박스만 얹혀 있으면 AMR이 무거운 적재물을 안전하게 운반한다는 느낌이 약하다. 이번 보강에서는 적재 완료 후에만 나타나는 짙은색 banding/load restraint visual을 추가해 박스 묶음이 팔레트 위에 고정된 것처럼 보이게 했다.
+
+수정 내용:
+
+- [x] load restraint visual 상수 추가
+  - `LOAD_RESTRAINT_EXPECTED_PARTS = 6`
+  - `LOAD_RESTRAINT_STRAP_WIDTH`
+  - `LOAD_RESTRAINT_STRAP_THICKNESS`
+  - `LOAD_RESTRAINT_SURFACE_OFFSET`
+  - `LOAD_RESTRAINT_COLOR`
+- [x] `compute_load_restraint_specs()` 추가
+  - stack footprint와 높이를 기준으로 top longitudinal/lateral strap 2개를 계산한다.
+  - front/back/left/right vertical strap 4개를 계산한다.
+  - 각 strap은 pallet center 기준 offset과 scale로 반환된다.
+- [x] `compute_load_restraint_metrics()` 추가
+  - `load_restraint_part_count`
+  - `min_load_restraint_pallet_margin`
+  - `max_load_restraint_pallet_overhang`
+- [x] load restraint visual을 `pallet_parts`에 포함
+  - AMR lift-up, 이동, lift-down, drop 후 hold까지 팔레트 assembly와 같이 움직인다.
+- [x] 적재 완료 전에는 banding을 숨김
+  - `reset_visual_state()`에서 `visible=False`
+  - `stack_complete` 후 `_lock_stack_items()`에서 `visible=True`
+- [x] strict self-test gate 추가
+  - Python: `--self-test-min-load-restraint-count`
+  - Python: `--self-test-min-load-restraint-pallet-margin`
+  - PowerShell: `-SelfTestMinLoadRestraintCount`
+  - PowerShell: `-SelfTestMinLoadRestraintPalletMargin`
+- [x] strict wrapper에 `SelfTestMinLoadRestraintCount = 6`, `SelfTestMinLoadRestraintPalletMargin = 0.06` 추가
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] unittest 44개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- [x] 로그 파일: `isaacsim_logs/harim_load_restraint_strict_full_e2e_12000.log`
+- [x] 주요 완료 metric:
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `attached 8 stacked items and 18 pallet parts`
+  - `load_restraint_part_count=6`
+  - `min_load_restraint_pallet_margin=0.0670`
+  - `max_load_restraint_pallet_overhang=0.0000`
+  - `max_release_drift=0.0000`
   - `max_payload_lift=0.1100`
   - `max_dropped_payload_drift=0.0000`
 

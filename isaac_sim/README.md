@@ -523,3 +523,14 @@ GUI에서 박스가 흡착 패드에 계속 붙어 보이는 문제를 줄이기
 - strict wrapper 기반 12000-frame full end-to-end self-test 통과
 - 로그 파일: `isaacsim_logs/harim_release_retreat_gate_strict_full_e2e_12000.log`
 - 완료 로그: `max_release_drift=0.0000; max_release_retreat_lift=0.2499; release_gripper_not_open=0; release_gripped_object_max=0`
+
+## Load Restraint Visual
+
+적재 완료 후 팔레트 위 박스 묶음에 6개 banding/load restraint visual이 나타나도록 추가했습니다. 적재 전에는 숨겨져 있고, `stack_complete` 이후 팔레트 assembly 일부로 AMR과 함께 이동합니다.
+
+검증 결과:
+
+- unittest 44개 통과
+- strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- 로그 파일: `isaacsim_logs/harim_load_restraint_strict_full_e2e_12000.log`
+- 완료 로그: `load_restraint_part_count=6; min_load_restraint_pallet_margin=0.0670; max_load_restraint_pallet_overhang=0.0000`
