@@ -240,6 +240,24 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertLessEqual(metrics["max_stack_support_gap"], 0.02)
         np.testing.assert_allclose(coordinates[0], np.array([1.05, -0.62, -0.51]))
 
+    def test_lift_plate_sits_just_below_pallet_underside(self):
+        contact_gap = self.demo.compute_lift_contact_gap(self.demo.DEFAULT_AMR_Z)
+        lift_top_z = (
+            self.demo.DEFAULT_AMR_Z
+            + self.demo.AMR_LIFT_PLATE_OFFSET_Z
+            + self.demo.LIFT_PLATE_SCALE[2] * 0.5
+        )
+
+        self.assertGreaterEqual(contact_gap, 0.0)
+        self.assertLessEqual(contact_gap, 0.01)
+        self.assertAlmostEqual(lift_top_z, self.demo.PALLET_DECK_UNDERSIDE_Z - contact_gap)
+
+    def test_lift_plate_fits_inside_pallet_center_tunnel(self):
+        clearance = self.demo.compute_pallet_tunnel_clearance()
+
+        self.assertGreaterEqual(clearance, 0.04)
+        self.assertLess(self.demo.LIFT_PLATE_SCALE[1] * 0.5, self.demo.PALLET_TUNNEL_HALF_WIDTH)
+
     def test_amr_starts_far_from_table_side_and_approaches_from_drop_side(self):
         orchestrator, _context, _world, _items = self.build_orchestrator(Args())
 
@@ -405,6 +423,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-stack-support-gap", source)
         self.assertIn("--self-test-min-payload-lift", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
+        self.assertIn("--self-test-max-lift-contact-gap", source)
+        self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
         self.assertIn("UR10 placed", source)
         self.assertIn("AMR completed", source)
         self.assertIn("max pre-grip offset", source)
@@ -417,6 +437,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("stack vertical overlap", source)
         self.assertIn("payload lift", source)
         self.assertIn("max dropped payload drift", source)
+        self.assertIn("max lift contact gap", source)
+        self.assertIn("pallet tunnel clearance", source)
         self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("max_return_ready_error=", source)
         self.assertIn("max_release_drift=", source)
@@ -427,6 +449,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_stack_support_gap=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
+        self.assertIn("max_lift_contact_gap=", source)
+        self.assertIn("pallet_tunnel_clearance=", source)
         self.assertIn("demo_max_return_ready_error", source)
         self.assertIn("demo_max_release_drift", source)
         self.assertIn("preserving failure exit", source)
@@ -442,8 +466,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-require-gripper-open-after-release", source)
         self.assertIn("$SelfTestMaxStackLateralGap", source)
         self.assertIn("$SelfTestMaxStackSupportGap", source)
+        self.assertIn("$SelfTestMaxLiftContactGap", source)
+        self.assertIn("$SelfTestMinPalletTunnelClearance", source)
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
+        self.assertIn("--self-test-max-lift-contact-gap", source)
+        self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
@@ -463,11 +491,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("PalletTopSupport", source)
         self.assertIn("PALLET_TOP_SUPPORT_SCALE", source)
 
-    def test_asset_lift_hides_floating_visual_lift_plate(self):
+    def test_lift_plate_remains_visible_as_contact_surface(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
 
         self.assertIn("AMR_LIFT_PLATE_OFFSET_Z", source)
-        self.assertIn("visible=amr_lift is None", source)
+        self.assertIn("LIFT_PLATE_SCALE", source)
+        self.assertIn("visible=True", source)
 
     def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
         block_offsets = self.demo.PALLET_BLOCK_OFFSETS

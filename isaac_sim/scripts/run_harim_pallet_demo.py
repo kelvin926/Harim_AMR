@@ -31,15 +31,20 @@ RETURN_READY_DURATION = 10.0
 RETURN_READY_POSITION_THRESHOLD = 0.04
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
-AMR_LIFT_PLATE_OFFSET_Z = 0.48
 AMR_LIFT_DURATION = 1.25
 AMR_LIFT_SETTLE_TIME = 0.25
 SLIDE_EXIT_DISTANCE = 1.8
 PALLET_TUNNEL_HALF_WIDTH = 0.42
 DROP_WORKSTATION_Z = -0.73
 PALLET_CENTER_Z = -0.62
+PALLET_DECK_SCALE = np.array([1.20, 1.08, 0.06], dtype=float)
+PALLET_RUNNER_SCALE = np.array([1.20, 0.14, 0.12], dtype=float)
+PALLET_BLOCK_SCALE = np.array([0.18, 0.16, 0.12], dtype=float)
+PALLET_GROOVE_SCALE = np.array([1.22, 0.028, 0.012], dtype=float)
 PALLET_TOP_SUPPORT_OFFSET = np.array([0.0, 0.0, 0.02], dtype=float)
 PALLET_TOP_SUPPORT_SCALE = np.array([1.20, 1.08, 0.035], dtype=float)
+LIFT_PLATE_SCALE = np.array([1.10, 0.72, 0.035], dtype=float)
+LIFT_TO_PALLET_CONTACT_GAP = 0.005
 UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
 PALLET_DECK_OFFSETS = (
     np.array([0.0, 0.0, 0.02], dtype=float),
@@ -67,6 +72,13 @@ PALLET_PART_OFFSETS = (
     + PALLET_BLOCK_OFFSETS
     + PALLET_GROOVE_OFFSETS
     + PALLET_SUPPORT_OFFSETS
+)
+PALLET_DECK_UNDERSIDE_Z = PALLET_CENTER_Z + PALLET_DECK_OFFSETS[0][2] - PALLET_DECK_SCALE[2] * 0.5
+AMR_LIFT_PLATE_OFFSET_Z = (
+    PALLET_DECK_UNDERSIDE_Z
+    - LIFT_TO_PALLET_CONTACT_GAP
+    - WORLD_FLOOR_Z
+    - LIFT_PLATE_SCALE[2] * 0.5
 )
 CARTON_BODY_SCALE = np.array([0.20, 0.29, 0.14], dtype=float)
 CARTON_TAPE_TOP_SCALE = np.array([0.205, 0.030, 0.008], dtype=float)
@@ -162,6 +174,18 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the delivered pallet assembly drifts after detach by more than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-lift-contact-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the lift plate is farther below the pallet deck underside than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-pallet-tunnel-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the lift plate has less lateral clearance inside the pallet tunnel than this distance in meters. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -337,6 +361,16 @@ def compute_stack_geometry_metrics(stack_coordinates, cols, rows, layers):
     }
 
 
+def compute_lift_contact_gap(amr_z=DEFAULT_AMR_Z, lift_offset=0.0):
+    pallet_underside_z = PALLET_DECK_UNDERSIDE_Z + float(lift_offset)
+    lift_plate_top_z = float(amr_z) + AMR_LIFT_PLATE_OFFSET_Z + float(lift_offset) + LIFT_PLATE_SCALE[2] * 0.5
+    return float(pallet_underside_z - lift_plate_top_z)
+
+
+def compute_pallet_tunnel_clearance():
+    return float(PALLET_TUNNEL_HALF_WIDTH - LIFT_PLATE_SCALE[1] * 0.5)
+
+
 def clone_stack_coordinates(stack_coordinates):
     return [np.array(coord, dtype=float).copy() for coord in stack_coordinates]
 
@@ -393,6 +427,10 @@ class HarimTransferOrchestrator:
         self.lift_offset = 0.0
         self.max_payload_lift_observed = 0.0
         self.max_dropped_payload_drift = 0.0
+        initial_lift_contact_gap = compute_lift_contact_gap(args.amr_z, 0.0)
+        self.max_lift_contact_gap_observed = initial_lift_contact_gap
+        self.min_lift_contact_gap_observed = initial_lift_contact_gap
+        self.pallet_tunnel_clearance = compute_pallet_tunnel_clearance()
         self.amr_lift_base_offset = None
         self.amr_lift_orientation = None
         self.move_target = None
@@ -463,6 +501,13 @@ class HarimTransferOrchestrator:
     def _set_lift_plate_pose(self):
         self.lift_plate.set_world_pose(position=self._lift_plate_position(), orientation=yaw_to_quat(self.amr_yaw))
         self._set_actual_lift_pose()
+        self._record_lift_geometry()
+
+    def _record_lift_geometry(self):
+        amr_pos = self.get_amr_position()
+        lift_contact_gap = compute_lift_contact_gap(amr_pos[2], self.lift_offset)
+        self.max_lift_contact_gap_observed = max(self.max_lift_contact_gap_observed, lift_contact_gap)
+        self.min_lift_contact_gap_observed = min(self.min_lift_contact_gap_observed, lift_contact_gap)
 
     def _set_actual_lift_pose(self):
         if self.amr_lift is None:
@@ -1718,8 +1763,8 @@ def main():
             position=np.array(
                 [args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z + AMR_LIFT_PLATE_OFFSET_Z]
             ),
-            scale=np.array([1.10, 0.72, 0.035]),
-            visible=amr_lift is None,
+            scale=LIFT_PLATE_SCALE,
+            visible=True,
             color=np.array([0.10, 0.12, 0.13]),
         )
     )
@@ -1733,7 +1778,7 @@ def main():
             FixedCuboid(
                 f"{harim_root}/PalletDeck_0",
                 name="harim_pallet_connected_top_deck",
-                scale=np.array([1.20, 1.08, 0.06]),
+                scale=PALLET_DECK_SCALE,
                 color=plank_color,
             )
         )
@@ -1744,7 +1789,7 @@ def main():
                 FixedCuboid(
                     f"{harim_root}/PalletRunner_{idx}",
                     name=f"harim_pallet_side_runner_{idx}",
-                    scale=np.array([1.20, 0.14, 0.12]),
+                    scale=PALLET_RUNNER_SCALE,
                     color=block_color,
                 )
             )
@@ -1755,7 +1800,7 @@ def main():
                 FixedCuboid(
                     f"{harim_root}/PalletBlock_{idx}",
                     name=f"harim_pallet_block_{idx}",
-                    scale=np.array([0.18, 0.16, 0.12]),
+                    scale=PALLET_BLOCK_SCALE,
                     color=block_color,
                 )
             )
@@ -1766,7 +1811,7 @@ def main():
                 VisualCuboid(
                     f"{harim_root}/PalletGroove_{idx}",
                     name=f"harim_pallet_top_groove_{idx}",
-                    scale=np.array([1.22, 0.028, 0.012]),
+                    scale=PALLET_GROOVE_SCALE,
                     color=groove_color,
                 )
             )
@@ -1958,6 +2003,27 @@ def main():
                     f"max dropped payload drift {max_dropped_payload_drift:.4f} m exceeded "
                     f"{args.self_test_max_dropped_payload_drift:.4f} m"
                 )
+            max_lift_contact_gap = float(getattr(orchestrator, "max_lift_contact_gap_observed", 0.0))
+            min_lift_contact_gap = float(getattr(orchestrator, "min_lift_contact_gap_observed", 0.0))
+            if args.self_test_max_lift_contact_gap > 0:
+                if max_lift_contact_gap > args.self_test_max_lift_contact_gap:
+                    self_test_failures.append(
+                        f"max lift contact gap {max_lift_contact_gap:.4f} m exceeded "
+                        f"{args.self_test_max_lift_contact_gap:.4f} m"
+                    )
+                if min_lift_contact_gap < -0.005:
+                    self_test_failures.append(
+                        f"lift plate overlapped pallet underside {-min_lift_contact_gap:.4f} m exceeded 0.0050 m"
+                    )
+            pallet_tunnel_clearance = float(getattr(orchestrator, "pallet_tunnel_clearance", 0.0))
+            if (
+                args.self_test_min_pallet_tunnel_clearance > 0
+                and pallet_tunnel_clearance < args.self_test_min_pallet_tunnel_clearance
+            ):
+                self_test_failures.append(
+                    f"pallet tunnel clearance {pallet_tunnel_clearance:.4f} m was below "
+                    f"{args.self_test_min_pallet_tunnel_clearance:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -1980,7 +2046,10 @@ def main():
                     f"max_stack_support_gap={max_stack_support_gap:.4f}; "
                     f"min_stack_support_gap={min_stack_support_gap:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
-                    f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}",
+                    f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
+                    f"max_lift_contact_gap={max_lift_contact_gap:.4f}; "
+                    f"min_lift_contact_gap={min_lift_contact_gap:.4f}; "
+                    f"pallet_tunnel_clearance={pallet_tunnel_clearance:.4f}",
                     flush=True,
                 )
         else:

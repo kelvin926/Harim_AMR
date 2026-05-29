@@ -1761,6 +1761,66 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 ---
 
+## 2026-05-29 리프트-팔레트 접촉 간격 및 터널 여유폭 gate 추가
+
+GUI에서 AMR 리프트부가 팔레트와 떨어져 보이면 팔레트가 접촉 없이 공중에서 따라 올라가는 장면처럼 보일 수 있다. 이번 보강에서는 iw_hub 상단 리프트 플레이트를 팔레트 상판 하부 바로 아래로 올리고, 그 간격을 self-test에서 직접 검증하도록 했다.
+
+수정 내용:
+
+- [x] 팔레트 주요 치수를 상수화
+  - `PALLET_DECK_SCALE`
+  - `PALLET_RUNNER_SCALE`
+  - `PALLET_BLOCK_SCALE`
+  - `PALLET_GROOVE_SCALE`
+  - `LIFT_PLATE_SCALE`
+- [x] 리프트 플레이트 높이 재계산
+  - 기존 `AMR_LIFT_PLATE_OFFSET_Z = 0.48`은 팔레트 deck underside보다 약 5 cm 낮아 보일 수 있었다.
+  - 새 값은 `PALLET_DECK_UNDERSIDE_Z`, `LIFT_PLATE_SCALE`, `LIFT_TO_PALLET_CONTACT_GAP = 0.005`로 계산한다.
+  - 결과적으로 리프트 상면과 팔레트 상판 하부 사이 간격은 5 mm로 유지된다.
+- [x] 리프트 플레이트를 항상 visible 처리
+  - 실제 iw_hub asset lift prim이 있어도 얇은 접촉 플레이트를 보이게 해서 GUI에서 팔레트를 받치는 면이 명확하게 보이도록 했다.
+- [x] self-test geometry gate 추가
+  - Python 옵션: `--self-test-max-lift-contact-gap`
+  - Python 옵션: `--self-test-min-pallet-tunnel-clearance`
+  - PowerShell 옵션: `-SelfTestMaxLiftContactGap`
+  - PowerShell 옵션: `-SelfTestMinPalletTunnelClearance`
+- [x] 완료 로그에 지표 추가
+  - `max_lift_contact_gap`
+  - `min_lift_contact_gap`
+  - `pallet_tunnel_clearance`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestRequireGripperOpenAfterRelease -SelfTestMaxStackLateralGap 0.03 -SelfTestMaxStackSupportGap 0.02 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestMaxLiftContactGap 0.01 -SelfTestMinPalletTunnelClearance 0.04 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] Python compile 통과
+- [x] unittest 35개 통과
+- [x] 12000-frame full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_lift_contact_gate_full_e2e_12000.log`
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0399`
+  - `max_release_drift=0.0000`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `max_stack_lateral_gap=0.0200`
+  - `max_stack_support_gap=0.0100`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`
+  - `max_lift_contact_gap=0.0050`
+  - `min_lift_contact_gap=0.0050`
+  - `pallet_tunnel_clearance=0.0600`
+
+---
+
 ## 2026-05-29 GUI release 강제 해제 추가 보강
 
 GUI 확인에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 증상이 다시 관찰되어, release 순간에 scripted attach 상태와 실제 surface gripper 상태를 더 강하게 분리했다. 핵심은 “시각적으로 박스가 그리퍼를 따라가는 경로”를 줄이는 것이다.
