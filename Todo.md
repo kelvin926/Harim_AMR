@@ -1378,3 +1378,47 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `attached 4 stacked items and 12 pallet parts`
   - `slide-released pallet assembly at drop pose`
   - `completed transfer cycle 1`
+
+---
+
+## 2026-05-29 전체 2층 적재 후 AMR 이송 검증 메모
+
+부분 적재가 아니라 기본 목표인 `2 x 2 x 2` 전체 적재 후 AMR 이송까지 한 번에 검증하도록 self-test를 보강했다.
+
+수정 내용:
+
+- [x] UR10 데모 state timer를 wall-clock `time.time()` 기준에서 simulation dt 기반 `demo_sim_time` 기준으로 변경
+  - headless 실행 부하에 따라 같은 frame 수에서도 pick timeout과 pre-grip offset이 달라지는 문제를 줄인다.
+  - GUI 실행에서도 물리 step 기준으로 timing이 맞으므로 시각적으로 더 일관된 흐름이 된다.
+- [x] `--self-test-min-transfer-cycles` 옵션 추가
+  - placed bin 개수뿐 아니라 AMR transfer cycle 완료 여부까지 self-test gate로 확인한다.
+  - PowerShell wrapper에도 `-SelfTestMinTransferCycles` 옵션을 추가했다.
+- [x] pick/place/return timing 단축
+  - 기존 긴 timeout 대기보다 산업용 팔레타이징에 가까운 빠른 cycle로 조정했다.
+  - `ReachToPick`: 3.20초
+  - `ReachToPlace`: 3.00초
+  - lift/retract/return 구간도 짧게 조정했다.
+- [x] `stack_complete` 이후 컨베이어 공급 정지
+  - 8개 적재 완료 뒤 AMR이 접근하는 중 불필요한 `bin_8`이 스폰되는 장면을 제거했다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 7000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 21개 통과
+- [x] Python compile 통과
+- [x] 7000-frame end-to-end self-test 통과
+  - `stack-count 8/8 after bin_7`
+  - `stack_complete detected`
+  - `attached 8 stacked items and 12 pallet parts`
+  - `slide-released pallet assembly at drop pose`
+  - `completed transfer cycle 1`
+  - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`
+- [x] `stack_complete` 이후 추가 `spawned bin_8` 로그가 나오지 않음을 확인

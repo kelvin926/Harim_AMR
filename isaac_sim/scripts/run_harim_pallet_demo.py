@@ -91,6 +91,12 @@ def parse_args():
         help="Fail the fixed-frame self-test unless at least this many bins are placed by the UR10.",
     )
     parser.add_argument(
+        "--self-test-min-transfer-cycles",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless the AMR completes at least this many transfer cycles.",
+    )
+    parser.add_argument(
         "--self-test-debug-bins",
         action="store_true",
         help="Print bin spawn, active-bin, and stack-count transitions during fixed-frame self-tests.",
@@ -683,6 +689,8 @@ def main():
             self.on_conveyor = None
 
         def pre_step(self, time_step_index, simulation_time) -> None:
+            if self.context is not None and getattr(self.context, "stack_complete", False):
+                return
             if self.context is not None and (
                 getattr(self.context, "active_bin", None) is not None
                 or getattr(self.context, "demo_pre_grip_bin", None) is not None
@@ -739,6 +747,9 @@ def main():
     def get_demo_pre_grip_bin(context):
         return getattr(context, "demo_pre_grip_bin", None)
 
+    def get_demo_time(context):
+        return float(getattr(context, "demo_sim_time", time.time()))
+
     def hold_active_bin_for_pick(context):
         active_bin = get_demo_pre_grip_bin(context) or getattr(context, "active_bin", None)
         if active_bin is None or getattr(active_bin, "demo_attached", False):
@@ -793,7 +804,7 @@ def main():
             self.start_orientation = None
 
         def enter(self):
-            self.entry_time = time.time()
+            self.entry_time = get_demo_time(self.context)
             active_bin = getattr(self.context, "active_bin", None)
             self.context.demo_pre_grip_bin = active_bin
             target = compute_active_bin_grasp_pose_at_effector(self.context, active_bin)
@@ -819,7 +830,7 @@ def main():
             if self.start_position is None or self.start_orientation is None:
                 self.start_position, self.start_orientation = active_bin.bin_obj.get_world_pose()
             target_position, target_orientation, _offset = target
-            t = clamp((time.time() - self.entry_time) / max(self.duration, 1e-6), 0.0, 1.0)
+            t = clamp((get_demo_time(self.context) - self.entry_time) / max(self.duration, 1e-6), 0.0, 1.0)
             smooth_t = t * t * (3.0 - 2.0 * t)
             position = lerp(np.array(self.start_position, dtype=float), np.array(target_position, dtype=float), smooth_t)
             orientation = quat_lerp(self.start_orientation, target_orientation, smooth_t)
@@ -888,7 +899,7 @@ def main():
             self.target_p = None
 
         def enter(self):
-            self.entry_time = time.time()
+            self.entry_time = get_demo_time(self.context)
             print("<open gripper>", flush=True)
             try:
                 self.context.robot.suction_gripper.open()
@@ -924,7 +935,7 @@ def main():
             self.released_bin.is_attached = False
             self.released_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
             stop_dynamic_prim(self.released_bin.bin_obj)
-            if time.time() - self.entry_time < self.release_duration:
+            if get_demo_time(self.context) - self.entry_time < self.release_duration:
                 return self
             return None
 
@@ -941,13 +952,13 @@ def main():
             self.target_pq = None
 
         def enter(self):
-            self.entry_time = time.time()
+            self.entry_time = get_demo_time(self.context)
             self.target_pq = self.context.robot.arm.get_fk_pq()
             self.target_pq.p[2] += self.height
 
         def step(self):
             self.context.robot.arm.send(MotionCommand(self.target_pq))
-            if time.time() - self.entry_time < self.duration:
+            if get_demo_time(self.context) - self.entry_time < self.duration:
                 return self
             return None
 
@@ -964,7 +975,7 @@ def main():
             self.target_position = None
 
         def enter(self):
-            self.entry_time = time.time()
+            self.entry_time = get_demo_time(self.context)
             self.target_position = self.position.copy()
             print(f"[HarimDemo] {self.label} start", flush=True)
 
@@ -972,7 +983,7 @@ def main():
             self.context.robot.arm.send(
                 MotionCommand(target_position=self.target_position, posture_config=self.context.robot.default_config)
             )
-            if time.time() - self.entry_time < self.duration:
+            if get_demo_time(self.context) - self.entry_time < self.duration:
                 return self
             print(f"[HarimDemo] {self.label} timed release", flush=True)
             return None
@@ -995,7 +1006,7 @@ def main():
                 self.state.bind(context, params)
 
         def enter(self):
-            self.entry_time = time.time()
+            self.entry_time = get_demo_time(self.context)
             print(f"[HarimDemo] {self.label} start", flush=True)
             self.state.enter()
 
@@ -1003,7 +1014,7 @@ def main():
             next_state = self.state.step()
             if next_state is None:
                 return None
-            if time.time() - self.entry_time >= self.max_duration:
+            if get_demo_time(self.context) - self.entry_time >= self.max_duration:
                 print(f"[HarimDemo] {self.label} timed release", flush=True)
                 return None
             return self
@@ -1039,16 +1050,16 @@ def main():
             super().__init__(
                 DfStateSequence(
                     [
-                        DemoTimedState(behavior.ReachToPick(), max_duration=8.00, label="reach_pick"),
+                        DemoTimedState(behavior.ReachToPick(), max_duration=3.20, label="reach_pick"),
                         DemoSettleBinAtGripper(min_duration=0.25, max_duration=1.10),
                         DfSetLockState(set_locked_to=True, decider=self),
                         DemoAttachBin(),
-                        DemoTimedArmLift(height=0.24, duration=0.60),
-                        DemoTimedState(behavior.ReachToPlace(), max_duration=5.00, label="reach_place"),
+                        DemoTimedArmLift(height=0.24, duration=0.35),
+                        DemoTimedState(behavior.ReachToPlace(), max_duration=3.00, label="reach_place"),
                         DfWaitState(wait_time=0.15),
                         DemoReleaseBin(),
-                        DemoTimedArmLift(height=0.10, duration=0.40),
-                        DemoTimedArmMoveTo(PICK_READY_EE_POSITION, duration=2.20, label="return_ready"),
+                        DemoTimedArmLift(height=0.10, duration=0.25),
+                        DemoTimedArmMoveTo(PICK_READY_EE_POSITION, duration=0.90, label="return_ready"),
                         DemoMarkCarriedBinComplete(),
                         DfSetLockState(set_locked_to=False, decider=self),
                     ]
@@ -1369,6 +1380,7 @@ def main():
     world.reset()
     world.play()
     decider_network.context.stack_coordinates = stack_coordinates
+    decider_network.context.demo_sim_time = 0.0
     orchestrator.reset_visual_state()
 
     def force_self_test_stack_complete():
@@ -1381,10 +1393,12 @@ def main():
             ]
 
     def step_demo_frame():
+        physics_dt = world.get_physics_dt()
+        decider_network.context.demo_sim_time = getattr(decider_network.context, "demo_sim_time", 0.0) + physics_dt
         world.step(render=not args.headless)
         sync_demo_attached_bin(decider_network.context)
         force_self_test_stack_complete()
-        orchestrator.step(world.get_physics_dt())
+        orchestrator.step(physics_dt)
 
     self_test_failure_message = None
     try:
@@ -1392,15 +1406,24 @@ def main():
             for _frame_count in range(args.self_test_frames):
                 step_demo_frame()
             placed_count = len(getattr(decider_network.context, "stacked_bins", []))
+            transfer_cycles = getattr(orchestrator, "completed_cycles", 0)
+            self_test_failures = []
             if args.self_test_min_placed_bins > 0 and placed_count < args.self_test_min_placed_bins:
-                self_test_failure_message = (
+                self_test_failures.append(
                     f"UR10 placed {placed_count} bins, expected at least {args.self_test_min_placed_bins}"
                 )
+            if args.self_test_min_transfer_cycles > 0 and transfer_cycles < args.self_test_min_transfer_cycles:
+                self_test_failures.append(
+                    f"AMR completed {transfer_cycles} transfer cycles, "
+                    f"expected at least {args.self_test_min_transfer_cycles}"
+                )
+            if self_test_failures:
+                self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
             else:
                 print(
                     f"[HarimDemo] self-test completed after {args.self_test_frames} frames; "
-                    f"placed_bins={placed_count}",
+                    f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}",
                     flush=True,
                 )
         else:

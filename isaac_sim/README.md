@@ -198,3 +198,28 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 - Python compile 통과
 - UR10 5600-frame self-test 통과: `self-test completed after 5600 frames; placed_bins=4`
 - AMR 260-frame transfer self-test 통과: `completed transfer cycle 1`
+
+## 2026-05-29 전체 적재 후 AMR 이송 검증
+
+기본 `2 x 2 x 2` 적재를 모두 끝낸 뒤 AMR이 팔레트를 가져가는 전체 흐름을 검증하도록 self-test를 보강했습니다.
+
+- UR10 state timer는 wall-clock이 아니라 simulation dt 기반 `demo_sim_time`을 사용합니다. headless 실행 부하에 따라 같은 frame 수에서 결과가 달라지는 문제를 줄이기 위한 변경입니다.
+- `-SelfTestMinTransferCycles` 옵션을 추가했습니다. 이제 placed bin 개수뿐 아니라 AMR transfer 완료 횟수도 self-test gate로 확인할 수 있습니다.
+- pick/place/return timing을 줄여 전체 팔레타이징 사이클이 더 빠르고 일관되게 진행됩니다.
+- `stack_complete` 이후에는 컨베이어가 추가 박스를 스폰하지 않습니다. 적재 완료 뒤 AMR 접근 중 불필요한 새 박스가 나오는 장면을 제거했습니다.
+
+전체 end-to-end 확인:
+
+```powershell
+cd E:\Harim_AMR
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 7000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- `stack-count 8/8 after bin_7`
+- `stack_complete detected`
+- `attached 8 stacked items and 12 pallet parts`
+- `slide-released pallet assembly at drop pose`
+- `completed transfer cycle 1`
+- `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`
