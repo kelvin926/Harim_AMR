@@ -3,3 +3,8 @@
 .pip_cache/
 .nvidia_cache/
 isaacsim_logs/
+.omni_user/
+.omni_cache/
+.kit_cache/
+__pycache__/
+*.pyc

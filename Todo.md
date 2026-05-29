@@ -804,3 +804,61 @@ AMR 대기 위치
 3. 목표 위치에 팔레트를 내려놓고 이탈하는 장면
 
 이 세 장면이 자연스럽게 연결되면, 회장님 설명용 영상으로 충분한 설득력을 만들 수 있다. 이후 필요에 따라 ROS2/Nav2, 실제 CAD, 정확한 물리 시뮬레이션으로 확장한다.
+
+---
+
+## 2026-05-29 진행 메모
+
+현재 1차 구현은 `방식 B: Python FSM에서 직접 transform/controller 제어`로 진행한다.
+이유는 이번 목표가 실제 Nav2 검증보다 설명 가능한 통합 데모 구현이고, 팔레트 attach/detach 타이밍을 `stack_complete`와 정확히 맞추기 쉽기 때문이다.
+
+완료한 항목:
+
+- [x] `E:\Harim_AMR\.conda\env_isaacsim_5_1_0`에 Isaac Sim 5.1.0 pip 환경 설치
+- [x] 기존 `E:\isaac-sim-5.1.0`, `E:\IsaacLab`, 기존 conda env를 사용하지 않도록 작업 범위 분리
+- [x] `isaacsim`, `isaacsim-cortex`, `isaacsim-example`, `isaacsim-robot`, `isaacsim-replicator` 설치 확인
+- [x] 공식 UR10 palletizing 예제 파일 위치 확인
+- [x] 공식 Cortex UR10 bin stacking behavior의 `stack_complete` 구조 확인
+- [x] 공식 `iw_hub` asset 및 `LiftUp` / `LiftDown` command class 존재 확인
+- [x] 실행 스크립트 추가: `isaac_sim/scripts/run_harim_pallet_demo.py`
+- [x] PowerShell 실행 래퍼 추가: `run_harim_demo.ps1`
+- [x] 로컬 cache/user/runtime 디렉터리를 `E:\Harim_AMR` 내부로 유도
+- [x] UR10 palletizing scene 로드
+- [x] Cortex UR10 robot을 `world.add_robot()`으로 등록
+- [x] 기존 UR10 bin stacking task 재사용
+- [x] stack pattern을 `--stack-cols`, `--stack-rows`, `--stack-layers` 옵션으로 축소/조정 가능하게 구성
+- [x] `stack_complete` 감시 후 AMR 이송 FSM 시작
+- [x] `iw_hub` USD 로드
+- [x] visual lift plate 추가
+- [x] visual pallet deck/block 추가
+- [x] AMR waypoint 이동 FSM 구현
+- [x] LiftUp 단계에서 pallet 및 stacked bin 상승 연출
+- [x] attach 단계에서 stacked bins + pallet visual assembly를 AMR 기준 offset으로 묶음
+- [x] 이동 중 assembly follow
+- [x] drop pose에서 LiftDown 및 detach
+- [x] exit pose 이탈
+- [x] 기본 `--cycles 0` 무한 반복 구조
+- [x] `--self-test-frames` 개발 검증 옵션 추가
+- [x] Python 문법 검사 통과
+- [x] PowerShell 래퍼 syntax 검사 통과
+
+현재 제한/확인 필요:
+
+- Isaac Kit 첫 실행에서 NVIDIA Omniverse Kit EULA 확인이 필요하다.
+- Codex가 사용자를 대신해 EULA에 동의할 수 없어서 실제 headless self-test는 EULA prompt에서 중단되었다.
+- 사용자가 내용을 확인하고 동의하는 경우 `run_harim_demo.ps1 -AcceptEula`를 명시적으로 붙여 실행한다.
+- EULA 수락 후에는 `-Headless -SelfTestFrames 2`로 stage 초기화 검증을 먼저 수행하는 것이 좋다.
+
+실행 예:
+
+```powershell
+cd E:\Harim_AMR
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -AcceptEula
+```
+
+짧은 초기화 검증:
+
+```powershell
+cd E:\Harim_AMR
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2
+```
