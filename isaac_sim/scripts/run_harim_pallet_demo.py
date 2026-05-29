@@ -584,6 +584,30 @@ def parse_args():
         help="Fail the fixed-frame self-test if the delivered pallet assembly drifts after detach by more than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-min-dropped-stack-item-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless this many cartons are recorded on the dropped pallet after detach. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-dropped-stack-pose-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if dropped cartons are farther from their expected pallet-relative pose than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-dropped-stack-support-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if dropped cartons float above their pallet/lower-carton support by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-dropped-stack-pallet-margin",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if dropped cartons have less pallet footprint margin than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-amr-exit-clearance",
         type=float,
         default=0.0,
@@ -2308,6 +2332,12 @@ class HarimTransferOrchestrator:
         )
         self.max_carried_pallet_pose_error = 0.0
         self.max_carried_payload_pose_error = 0.0
+        self.dropped_stack_item_count = 0
+        self.max_dropped_stack_pose_error = 0.0
+        self.max_dropped_stack_support_gap = 0.0
+        self.min_dropped_stack_support_gap = 0.0
+        self.min_dropped_stack_pallet_margin = 0.0
+        self.max_dropped_stack_pallet_overhang = 0.0
         self.drop_handoff_xy_error = 0.0
         self.drop_handoff_support_gap = compute_drop_workstation_support_gap()
         self.drop_handoff_support_penetration = 0.0
@@ -2847,6 +2877,76 @@ class HarimTransferOrchestrator:
         self.drop_handoff_support_gap = float(support_gap)
         self.drop_handoff_support_penetration = max(0.0, float(-support_gap))
 
+    def _record_dropped_stack_geometry(self):
+        if not self.pallet_parts:
+            return
+        try:
+            deck_pos, _deck_orient = self.pallet_parts[0].get_world_pose()
+        except Exception:
+            return
+        pallet_center = np.array(deck_pos, dtype=float) - PALLET_DECK_OFFSETS[0]
+        pickup_center = np.array([self.args.pickup_x, self.args.pickup_y, PALLET_CENTER_Z], dtype=float)
+        actual_positions = []
+        pose_errors = []
+        for item, expected_coord in zip(self.attached_items, self.stack_coordinates):
+            try:
+                pos, _orient = item.get_world_pose()
+            except Exception:
+                continue
+            pos = np.array(pos, dtype=float)
+            actual_positions.append(pos)
+            expected_pos = pallet_center + (np.array(expected_coord, dtype=float) - pickup_center)
+            pose_errors.append(float(np.linalg.norm(pos - expected_pos)))
+
+        self.dropped_stack_item_count = len(actual_positions)
+        self.max_dropped_stack_pose_error = float(max(pose_errors)) if pose_errors else 0.0
+        if not actual_positions:
+            self.max_dropped_stack_support_gap = 0.0
+            self.min_dropped_stack_support_gap = 0.0
+            self.min_dropped_stack_pallet_margin = 0.0
+            self.max_dropped_stack_pallet_overhang = 0.0
+            return
+
+        stack_min_x = min(float(pos[0]) - CARTON_BODY_SCALE[0] * 0.5 for pos in actual_positions)
+        stack_max_x = max(float(pos[0]) + CARTON_BODY_SCALE[0] * 0.5 for pos in actual_positions)
+        stack_min_y = min(float(pos[1]) - CARTON_BODY_SCALE[1] * 0.5 for pos in actual_positions)
+        stack_max_y = max(float(pos[1]) + CARTON_BODY_SCALE[1] * 0.5 for pos in actual_positions)
+        pallet_min_x = float(pallet_center[0]) - PALLET_DECK_SCALE[0] * 0.5
+        pallet_max_x = float(pallet_center[0]) + PALLET_DECK_SCALE[0] * 0.5
+        pallet_min_y = float(pallet_center[1]) - PALLET_DECK_SCALE[1] * 0.5
+        pallet_max_y = float(pallet_center[1]) + PALLET_DECK_SCALE[1] * 0.5
+        margins = [
+            stack_min_x - pallet_min_x,
+            pallet_max_x - stack_max_x,
+            stack_min_y - pallet_min_y,
+            pallet_max_y - stack_max_y,
+        ]
+        min_margin = float(min(margins))
+        self.min_dropped_stack_pallet_margin = min_margin
+        self.max_dropped_stack_pallet_overhang = float(max(0.0, -min_margin))
+
+        half_height = float(CARTON_BODY_SCALE[2] * 0.5)
+        pallet_support_top_z = float(
+            pallet_center[2] + PALLET_TOP_SUPPORT_OFFSET[2] + PALLET_TOP_SUPPORT_SCALE[2] * 0.5
+        )
+        support_gaps = []
+        for pos in actual_positions:
+            bottom_z = float(pos[2] - half_height)
+            lower_candidates = [
+                lower for lower in actual_positions if float(lower[2]) < float(pos[2]) - half_height
+            ]
+            if not lower_candidates:
+                support_gaps.append(float(bottom_z - pallet_support_top_z))
+                continue
+            lower = min(
+                lower_candidates,
+                key=lambda candidate: float(np.linalg.norm((candidate - pos)[:2])),
+            )
+            lower_top_z = float(lower[2] + half_height)
+            support_gaps.append(float(bottom_z - lower_top_z))
+        self.max_dropped_stack_support_gap = float(max(support_gaps)) if support_gaps else 0.0
+        self.min_dropped_stack_support_gap = float(min(support_gaps)) if support_gaps else 0.0
+
     def _hold_dropped_assembly(self):
         for item, pos, orient in self.dropped_item_poses.values():
             try:
@@ -2877,6 +2977,7 @@ class HarimTransferOrchestrator:
             self._stop_dynamic_item(item)
         self._record_dropped_assembly()
         self._record_drop_handoff_geometry()
+        self._record_dropped_stack_geometry()
         self.carrying = False
         self.attached_items = []
         self.item_offsets = {}
@@ -5175,6 +5276,50 @@ def main():
                     f"max dropped payload drift {max_dropped_payload_drift:.4f} m exceeded "
                     f"{args.self_test_max_dropped_payload_drift:.4f} m"
                 )
+            dropped_stack_item_count = int(getattr(orchestrator, "dropped_stack_item_count", 0))
+            max_dropped_stack_pose_error = float(getattr(orchestrator, "max_dropped_stack_pose_error", 0.0))
+            max_dropped_stack_support_gap = float(getattr(orchestrator, "max_dropped_stack_support_gap", 0.0))
+            min_dropped_stack_support_gap = float(getattr(orchestrator, "min_dropped_stack_support_gap", 0.0))
+            min_dropped_stack_pallet_margin = float(getattr(orchestrator, "min_dropped_stack_pallet_margin", 0.0))
+            max_dropped_stack_pallet_overhang = float(
+                getattr(orchestrator, "max_dropped_stack_pallet_overhang", 0.0)
+            )
+            if (
+                args.self_test_min_dropped_stack_item_count > 0
+                and dropped_stack_item_count < args.self_test_min_dropped_stack_item_count
+            ):
+                self_test_failures.append(
+                    f"dropped stack item count {dropped_stack_item_count} was below "
+                    f"{args.self_test_min_dropped_stack_item_count}"
+                )
+            if args.self_test_max_dropped_stack_pose_error > 0:
+                if transfer_cycles <= 0:
+                    self_test_failures.append("dropped stack pose error was not available before a completed transfer")
+                elif max_dropped_stack_pose_error > args.self_test_max_dropped_stack_pose_error:
+                    self_test_failures.append(
+                        f"dropped stack pose error {max_dropped_stack_pose_error:.4f} m exceeded "
+                        f"{args.self_test_max_dropped_stack_pose_error:.4f} m"
+                    )
+            if args.self_test_max_dropped_stack_support_gap > 0:
+                if transfer_cycles <= 0:
+                    self_test_failures.append("dropped stack support gap was not available before a completed transfer")
+                elif max_dropped_stack_support_gap > args.self_test_max_dropped_stack_support_gap:
+                    self_test_failures.append(
+                        f"dropped stack support gap {max_dropped_stack_support_gap:.4f} m exceeded "
+                        f"{args.self_test_max_dropped_stack_support_gap:.4f} m"
+                    )
+                if min_dropped_stack_support_gap < -0.005:
+                    self_test_failures.append(
+                        f"dropped stack vertical overlap {-min_dropped_stack_support_gap:.4f} m exceeded 0.0050 m"
+                    )
+            if (
+                args.self_test_min_dropped_stack_pallet_margin > 0
+                and min_dropped_stack_pallet_margin < args.self_test_min_dropped_stack_pallet_margin
+            ):
+                self_test_failures.append(
+                    f"dropped stack pallet margin {min_dropped_stack_pallet_margin:.4f} m was below "
+                    f"{args.self_test_min_dropped_stack_pallet_margin:.4f} m"
+                )
             amr_exit_clearance = compute_amr_exit_clearance(orchestrator.get_amr_position()[0], args.drop_x)
             if args.self_test_min_amr_exit_clearance > 0:
                 if transfer_cycles <= 0:
@@ -5696,6 +5841,12 @@ def main():
                     f"max_amr_drive_pose_error={max_amr_drive_pose_error:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
+                    f"dropped_stack_item_count={dropped_stack_item_count}; "
+                    f"max_dropped_stack_pose_error={max_dropped_stack_pose_error:.4f}; "
+                    f"max_dropped_stack_support_gap={max_dropped_stack_support_gap:.4f}; "
+                    f"min_dropped_stack_support_gap={min_dropped_stack_support_gap:.4f}; "
+                    f"min_dropped_stack_pallet_margin={min_dropped_stack_pallet_margin:.4f}; "
+                    f"max_dropped_stack_pallet_overhang={max_dropped_stack_pallet_overhang:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "
                     f"max_lift_contact_gap={max_lift_contact_gap:.4f}; "
                     f"min_lift_contact_gap={min_lift_contact_gap:.4f}; "

@@ -1,5 +1,27 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Dropped Stack 실제 Pose/지지 검증
+
+- [x] 팔레트를 하역한 직후 실제 dropped carton들이 목표 drop pallet-relative pose에 남아 있는지 `max_dropped_stack_pose_error`로 기록하도록 했다.
+- [x] dropped stack의 실제 박스 수, pallet footprint margin, pallet/하층 박스 위 vertical support gap을 기록하도록 했다.
+  - `dropped_stack_item_count`
+  - `max_dropped_stack_support_gap`
+  - `min_dropped_stack_support_gap`
+  - `min_dropped_stack_pallet_margin`
+  - `max_dropped_stack_pallet_overhang`
+- [x] strict self-test gate를 추가했다.
+  - Python: `--self-test-min-dropped-stack-item-count`
+  - Python: `--self-test-max-dropped-stack-pose-error`
+  - Python: `--self-test-max-dropped-stack-support-gap`
+  - Python: `--self-test-min-dropped-stack-pallet-margin`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - unittest 69개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_dropped_stack_geometry_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_024436_20428.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `dropped_stack_item_count=8`, `max_dropped_stack_pose_error=0.0000`, `max_dropped_stack_support_gap=0.0100`, `min_dropped_stack_pallet_margin=0.0850`
+
 ## 2026-05-30 Review GIF 매 실행 저장 보강
 
 - [x] 사용자가 실행 결과를 매번 볼 수 있도록 demo/self-test 실행 시 review GIF를 기본 저장하도록 유지한다.

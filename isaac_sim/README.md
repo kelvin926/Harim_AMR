@@ -1,5 +1,14 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Dropped Stack 실제 Pose/지지 검증
+
+- 팔레트를 하역한 직후 dropped carton들이 목표 drop pallet-relative pose에 남아 있는지 `max_dropped_stack_pose_error`로 기록합니다.
+- dropped stack의 실제 박스 수, pallet footprint margin, pallet/하층 박스 위 support gap을 self-test metric으로 남깁니다.
+- strict self-test에 dropped stack item count, pose error, support gap, pallet margin gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_dropped_stack_geometry_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_024436_20428.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `dropped_stack_item_count=8`, `max_dropped_stack_pose_error=0.0000`, `max_dropped_stack_support_gap=0.0100`, `min_dropped_stack_pallet_margin=0.0850`
+
 ## 2026-05-30 Review GIF 매 실행 저장 보강
 
 - demo/self-test 실행은 기본적으로 `E:\Harim_AMR\isaacsim_outputs`에 review GIF를 남깁니다.
