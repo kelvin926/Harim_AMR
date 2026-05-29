@@ -223,3 +223,18 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 - `slide-released pallet assembly at drop pose`
 - `completed transfer cycle 1`
 - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`
+
+## 2026-05-29 AMR 이동 보간 보강
+
+AMR waypoint 이동은 이제 시작점과 목표점을 저장한 뒤 `smoothstep()` S-curve로 보간합니다. 기존처럼 매 frame 같은 거리만 전진하는 방식보다 출발과 정지가 부드럽게 보입니다.
+
+- `move_start_pose`, `move_target`, `move_duration`을 waypoint 전환 시 저장합니다.
+- 평균 이동 시간은 `distance / move_speed`를 유지합니다.
+- UR10 pre-grip settle도 같은 `smoothstep()` helper를 사용합니다.
+- 단위 테스트에서 이동 25% 시점의 AMR 위치가 선형 이동보다 덜 진행되는지 확인합니다.
+
+확인 결과:
+
+- unittest 22개 통과
+- Python compile 통과
+- 7000-frame full end-to-end self-test 통과: `placed_bins=8; transfer_cycles=1`

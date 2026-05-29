@@ -1422,3 +1422,41 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `completed transfer cycle 1`
   - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`
 - [x] `stack_complete` 이후 추가 `spawned bin_8` 로그가 나오지 않음을 확인
+
+---
+
+## 2026-05-29 AMR 이동 가속/감속 보강 메모
+
+전체 흐름이 통과한 뒤 AMR 이동의 시각적 현실성을 조금 더 높이기 위해 waypoint 이동을 일정 속도 직선 보정에서 완만한 가속/감속 보간으로 바꿨다.
+
+수정 내용:
+
+- [x] `smoothstep()` helper 추가
+  - 0-1 진행률을 부드러운 S-curve로 바꿔 출발과 정지 시 속도가 갑자기 튀지 않도록 한다.
+- [x] AMR waypoint 전환 시 `move_start_pose`, `move_target`, `move_duration`을 저장
+  - 이동 중 매 frame 현재 위치에서 다시 방향을 계산하는 방식 대신, 시작점과 목표점 사이를 simulation time 기준으로 보간한다.
+- [x] `_move_amr_toward_target()`을 smoothstep 보간 기반으로 변경
+  - 평균 이동 시간은 기존 `distance / move_speed` 기준을 유지하되, 초반/후반이 부드럽게 움직인다.
+- [x] UR10 pre-grip settle에서도 같은 `smoothstep()` helper를 재사용한다.
+- [x] AMR easing 동작을 확인하는 unittest 추가
+  - 이동 25% 시점에서 선형 25%보다 덜 이동하는지 확인해 가속 구간이 적용됐음을 검증한다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 7000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 22개 통과
+- [x] Python compile 통과
+- [x] 7000-frame end-to-end self-test 통과
+  - `stack-count 8/8 after bin_7`
+  - `attached 8 stacked items and 12 pallet parts`
+  - `slide-released pallet assembly at drop pose`
+  - `completed transfer cycle 1`
+  - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`

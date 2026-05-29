@@ -104,6 +104,10 @@ class RepeatArgs(Args):
     cycles = 0
 
 
+class SlowArgs(Args):
+    move_speed = 1.0
+
+
 class HarimTransferOrchestratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -161,6 +165,21 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertAlmostEqual(self.demo.DEFAULT_AMR_Z, self.demo.WORLD_FLOOR_Z)
         self.assertLess(self.demo.DEFAULT_AMR_Z, -1.15)
 
+    def test_amr_waypoint_motion_uses_eased_interpolation(self):
+        orchestrator, _context, _world, _items = self.build_orchestrator(SlowArgs())
+
+        orchestrator._transition(self.demo.TransferState.MOVE_TO_APPROACH)
+        start = orchestrator.move_start_pose.copy()
+        target = orchestrator.move_target.copy()
+        duration = orchestrator.move_duration
+
+        orchestrator.step(duration * 0.25)
+
+        smooth_t = 0.25 * 0.25 * (3.0 - 2.0 * 0.25)
+        expected = start + (target - start) * smooth_t
+        np.testing.assert_allclose(orchestrator.get_amr_position(), expected)
+        self.assertLess(abs(orchestrator.get_amr_position()[0] - start[0]), abs((target[0] - start[0]) * 0.25))
+
     def test_spawned_bins_are_upside_down_to_skip_flip_station(self):
         for _ in range(10):
             position, orientation = self.demo.random_bin_spawn_transform()
@@ -183,6 +202,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("class DemoTimedArmMoveTo", source)
         self.assertIn("target_position=self.target_position", source)
         self.assertIn("posture_config=self.context.robot.default_config", source)
+        self.assertIn("move_start_pose", source)
+        self.assertIn("move_duration", source)
+        self.assertIn("smoothstep", source)
         self.assertIn('max_duration=3.20, label="reach_pick"', source)
         self.assertIn('max_duration=3.00, label="reach_place"', source)
         self.assertIn('label="return_ready"', source)

@@ -160,6 +160,11 @@ def lerp(a, b, t):
     return a + (b - a) * t
 
 
+def smoothstep(t):
+    t = clamp(t, 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
 def yaw_to_quat(yaw):
     half = yaw * 0.5
     return np.array([math.cos(half), 0.0, 0.0, math.sin(half)], dtype=float)
@@ -259,6 +264,8 @@ class HarimTransferOrchestrator:
         self.amr_lift_base_offset = None
         self.amr_lift_orientation = None
         self.move_target = None
+        self.move_start_pose = None
+        self.move_duration = 0.0
 
         self.start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         self.approach_pose = np.array([args.pickup_x + AMR_APPROACH_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
@@ -285,6 +292,13 @@ class HarimTransferOrchestrator:
             self.move_target = self.exit_pose
         else:
             self.move_target = None
+        if self.move_target is not None:
+            self.move_start_pose = self.get_amr_position()
+            move_distance = float(np.linalg.norm((self.move_target - self.move_start_pose)[:2]))
+            self.move_duration = max(move_distance / max(float(self.args.move_speed), 1e-6), 0.35)
+        else:
+            self.move_start_pose = None
+            self.move_duration = 0.0
         print(f"[HarimDemo] state -> {state.name}")
 
     def reset_visual_state(self):
@@ -335,20 +349,21 @@ class HarimTransferOrchestrator:
         if self.move_target is None:
             return True
 
-        current = self.get_amr_position()
-        delta = self.move_target - current
-        distance = float(np.linalg.norm(delta[:2]))
-        if distance <= 0.01:
+        if self.move_start_pose is None:
+            self.move_start_pose = self.get_amr_position()
+            move_distance = float(np.linalg.norm((self.move_target - self.move_start_pose)[:2]))
+            self.move_duration = max(move_distance / max(float(self.args.move_speed), 1e-6), 0.35)
+
+        t = clamp(self.state_time / max(self.move_duration, 1e-6), 0.0, 1.0)
+        next_pos = lerp(self.move_start_pose, self.move_target, smoothstep(t))
+        self.set_amr_pose(next_pos)
+        self._set_lift_plate_pose()
+        self._sync_payload_pose()
+        if t >= 1.0:
             self.set_amr_pose(self.move_target)
             self._set_lift_plate_pose()
             self._sync_payload_pose()
             return True
-
-        step = min(distance, self.args.move_speed * max(dt, 1.0 / 120.0))
-        next_pos = current + delta * (step / max(distance, 1e-6))
-        self.set_amr_pose(next_pos)
-        self._set_lift_plate_pose()
-        self._sync_payload_pose()
         return False
 
     def _get_stacked_items(self):
@@ -831,9 +846,8 @@ def main():
                 self.start_position, self.start_orientation = active_bin.bin_obj.get_world_pose()
             target_position, target_orientation, _offset = target
             t = clamp((get_demo_time(self.context) - self.entry_time) / max(self.duration, 1e-6), 0.0, 1.0)
-            smooth_t = t * t * (3.0 - 2.0 * t)
-            position = lerp(np.array(self.start_position, dtype=float), np.array(target_position, dtype=float), smooth_t)
-            orientation = quat_lerp(self.start_orientation, target_orientation, smooth_t)
+            position = lerp(np.array(self.start_position, dtype=float), np.array(target_position, dtype=float), smoothstep(t))
+            orientation = quat_lerp(self.start_orientation, target_orientation, smoothstep(t))
             set_kinematic_for_demo(active_bin.bin_obj, True)
             active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
             stop_dynamic_prim(active_bin.bin_obj)
