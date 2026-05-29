@@ -105,3 +105,12 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 - UR10 기본 예제에 포함된 `flip`, `pallet`, `pallet_holder` 계열 프림은 stage 로드 직후 비활성화합니다. 새로 만든 visual pallet만 남도록 하여 팔레트 겹침을 줄였습니다.
 - 목표 위치에는 슬라이드형 팔레트 작업대를 추가했습니다. `DropSlideRail`, `DropSlideRoller`, `DropSlideLeg` 프림으로 구성되며, AMR이 팔레트를 내려놓고 앞으로 빠져나갈 때 팔레트가 작업대 위에 남는 장면을 보여줍니다.
 - 현재 검증 범위는 unittest 16개, Python compile, 260-frame headless transfer self-test입니다.
+
+## 2026-05-29 현실감 보강
+
+- 팔레트 상판/러너/블록을 `FixedCuboid` 기반으로 바꾸고, 보이지 않는 `PalletTopSupport` 충돌 지지면을 추가했습니다. 기본 예제 팔레트를 제거해도 박스가 팔레트를 뚫고 떨어지는 현상을 줄이기 위한 변경입니다.
+- 적재 완료 직후 stacked bin pose를 잠그고 속도를 0으로 유지합니다. 설명용 데모에서 박스가 물리적으로 무너지거나 바닥으로 빠지는 것보다, 팔레트 위에 안정적으로 적재된 상태를 우선합니다.
+- AMR 기본 높이를 warehouse floor 기준 `WORLD_FLOOR_Z`에 맞췄습니다.
+- 실제 `iw_hub/chassis/lift` prim이 존재하면 보조 visual lift plate는 숨깁니다. 리프트가 실제 asset과 따로 공중에 떠 보이는 문제를 줄이기 위한 처리입니다.
+- 드롭 작업대도 레일/다리/상단 지지면에 고정 충돌체를 추가했습니다.
+- 현재 검증 범위는 unittest 20개, Python compile, 260-frame headless realism self-test입니다.

@@ -120,7 +120,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             amr_prim=FakePosePrim("iw_hub"),
             amr_lift_prim=amr_lift_prim,
             lift_plate=FakePosePrim("lift_plate"),
-            pallet_parts=[FakePosePrim(f"pallet_{idx}") for idx in range(9)],
+            pallet_parts=[FakePosePrim(f"pallet_{idx}") for idx in range(len(self.demo.PALLET_PART_OFFSETS))],
             stack_coordinates=self.demo.make_stack_coordinates(2, 2, 1),
             args=args,
         )
@@ -157,6 +157,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreater(orchestrator.approach_pose[0], Args.pickup_x)
         self.assertLess(orchestrator.pickup_pose[0], orchestrator.approach_pose[0])
 
+    def test_default_amr_z_is_on_warehouse_floor(self):
+        self.assertAlmostEqual(self.demo.DEFAULT_AMR_Z, self.demo.WORLD_FLOOR_Z)
+        self.assertLess(self.demo.DEFAULT_AMR_Z, -1.15)
+
     def test_spawned_bins_are_upside_down_to_skip_flip_station(self):
         for _ in range(10):
             _position, orientation = self.demo.random_bin_spawn_transform()
@@ -181,6 +185,21 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("DropSlideRail", source)
         self.assertIn("DropSlideRoller", source)
         self.assertIn("DropSlideLeg", source)
+        self.assertIn("DropSlideTopSupport", source)
+
+    def test_connected_pallet_uses_fixed_collision_support(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("FixedCuboid", source)
+        self.assertIn("harim_pallet_connected_top_deck", source)
+        self.assertIn("PalletRunner", source)
+        self.assertIn("PalletTopSupport", source)
+
+    def test_asset_lift_hides_floating_visual_lift_plate(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("AMR_LIFT_PLATE_OFFSET_Z", source)
+        self.assertIn("visible=amr_lift is None", source)
 
     def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
         block_offsets = self.demo.PALLET_BLOCK_OFFSETS
@@ -189,6 +208,21 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreater(tunnel_half_width, 0.0)
         for offset in block_offsets:
             self.assertGreaterEqual(abs(offset[1]), tunnel_half_width)
+
+    def test_stack_is_locked_after_stack_complete(self):
+        orchestrator, context, _world, items = self.build_orchestrator(Args())
+        original_pose = items[0].get_world_pose()[0]
+        context.stack_complete = True
+
+        orchestrator.step(0.1)
+        self.assertIn(items[0].name, orchestrator.locked_stack_poses)
+
+        items[0].set_world_pose(position=np.array([4.0, 4.0, -4.0]))
+        orchestrator.step(0.1)
+
+        np.testing.assert_allclose(items[0].get_world_pose()[0], original_pose)
+        np.testing.assert_allclose(items[0].linear_velocity, np.zeros(3))
+        np.testing.assert_allclose(items[0].angular_velocity, np.zeros(3))
 
     def test_slide_out_keeps_dropped_payload_stationary(self):
         orchestrator, context, _world, items = self.build_orchestrator(Args())

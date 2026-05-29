@@ -14,29 +14,46 @@ DEFAULT_PICKUP_X = 0.82
 DEFAULT_PICKUP_Y = -0.31
 DEFAULT_DROP_X = DEFAULT_PICKUP_X + 10.6
 DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
-DEFAULT_AMR_Z = -1.05
+WORLD_FLOOR_Z = -1.1818
+DEFAULT_AMR_Z = WORLD_FLOOR_Z
 DEFAULT_LIFT_HEIGHT = 0.11
 DEFAULT_MOVE_SPEED = 0.65
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
+AMR_LIFT_PLATE_OFFSET_Z = 0.48
 SLIDE_EXIT_DISTANCE = 1.8
 PALLET_TUNNEL_HALF_WIDTH = 0.42
 DROP_WORKSTATION_Z = -0.73
+PALLET_CENTER_Z = -0.62
+PALLET_TOP_SUPPORT_OFFSET = np.array([0.0, 0.0, 0.02], dtype=float)
 UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
 PALLET_DECK_OFFSETS = (
-    np.array([0.0, -0.44, 0.0], dtype=float),
-    np.array([0.0, 0.0, 0.0], dtype=float),
-    np.array([0.0, 0.44, 0.0], dtype=float),
+    np.array([0.0, 0.0, 0.02], dtype=float),
+)
+PALLET_RUNNER_OFFSETS = (
+    np.array([0.0, -0.56, -0.06], dtype=float),
+    np.array([0.0, 0.56, -0.06], dtype=float),
+)
+PALLET_GROOVE_OFFSETS = (
+    np.array([0.0, -0.18, 0.055], dtype=float),
+    np.array([0.0, 0.18, 0.055], dtype=float),
 )
 PALLET_BLOCK_OFFSETS = (
-    np.array([-0.38, -0.56, -0.075], dtype=float),
-    np.array([0.0, -0.56, -0.075], dtype=float),
-    np.array([0.38, -0.56, -0.075], dtype=float),
-    np.array([-0.38, 0.56, -0.075], dtype=float),
-    np.array([0.0, 0.56, -0.075], dtype=float),
-    np.array([0.38, 0.56, -0.075], dtype=float),
+    np.array([-0.42, -0.56, -0.15], dtype=float),
+    np.array([0.0, -0.56, -0.15], dtype=float),
+    np.array([0.42, -0.56, -0.15], dtype=float),
+    np.array([-0.42, 0.56, -0.15], dtype=float),
+    np.array([0.0, 0.56, -0.15], dtype=float),
+    np.array([0.42, 0.56, -0.15], dtype=float),
 )
-PALLET_PART_OFFSETS = PALLET_DECK_OFFSETS + PALLET_BLOCK_OFFSETS
+PALLET_SUPPORT_OFFSETS = (PALLET_TOP_SUPPORT_OFFSET,)
+PALLET_PART_OFFSETS = (
+    PALLET_DECK_OFFSETS
+    + PALLET_RUNNER_OFFSETS
+    + PALLET_BLOCK_OFFSETS
+    + PALLET_GROOVE_OFFSETS
+    + PALLET_SUPPORT_OFFSETS
+)
 
 
 def parse_args():
@@ -205,6 +222,7 @@ class HarimTransferOrchestrator:
         self.pallet_base_offsets = {}
         self.dropped_item_poses = {}
         self.dropped_pallet_poses = {}
+        self.locked_stack_poses = {}
 
         self.stack_center = self._compute_stack_center()
         self.amr_yaw = 0.0
@@ -247,6 +265,7 @@ class HarimTransferOrchestrator:
         self.pallet_base_offsets = {}
         self.dropped_item_poses = {}
         self.dropped_pallet_poses = {}
+        self.locked_stack_poses = {}
         self.lift_offset = 0.0
         self.set_amr_pose(self.start_pose)
         self._set_lift_plate_pose()
@@ -261,7 +280,7 @@ class HarimTransferOrchestrator:
 
     def _lift_plate_position(self):
         amr_pos = self.get_amr_position()
-        return amr_pos + np.array([0.0, 0.0, 0.33 + self.lift_offset], dtype=float)
+        return amr_pos + np.array([0.0, 0.0, AMR_LIFT_PLATE_OFFSET_Z + self.lift_offset], dtype=float)
 
     def _set_lift_plate_pose(self):
         self.lift_plate.set_world_pose(position=self._lift_plate_position(), orientation=yaw_to_quat(self.amr_yaw))
@@ -279,7 +298,7 @@ class HarimTransferOrchestrator:
         self.amr_lift.set_world_pose(position=target, orientation=self.amr_lift_orientation)
 
     def _reset_pallet_pose(self):
-        center = np.array([self.args.pickup_x, self.args.pickup_y, -0.60 + self.lift_offset], dtype=float)
+        center = np.array([self.args.pickup_x, self.args.pickup_y, PALLET_CENTER_Z + self.lift_offset], dtype=float)
         for part, offset in zip(self.pallet_parts, PALLET_PART_OFFSETS):
             part.set_world_pose(position=center + offset, orientation=yaw_to_quat(0.0))
 
@@ -320,6 +339,48 @@ class HarimTransferOrchestrator:
                 except TypeError:
                     method([0.0, 0.0, 0.0])
 
+    def _set_item_kinematic(self, item, enabled=True):
+        prim = getattr(item, "prim", None)
+        prim_path = getattr(item, "prim_path", None)
+        if prim is None and prim_path is None:
+            return
+
+        try:
+            from isaacsim.core.utils.prims import get_prim_at_path
+            from pxr import UsdPhysics
+        except Exception:
+            return
+
+        if prim is None:
+            prim = get_prim_at_path(prim_path)
+        if prim is None or not prim.IsValid() or not prim.HasAPI(UsdPhysics.RigidBodyAPI):
+            return
+
+        rigid_body = UsdPhysics.RigidBodyAPI(prim)
+        attr = rigid_body.GetKinematicEnabledAttr()
+        if not attr.IsValid():
+            attr = rigid_body.CreateKinematicEnabledAttr()
+        attr.Set(bool(enabled))
+
+    def _lock_stack_items(self):
+        self.locked_stack_poses = {}
+        for item in self._get_stacked_items():
+            try:
+                pos, orient = item.get_world_pose()
+                self.locked_stack_poses[item.name] = (item, np.array(pos, dtype=float), orient)
+                self._stop_dynamic_item(item)
+                self._set_item_kinematic(item, True)
+            except Exception as exc:
+                print(f"[HarimDemo] could not lock stacked item: {exc}")
+
+    def _hold_locked_stack(self):
+        for item, pos, orient in self.locked_stack_poses.values():
+            try:
+                item.set_world_pose(position=pos, orientation=orient)
+                self._stop_dynamic_item(item)
+            except Exception as exc:
+                print(f"[HarimDemo] could not hold stacked item: {exc}")
+
     def _apply_lift_delta_to_stack(self, dz):
         if abs(dz) <= 1e-6:
             return
@@ -330,6 +391,8 @@ class HarimTransferOrchestrator:
                 lifted[2] += dz
                 item.set_world_pose(position=lifted, orientation=orient)
                 self._stop_dynamic_item(item)
+                if item.name in self.locked_stack_poses:
+                    self.locked_stack_poses[item.name] = (item, lifted, orient)
             except Exception as exc:
                 print(f"[HarimDemo] could not lift stacked item: {exc}")
 
@@ -350,6 +413,7 @@ class HarimTransferOrchestrator:
             pos, orient = part.get_world_pose()
             self.pallet_base_offsets[part.name] = (np.array(pos, dtype=float) - amr_pos, orient)
         self.carrying = True
+        self.locked_stack_poses = {}
         self._update_attached_items()
         print(f"[HarimDemo] attached {len(self.attached_items)} stacked items and {len(self.pallet_parts)} pallet parts")
 
@@ -401,6 +465,8 @@ class HarimTransferOrchestrator:
     def _sync_payload_pose(self):
         if self.carrying:
             self._update_attached_items()
+        elif self.locked_stack_poses:
+            self._hold_locked_stack()
         else:
             self._hold_dropped_assembly()
 
@@ -438,6 +504,7 @@ class HarimTransferOrchestrator:
         if self.state == TransferState.WAIT_STACK_COMPLETE:
             if getattr(self.context, "stack_complete", False):
                 print("[HarimDemo] stack_complete detected")
+                self._lock_stack_items()
                 self._transition(TransferState.ARM_SETTLE)
 
         elif self.state == TransferState.ARM_SETTLE:
@@ -530,7 +597,7 @@ def main():
         raise RuntimeError("Failed to enable required extension: isaacsim.robot.surface_gripper")
     simulation_app.update()
 
-    from isaacsim.core.api.objects.cuboid import VisualCuboid
+    from isaacsim.core.api.objects.cuboid import FixedCuboid, VisualCuboid
     from isaacsim.core.api.objects.capsule import VisualCapsule
     from isaacsim.core.api.objects.sphere import VisualSphere
     from isaacsim.core.api.tasks.base_task import BaseTask
@@ -721,11 +788,13 @@ def main():
         rail_color = np.array([0.18, 0.20, 0.21])
         roller_color = np.array([0.62, 0.66, 0.68])
         leg_color = np.array([0.12, 0.13, 0.14])
+        leg_height = DROP_WORKSTATION_Z - WORLD_FLOOR_Z
+        leg_center_z = WORLD_FLOOR_Z + leg_height * 0.5
 
         for side_idx, y_offset in enumerate((-0.58, 0.58)):
             workstation_parts.append(
                 world.scene.add(
-                    VisualCuboid(
+                    FixedCuboid(
                         f"{harim_root}/DropSlideRail_{side_idx}",
                         name=f"harim_drop_slide_rail_{side_idx}",
                         position=np.array([args.drop_x, args.drop_y + y_offset, DROP_WORKSTATION_Z], dtype=float),
@@ -752,18 +821,30 @@ def main():
             for leg_idx, x_offset in enumerate((-0.78, 0.78)):
                 workstation_parts.append(
                     world.scene.add(
-                        VisualCuboid(
+                        FixedCuboid(
                             f"{harim_root}/DropSlideLeg_{side_idx}_{leg_idx}",
                             name=f"harim_drop_slide_leg_{side_idx}_{leg_idx}",
                             position=np.array(
-                                [args.drop_x + x_offset, args.drop_y + y_offset, DROP_WORKSTATION_Z - 0.18],
+                                [args.drop_x + x_offset, args.drop_y + y_offset, leg_center_z],
                                 dtype=float,
                             ),
-                            scale=np.array([0.10, 0.10, 0.36]),
+                            scale=np.array([0.10, 0.10, leg_height]),
                             color=leg_color,
                         )
                     )
                 )
+        workstation_parts.append(
+            world.scene.add(
+                FixedCuboid(
+                    f"{harim_root}/DropSlideTopSupport",
+                    name="harim_drop_slide_top_support",
+                    position=np.array([args.drop_x, args.drop_y, DROP_WORKSTATION_Z + 0.08], dtype=float),
+                    scale=np.array([1.95, 1.12, 0.035]),
+                    visible=False,
+                    color=roller_color,
+                )
+            )
+        )
         return workstation_parts
 
     create_drop_slide_workstation()
@@ -772,37 +853,73 @@ def main():
         VisualCuboid(
             f"{harim_root}/IwHubLiftPlate",
             name="harim_iw_hub_lift_plate",
-            position=np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z + 0.33]),
+            position=np.array(
+                [args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z + AMR_LIFT_PLATE_OFFSET_Z]
+            ),
             scale=np.array([1.10, 0.72, 0.035]),
+            visible=amr_lift is None,
             color=np.array([0.10, 0.12, 0.13]),
         )
     )
 
     pallet_parts = []
     plank_color = np.array([0.62, 0.44, 0.23])
+    groove_color = np.array([0.30, 0.20, 0.10])
     block_color = np.array([0.42, 0.29, 0.15])
-    for idx in range(3):
+    pallet_parts.append(
+        world.scene.add(
+            FixedCuboid(
+                f"{harim_root}/PalletDeck_0",
+                name="harim_pallet_connected_top_deck",
+                scale=np.array([1.20, 1.08, 0.06]),
+                color=plank_color,
+            )
+        )
+    )
+    for idx in range(2):
         pallet_parts.append(
             world.scene.add(
-                VisualCuboid(
-                    f"{harim_root}/PalletDeck_{idx}",
-                    name=f"harim_pallet_deck_{idx}",
-                    scale=np.array([1.10, 0.12, 0.055]),
-                    color=plank_color,
+                FixedCuboid(
+                    f"{harim_root}/PalletRunner_{idx}",
+                    name=f"harim_pallet_side_runner_{idx}",
+                    scale=np.array([1.20, 0.14, 0.12]),
+                    color=block_color,
                 )
             )
         )
     for idx in range(6):
         pallet_parts.append(
             world.scene.add(
-                VisualCuboid(
+                FixedCuboid(
                     f"{harim_root}/PalletBlock_{idx}",
                     name=f"harim_pallet_block_{idx}",
-                    scale=np.array([0.16, 0.14, 0.09]),
+                    scale=np.array([0.18, 0.16, 0.12]),
                     color=block_color,
                 )
             )
         )
+    for idx in range(2):
+        pallet_parts.append(
+            world.scene.add(
+                VisualCuboid(
+                    f"{harim_root}/PalletGroove_{idx}",
+                    name=f"harim_pallet_top_groove_{idx}",
+                    scale=np.array([1.22, 0.028, 0.012]),
+                    color=groove_color,
+                )
+            )
+        )
+    pallet_parts.append(
+        world.scene.add(
+            FixedCuboid(
+                f"{harim_root}/PalletTopSupport",
+                name="harim_pallet_top_support",
+                scale=np.array([1.20, 1.08, 0.035]),
+                visible=False,
+                color=plank_color,
+            )
+        )
+    )
 
     class SelfTestBinState:
         def __init__(self, bin_obj):

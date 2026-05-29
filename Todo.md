@@ -1056,6 +1056,60 @@ headless transfer self-test 로그 확인:
 
 ---
 
+## 2026-05-29 현실감 보강 수정 메모
+
+GUI 확인 중 발견된 문제:
+
+- [x] 박스가 팔레트를 뚫고 떨어지는 문제
+- [x] AMR/리프트 부분이 공중에 떠 보이는 문제
+- [x] 팔레트 조각들이 서로 연결되지 않은 것처럼 보이는 문제
+
+수정 내용:
+
+- [x] 새 팔레트를 `VisualCuboid` 중심에서 `FixedCuboid` 충돌 지지 구조 중심으로 변경
+  - 연결된 상판: `harim_pallet_connected_top_deck`
+  - 양쪽 하부 러너: `PalletRunner_*`
+  - 측면 블록: `PalletBlock_*`
+  - 상판 홈 visual: `PalletGroove_*`
+  - 보이지 않는 상판 충돌 지지면: `PalletTopSupport`
+- [x] 기본 예제 팔레트를 지운 뒤에도 박스가 지지될 수 있도록 팔레트 상판에 충돌체 추가
+- [x] 적재 완료 시점부터 stacked bin을 lock/hold하도록 변경
+  - `stack_complete` 감지 시 `locked_stack_poses`에 박스 pose 저장
+  - 이후 AMR 접근/대기/리프트 시작 전까지 박스 pose와 속도를 계속 고정
+  - USD rigid body가 있으면 `kinematicEnabled=True`도 시도
+- [x] AMR 기본 Z 위치를 warehouse floor 기준 `WORLD_FLOOR_Z = -1.1818`에 맞춤
+- [x] 실제 `iw_hub/chassis/lift` prim이 있으면 보조 visual lift plate는 숨김
+  - 의도: 검은 보조 lift plate가 실제 리프트와 따로 공중에 떠 보이는 문제 제거
+- [x] 드롭 위치 작업대의 레일/다리에 `FixedCuboid` 충돌체 적용
+- [x] 작업대 다리 높이를 floor까지 닿도록 계산
+- [x] 드롭 작업대 위에도 보이지 않는 `DropSlideTopSupport` 충돌 지지면 추가
+
+검증 내용:
+
+- [x] custom orchestrator unittest 20개 통과
+- [x] Python compile 통과
+- [x] Isaac Sim 5.1.0 headless realism self-test 통과
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
+```
+
+headless realism self-test 확인 로그:
+
+- [x] `[HarimDemo] using iw_hub lift prim`
+- [x] `[HarimDemo] attached 4 stacked items and 12 pallet parts`
+- [x] `[HarimDemo] state -> MOVE_TO_DROP`
+- [x] `[HarimDemo] slide-released pallet assembly at drop pose`
+- [x] `[HarimDemo] completed transfer cycle 1`
+- [x] `[HarimDemo] self-test completed after 260 frames`
+
+---
+
 ## 2026-05-29 AMR 경로/팔레트 중복/드롭 작업대 수정 메모
 
 사용자 추가 요구사항:
