@@ -46,6 +46,22 @@ class FakePosePrim:
         self.angular_velocity = np.array(velocity, dtype=float)
 
 
+class FakeLight:
+    def __init__(self):
+        self.visible = None
+
+    def set_visibility(self, visible):
+        self.visible = bool(visible)
+
+
+class FakeCompletionSignal:
+    def __init__(self):
+        self.completed_values = []
+
+    def set_completed(self, completed):
+        self.completed_values.append(bool(completed))
+
+
 class FakeBinState:
     def __init__(self, item):
         self.bin_obj = item
@@ -113,7 +129,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.demo = load_demo_module()
 
-    def build_orchestrator(self, args, amr_lift_prim=None):
+    def build_orchestrator(self, args, amr_lift_prim=None, completion_signal=None):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
         context = FakeContext(items)
         world = FakeWorld()
@@ -127,6 +143,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             pallet_parts=[FakePosePrim(f"pallet_{idx}") for idx in range(len(self.demo.PALLET_PART_OFFSETS))],
             stack_coordinates=self.demo.make_stack_coordinates(2, 2, 1),
             args=args,
+            completion_signal=completion_signal,
         )
         return orchestrator, context, world, items
 
@@ -153,6 +170,45 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
     def test_default_drop_distance_is_over_ten_meters(self):
         self.assertGreaterEqual(self.demo.DEFAULT_DROP_X - self.demo.DEFAULT_PICKUP_X, 10.0)
+
+    def test_arm_timing_constants_allow_visible_settle(self):
+        self.assertGreaterEqual(self.demo.REACH_PICK_MAX_DURATION, 5.5)
+        self.assertGreaterEqual(self.demo.REACH_PLACE_MAX_DURATION, 3.5)
+        self.assertGreaterEqual(self.demo.RETURN_READY_DURATION, 2.0)
+
+    def test_completion_signal_controller_toggles_red_green(self):
+        red = FakeLight()
+        green = FakeLight()
+        signal = self.demo.CompletionSignalController(red_light=red, green_light=green)
+
+        signal.set_completed(False)
+        self.assertTrue(red.visible)
+        self.assertFalse(green.visible)
+
+        signal.set_completed(True)
+        self.assertFalse(red.visible)
+        self.assertTrue(green.visible)
+
+    def test_stack_complete_signal_turns_green_before_amr_approach(self):
+        signal = FakeCompletionSignal()
+        orchestrator, context, _world, _items = self.build_orchestrator(Args(), completion_signal=signal)
+        context.stack_complete = True
+
+        orchestrator.step(0.1)
+
+        self.assertEqual(signal.completed_values[-1], True)
+        self.assertEqual(orchestrator.state, self.demo.TransferState.ARM_SETTLE)
+
+    def test_arm_settle_time_delays_amr_approach(self):
+        orchestrator, context, _world, _items = self.build_orchestrator(Args())
+        context.stack_complete = True
+
+        orchestrator.step(0.1)
+        orchestrator.step(self.demo.ARM_CLEAR_SETTLE_TIME - 0.1)
+        self.assertEqual(orchestrator.state, self.demo.TransferState.ARM_SETTLE)
+
+        orchestrator.step(0.2)
+        self.assertEqual(orchestrator.state, self.demo.TransferState.MOVE_TO_APPROACH)
 
     def test_carton_visual_dimensions_are_box_like(self):
         body = self.demo.CARTON_BODY_SCALE
@@ -219,6 +275,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("class DemoPickAndPlaceBin", source)
         self.assertIn("PICK_READY_EE_POSITION", source)
         self.assertIn("class DemoTimedArmMoveTo", source)
+        self.assertIn("CompletionSignalController", source)
+        self.assertIn("StackCompleteSignalGreen", source)
+        self.assertIn("ARM_CLEAR_SETTLE_TIME", source)
         self.assertIn("CARTON_BODY_SCALE", source)
         self.assertIn("HarimCartonBody", source)
         self.assertIn("HarimCartonTopTape", source)
@@ -228,8 +287,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("move_start_pose", source)
         self.assertIn("move_duration", source)
         self.assertIn("smoothstep", source)
-        self.assertIn('max_duration=3.20, label="reach_pick"', source)
-        self.assertIn('max_duration=3.00, label="reach_place"', source)
+        self.assertIn("REACH_PICK_MAX_DURATION", source)
+        self.assertIn("REACH_PLACE_MAX_DURATION", source)
+        self.assertIn("RETURN_READY_DURATION", source)
         self.assertIn('label="return_ready"', source)
         self.assertIn("hold_active_bin_for_pick", source)
         self.assertIn('getattr(self.context, "stack_complete", False)', source)
@@ -238,6 +298,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("compute_active_bin_grasp_pose_at_effector", source)
         self.assertIn("place_active_bin_grasp_at_effector", source)
         self.assertIn("get_demo_pre_grip_bin", source)
+        self.assertIn("restore_demo_carried_active_bin", source)
         self.assertIn("clear_demo_carry_context", source)
         self.assertIn("clone_stack_coordinates", source)
         self.assertIn("get_demo_stack_coordinate", source)
@@ -276,8 +337,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertIn("--self-test-min-placed-bins", source)
         self.assertIn("--self-test-min-transfer-cycles", source)
+        self.assertIn("--self-test-max-pre-grip-offset", source)
         self.assertIn("UR10 placed", source)
         self.assertIn("AMR completed", source)
+        self.assertIn("max pre-grip offset", source)
+        self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("transfer_cycles=", source)
         self.assertIn("expected at least", source)
         self.assertIn("[HarimDemo] self-test failed", source)

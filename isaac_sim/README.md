@@ -271,3 +271,20 @@ GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 경로를 줄
 - Python compile 통과
 - 7000-frame full end-to-end self-test 통과: `placed_bins=8; transfer_cycles=1`
 - 로그에서 `bin_0`부터 `bin_7`까지 `demo-placed`, `stack-count 8/8 after bin_7`, `active-bin -> None` 확인
+
+## 2026-05-29 적재 완료 신호등 및 pre-grip 현실감 게이트
+
+장면 안에 적재 완료 신호등을 추가했습니다. 적재 중에는 빨간 불, `stack_complete` 감지 뒤에는 초록 불로 바뀌어 AMR 호출 타이밍이 화면에서도 보입니다.
+
+- `CompletionSignalController`가 red/green light visibility를 전환합니다.
+- `ARM_CLEAR_SETTLE_TIME = 1.8`초를 둬서 적재 완료 직후 로봇팔이 물러난 다음 AMR이 접근합니다.
+- `restore_demo_carried_active_bin()`으로 공식 `ReachToPlace` 중 `active_bin`이 비는 경우를 복원합니다.
+- pick/return 시간을 늘려 후반 박스에서도 그리퍼 근처에서 attach되도록 조정했습니다.
+- `--self-test-max-pre-grip-offset` / `-SelfTestMaxPreGripOffset` 옵션으로 pre-grip 보정량을 회귀 테스트합니다.
+
+확인 결과:
+
+- unittest 28개 통과
+- Python compile 통과
+- 8000-frame full end-to-end self-test 통과
+- `max_pre_grip_offset=0.0049` m로 5 cm 게이트 통과

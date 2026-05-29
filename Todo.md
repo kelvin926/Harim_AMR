@@ -1539,3 +1539,51 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `slide-released pallet assembly at drop pose`
   - `completed transfer cycle 1`
   - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`
+
+---
+
+## 2026-05-29 적재 완료 신호등 및 pre-grip 현실감 게이트 메모
+
+GUI에서 자연스럽게 보이려면 단순히 전체 사이클이 끝나는 것만으로는 부족하다. 후반 박스에서 로봇팔이 pick 위치에 충분히 도달하지 못한 채 scripted attach가 들어가면 박스가 그리퍼로 순간 보정되는 것처럼 보인다. 그래서 이번 변경에서는 적재 완료 신호를 실제 장면 안에 보이게 만들고, self-test가 pre-grip 보정량까지 검사하도록 보강했다.
+
+수정 내용:
+
+- [x] `CompletionSignalController` 추가
+  - 적재 중에는 빨간 불, `stack_complete` 감지 후에는 초록 불이 보이도록 `StackCompleteSignalRed` / `StackCompleteSignalGreen` visibility를 전환한다.
+- [x] 장면에 완료 신호등 visual 추가
+  - `StackCompleteSignalBase`, `StackCompleteSignalPost`, `StackCompleteSignalHousing`, red/green light로 구성한다.
+  - 적재 완료 신호가 로그뿐 아니라 화면에서도 보이도록 했다.
+- [x] `ARM_CLEAR_SETTLE_TIME = 1.8` 추가
+  - 적재 완료 직후 AMR이 바로 들어오지 않고, 로봇팔이 go-home/clear 자세로 물러날 시간을 둔다.
+- [x] `restore_demo_carried_active_bin()` 추가
+  - 공식 `ReachToPlace`가 실행되는 도중 Cortex monitor가 `active_bin`을 `None`으로 비우는 경우가 있어, 실제 운반 중인 `demo_carried_bin`을 state 실행 전에 다시 `active_bin`으로 복원한다.
+  - 이 보강 없이는 `AttributeError: 'NoneType' object has no attribute 'bin_obj'`가 발생할 수 있었다.
+- [x] pick/return timing 현실감 보강
+  - `REACH_PICK_MAX_DURATION = 5.8`
+  - `REACH_PLACE_MAX_DURATION = 3.6`
+  - `RETURN_READY_DURATION = 2.2`
+  - 후반 박스에서도 팔이 pick 위치에 실제로 가까워진 뒤 scripted attach가 들어가도록 조정했다.
+- [x] `--self-test-max-pre-grip-offset` 옵션 추가
+  - self-test에서 pre-grip 보정량이 지정 임계값을 넘으면 실패하도록 했다.
+  - PowerShell wrapper에도 `-SelfTestMaxPreGripOffset` 옵션을 추가했다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim/scripts/run_harim_pallet_demo.py isaac_sim/tests/test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 8000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 28개 통과
+- [x] Python compile 통과
+- [x] 8000-frame end-to-end self-test 통과
+  - `stack-count 8/8 after bin_7`
+  - `stack_complete detected`
+  - `attached 8 stacked items and 12 pallet parts`
+  - `slide-released pallet assembly at drop pose`
+  - `completed transfer cycle 1`
+  - `self-test completed after 8000 frames; placed_bins=8; transfer_cycles=1; max_pre_grip_offset=0.0049`

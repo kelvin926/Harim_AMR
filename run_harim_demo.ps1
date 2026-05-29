@@ -10,6 +10,7 @@ param(
     [switch]$SelfTestDebugBins,
     [int]$SelfTestMinPlacedBins = 0,
     [int]$SelfTestMinTransferCycles = 0,
+    [double]$SelfTestMaxPreGripOffset = 0.0,
     [double]$MoveSpeed = 0.65,
     [double]$PickupX = 0.82,
     [double]$PickupY = -0.31,
@@ -46,6 +47,7 @@ $ArgsList = @(
     "--self-test-frames", $SelfTestFrames,
     "--self-test-min-placed-bins", $SelfTestMinPlacedBins,
     "--self-test-min-transfer-cycles", $SelfTestMinTransferCycles,
+    "--self-test-max-pre-grip-offset", $SelfTestMaxPreGripOffset,
     "--move-speed", $MoveSpeed,
     "--pickup-x", $PickupX,
     "--pickup-y", $PickupY,
@@ -66,3 +68,8 @@ if ($SelfTestDebugBins) {
 }
 
 & $PythonExe -u @ArgsList
+$PythonExitCode = $LASTEXITCODE
+if ($PythonExitCode -ne 0) {
+    exit $PythonExitCode
+}
+exit 0

@@ -2,6 +2,7 @@ import argparse
 import math
 import os
 import time
+import traceback
 from enum import Enum, auto
 from pathlib import Path
 
@@ -22,6 +23,10 @@ PICK_STATION_BIN_POSITION = np.array([0.0, 0.42, -0.15], dtype=float)
 CONVEYOR_PICK_WINDOW_Y = 0.68
 PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
 POST_RELEASE_CLEARANCE_LIFT = 0.22
+ARM_CLEAR_SETTLE_TIME = 1.8
+REACH_PICK_MAX_DURATION = 5.8
+REACH_PLACE_MAX_DURATION = 3.6
+RETURN_READY_DURATION = 2.2
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
 AMR_LIFT_PLATE_OFFSET_Z = 0.48
@@ -106,6 +111,12 @@ def parse_args():
         action="store_true",
         help="Print bin spawn, active-bin, and stack-count transitions during fixed-frame self-tests.",
     )
+    parser.add_argument(
+        "--self-test-max-pre-grip-offset",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if any scripted pre-grip correction exceeds this distance in meters. 0 disables the check.",
+    )
     return parser.parse_args()
 
 
@@ -155,6 +166,20 @@ class TransferState(Enum):
     SLIDE_OUT_FROM_PALLET = auto()
     RESET_CYCLE = auto()
     DONE_IDLE = auto()
+
+
+class CompletionSignalController:
+    def __init__(self, red_light=None, green_light=None):
+        self.red_light = red_light
+        self.green_light = green_light
+        self.completed = False
+
+    def set_completed(self, completed):
+        self.completed = bool(completed)
+        if self.red_light is not None:
+            self.red_light.set_visibility(not self.completed)
+        if self.green_light is not None:
+            self.green_light.set_visibility(self.completed)
 
 
 def clamp(value, low, high):
@@ -245,6 +270,7 @@ class HarimTransferOrchestrator:
         stack_coordinates,
         args,
         amr_lift_prim=None,
+        completion_signal=None,
     ):
         self.world = world
         self.context = context
@@ -255,6 +281,7 @@ class HarimTransferOrchestrator:
         self.pallet_parts = pallet_parts
         self.stack_coordinates = stack_coordinates
         self.args = args
+        self.completion_signal = completion_signal
 
         self.state = TransferState.WAIT_STACK_COMPLETE
         self.state_time = 0.0
@@ -322,6 +349,8 @@ class HarimTransferOrchestrator:
         self.set_amr_pose(self.start_pose)
         self._set_lift_plate_pose()
         self._reset_pallet_pose()
+        if self.completion_signal is not None:
+            self.completion_signal.set_completed(False)
 
     def set_amr_pose(self, position):
         self.amr.set_world_pose(position=np.array(position, dtype=float), orientation=yaw_to_quat(self.amr_yaw))
@@ -558,11 +587,13 @@ class HarimTransferOrchestrator:
         if self.state == TransferState.WAIT_STACK_COMPLETE:
             if getattr(self.context, "stack_complete", False):
                 print("[HarimDemo] stack_complete detected")
+                if self.completion_signal is not None:
+                    self.completion_signal.set_completed(True)
                 self._lock_stack_items()
                 self._transition(TransferState.ARM_SETTLE)
 
         elif self.state == TransferState.ARM_SETTLE:
-            if self.state_time >= 1.0:
+            if self.state_time >= ARM_CLEAR_SETTLE_TIME:
                 self._transition(TransferState.MOVE_TO_APPROACH)
 
         elif self.state in (
@@ -790,6 +821,14 @@ def main():
     def get_demo_pre_grip_bin(context):
         return getattr(context, "demo_pre_grip_bin", None)
 
+    def restore_demo_carried_active_bin(context):
+        carried_bin = get_demo_carried_bin(context)
+        if carried_bin is None or not getattr(carried_bin, "demo_attached", False):
+            return None
+        context.active_bin = carried_bin
+        carried_bin.is_attached = True
+        return carried_bin
+
     def clear_demo_carry_context(context):
         context.active_bin = None
         context.demo_carried_bin = None
@@ -871,6 +910,11 @@ def main():
                 set_kinematic_for_demo(active_bin.bin_obj, True)
                 stop_dynamic_prim(active_bin.bin_obj)
             self.context.demo_pre_grip_initial_offset = offset
+            if offset is not None:
+                self.context.demo_max_pre_grip_offset = max(
+                    float(getattr(self.context, "demo_max_pre_grip_offset", 0.0)),
+                    float(offset),
+                )
             if args.self_test_debug_bins and offset is not None:
                 print(f"[HarimDemo] pre-grip offset {offset:.4f} m; settle={self.duration:.2f}s", flush=True)
 
@@ -1065,9 +1109,11 @@ def main():
         def enter(self):
             self.entry_time = get_demo_time(self.context)
             print(f"[HarimDemo] {self.label} start", flush=True)
+            restore_demo_carried_active_bin(self.context)
             self.state.enter()
 
         def step(self):
+            restore_demo_carried_active_bin(self.context)
             next_state = self.state.step()
             if next_state is None:
                 return None
@@ -1109,16 +1155,16 @@ def main():
             super().__init__(
                 DfStateSequence(
                     [
-                        DemoTimedState(behavior.ReachToPick(), max_duration=3.20, label="reach_pick"),
+                        DemoTimedState(behavior.ReachToPick(), max_duration=REACH_PICK_MAX_DURATION, label="reach_pick"),
                         DemoSettleBinAtGripper(min_duration=0.25, max_duration=1.10),
                         DfSetLockState(set_locked_to=True, decider=self),
                         DemoAttachBin(),
                         DemoTimedArmLift(height=0.24, duration=0.35),
-                        DemoTimedState(behavior.ReachToPlace(), max_duration=3.00, label="reach_place"),
+                        DemoTimedState(behavior.ReachToPlace(), max_duration=REACH_PLACE_MAX_DURATION, label="reach_place"),
                         DfWaitState(wait_time=0.15),
                         DemoReleaseBin(),
                         DemoTimedArmLift(height=POST_RELEASE_CLEARANCE_LIFT, duration=0.35),
-                        DemoTimedArmMoveTo(PICK_READY_EE_POSITION, duration=0.90, label="return_ready"),
+                        DemoTimedArmMoveTo(PICK_READY_EE_POSITION, duration=RETURN_READY_DURATION, label="return_ready"),
                         DemoMarkCarriedBinComplete(),
                         DfSetLockState(set_locked_to=False, decider=self),
                     ]
@@ -1131,7 +1177,7 @@ def main():
             return super().decide()
 
     def sync_demo_attached_bin(context):
-        active_bin = get_demo_carried_bin(context)
+        active_bin = restore_demo_carried_active_bin(context)
         if active_bin is None:
             if not context.has_active_bin:
                 return
@@ -1157,6 +1203,7 @@ def main():
             self.add_child("do_nothing", DfStateMachineDecider(behavior.DoNothing()))
 
         def decide(self):
+            restore_demo_carried_active_bin(self.context)
             active_name = self.context.active_bin.bin_obj.name if self.context.has_active_bin else None
             if args.self_test_debug_bins and active_name != getattr(self.context, "demo_last_active_name", None):
                 print(f"[HarimDemo] active-bin -> {active_name}", flush=True)
@@ -1248,6 +1295,62 @@ def main():
 
     harim_root = "/World/HarimDemo"
     omni.kit.commands.execute("CreatePrim", prim_path=harim_root, prim_type="Xform")
+
+    def create_completion_signal():
+        signal_x = args.pickup_x + 0.92
+        signal_y = args.pickup_y - 0.92
+        base_z = WORLD_FLOOR_Z + 0.04
+        post_center_z = WORLD_FLOOR_Z + 0.48
+        housing_center_z = WORLD_FLOOR_Z + 0.96
+        world.scene.add(
+            VisualCuboid(
+                f"{harim_root}/StackCompleteSignalBase",
+                name="harim_stack_complete_signal_base",
+                position=np.array([signal_x, signal_y, base_z], dtype=float),
+                scale=np.array([0.28, 0.22, 0.08]),
+                color=np.array([0.08, 0.08, 0.08]),
+            )
+        )
+        world.scene.add(
+            VisualCuboid(
+                f"{harim_root}/StackCompleteSignalPost",
+                name="harim_stack_complete_signal_post",
+                position=np.array([signal_x, signal_y, post_center_z], dtype=float),
+                scale=np.array([0.045, 0.045, 0.86]),
+                color=np.array([0.12, 0.12, 0.12]),
+            )
+        )
+        world.scene.add(
+            VisualCuboid(
+                f"{harim_root}/StackCompleteSignalHousing",
+                name="harim_stack_complete_signal_housing",
+                position=np.array([signal_x, signal_y, housing_center_z], dtype=float),
+                scale=np.array([0.18, 0.13, 0.34]),
+                color=np.array([0.05, 0.05, 0.05]),
+            )
+        )
+        red_light = world.scene.add(
+            VisualSphere(
+                f"{harim_root}/StackCompleteSignalRed",
+                name="harim_stack_complete_signal_red",
+                position=np.array([signal_x, signal_y - 0.072, WORLD_FLOOR_Z + 1.04], dtype=float),
+                radius=0.055,
+                color=np.array([0.85, 0.05, 0.04]),
+            )
+        )
+        green_light = world.scene.add(
+            VisualSphere(
+                f"{harim_root}/StackCompleteSignalGreen",
+                name="harim_stack_complete_signal_green",
+                position=np.array([signal_x, signal_y - 0.072, WORLD_FLOOR_Z + 0.88], dtype=float),
+                radius=0.055,
+                visible=False,
+                color=np.array([0.08, 0.78, 0.18]),
+            )
+        )
+        return CompletionSignalController(red_light=red_light, green_light=green_light)
+
+    completion_signal = create_completion_signal()
 
     iw_hub_usd = assets_root + "/Isaac/Samples/AnimRobot/iw_hub.usd"
     add_reference_to_stage(iw_hub_usd, f"{harim_root}/iw_hub")
@@ -1435,6 +1538,7 @@ def main():
         pallet_parts=pallet_parts,
         stack_coordinates=stack_coordinates,
         args=args,
+        completion_signal=completion_signal,
     )
 
     world.reset()
@@ -1442,6 +1546,7 @@ def main():
     decider_network.context.stack_coordinates = clone_stack_coordinates(stack_coordinates)
     decider_network.context.demo_stack_coordinates = clone_stack_coordinates(stack_coordinates)
     decider_network.context.demo_sim_time = 0.0
+    decider_network.context.demo_max_pre_grip_offset = 0.0
     orchestrator.reset_visual_state()
 
     def force_self_test_stack_complete():
@@ -1478,18 +1583,29 @@ def main():
                     f"AMR completed {transfer_cycles} transfer cycles, "
                     f"expected at least {args.self_test_min_transfer_cycles}"
                 )
+            max_pre_grip_offset = float(getattr(decider_network.context, "demo_max_pre_grip_offset", 0.0))
+            if args.self_test_max_pre_grip_offset > 0 and max_pre_grip_offset > args.self_test_max_pre_grip_offset:
+                self_test_failures.append(
+                    f"max pre-grip offset {max_pre_grip_offset:.4f} m exceeded "
+                    f"{args.self_test_max_pre_grip_offset:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
             else:
                 print(
                     f"[HarimDemo] self-test completed after {args.self_test_frames} frames; "
-                    f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}",
+                    f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}; "
+                    f"max_pre_grip_offset={max_pre_grip_offset:.4f}",
                     flush=True,
                 )
         else:
             while simulation_app.is_running():
                 step_demo_frame()
+    except Exception as exc:
+        print(f"[HarimDemo] simulation aborted: {exc}", flush=True)
+        traceback.print_exc()
+        raise
     finally:
         simulation_app.close()
     if self_test_failure_message is not None:
