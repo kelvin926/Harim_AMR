@@ -1,5 +1,15 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Review GIF 최신본 고정 경로 추가
+
+- 매 실행마다 timestamp가 들어간 review GIF를 보존하면서, 같은 내용을 `isaacsim_outputs/latest_review.gif`로 복사합니다.
+- `DemoGifRecorder.save()`는 timestamp GIF 저장 후 `latest_review.gif`를 갱신하고, 로그에 `latest review GIF updated:`를 출력합니다.
+- self-test 완료 summary에는 `review_gif_path=`와 `latest_review_gif_path=`가 함께 남습니다.
+- 검증 로그: `isaacsim_logs/harim_latest_review_gif_strict_full_e2e_12000.log`
+- timestamp GIF: `isaacsim_outputs/harim_amr_review_20260530_032756_19012.gif`
+- 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `review_gif_path=E:\Harim_AMR\isaacsim_outputs\harim_amr_review_20260530_032756_19012.gif`, `latest_review_gif_path=E:\Harim_AMR\isaacsim_outputs\latest_review.gif`
+
 ## 2026-05-30 Pickup Entry 동적 Clearance 검증
 
 - AMR이 팔레트 밑으로 진입하는 `MOVE_UNDER_PALLET` 전체 구간에서 매 frame 진입 geometry를 샘플링합니다.

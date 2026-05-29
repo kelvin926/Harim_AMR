@@ -1,6 +1,7 @@
 import argparse
 import math
 import os
+import shutil
 import time
 import traceback
 from enum import Enum, auto
@@ -16,6 +17,7 @@ DEFAULT_PICKUP_Y = -0.31
 DEFAULT_DROP_X = DEFAULT_PICKUP_X + 10.6
 DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
 DEFAULT_GIF_OUTPUT_DIR = PROJECT_ROOT / "isaacsim_outputs"
+LATEST_REVIEW_GIF_NAME = "latest_review.gif"
 GIF_CANVAS_SIZE = (720, 420)
 GIF_FRAME_STRIDE = 80
 GIF_MAX_FRAMES = 180
@@ -2048,6 +2050,7 @@ class DemoGifRecorder:
         self.canvas_size = tuple(canvas_size)
         self.frames = []
         self.saved_path = None
+        self.latest_path = None
         self.last_captured_frame = None
         self.disabled_reason = None
 
@@ -2097,6 +2100,13 @@ class DemoGifRecorder:
             )
             self.saved_path = str(output_path)
             print(f"[HarimDemo] review GIF saved: {self.saved_path}", flush=True)
+            try:
+                latest_output_path = self.output_dir / LATEST_REVIEW_GIF_NAME
+                shutil.copyfile(output_path, latest_output_path)
+                self.latest_path = str(latest_output_path)
+                print(f"[HarimDemo] latest review GIF updated: {self.latest_path}", flush=True)
+            except Exception as exc:
+                print(f"[HarimDemo] latest review GIF update failed: {exc}", flush=True)
             return self.saved_path
         except Exception as exc:
             print(f"[HarimDemo] review GIF save failed: {exc}", flush=True)
@@ -6112,7 +6122,8 @@ def main():
                     f"drop_dock_arrival_count={drop_dock_arrival_count}; "
                     f"drop_approach_final_error={drop_approach_final_error:.4f}; "
                     f"drop_dock_final_error={drop_dock_final_error:.4f}; "
-                    f"review_gif_path={review_gif_path or ''}",
+                    f"review_gif_path={review_gif_path or ''}; "
+                    f"latest_review_gif_path={getattr(gif_recorder, 'latest_path', '') or ''}",
                     flush=True,
                 )
         else:

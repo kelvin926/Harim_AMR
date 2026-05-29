@@ -680,6 +680,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             self.assertEqual(output_path.suffix, ".gif")
             self.assertTrue(output_path.exists())
             self.assertGreater(output_path.stat().st_size, 0)
+            latest_path = Path(tmp_dir) / self.demo.LATEST_REVIEW_GIF_NAME
+            self.assertTrue(latest_path.exists())
+            self.assertEqual(recorder.latest_path, str(latest_path))
+            self.assertGreater(latest_path.stat().st_size, 0)
 
     def test_review_gif_recorder_saves_fallback_when_no_frames_exist(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -694,6 +698,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             self.assertEqual(output_path.suffix, ".gif")
             self.assertTrue(output_path.exists())
             self.assertGreater(output_path.stat().st_size, 0)
+            self.assertTrue((Path(tmp_dir) / self.demo.LATEST_REVIEW_GIF_NAME).exists())
 
     def test_review_gif_recorder_saves_fallback_after_capture_failure(self):
         orchestrator, context, _world, _items = self.build_orchestrator(Args())
@@ -860,11 +865,14 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("class DemoPickAndPlaceBin", source)
         self.assertIn("class DemoGifRecorder", source)
         self.assertIn("DEFAULT_GIF_OUTPUT_DIR", source)
+        self.assertIn("LATEST_REVIEW_GIF_NAME", source)
         self.assertIn("GIF_FRAME_STRIDE", source)
         self.assertIn("GIF_MAX_FRAMES", source)
         self.assertIn("gif_recorder.maybe_capture", source)
         self.assertIn("save_review_gif", source)
         self.assertIn("review_gif_path=", source)
+        self.assertIn("latest_review_gif_path=", source)
+        self.assertIn("latest review GIF updated", source)
         self.assertIn("requested_enabled", source)
         self.assertIn("disabled_reason", source)
         self.assertIn("def _draw_fallback_frame", source)
