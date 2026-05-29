@@ -13,9 +13,11 @@
 - [x] 검증 완료
   - py_compile 통과
   - unittest 80개 통과
-  - 12000-frame strict full end-to-end self-test 통과
+  - 12000-frame strict full end-to-end self-test 2회 연속 통과
   - 로그 파일: `isaacsim_logs/harim_motion_phase_scripted_released_strict_full_e2e_12000.log`
+  - 반복 검증 로그 파일: `isaacsim_logs/harim_repeat_stability_strict_full_e2e_12000.log`
   - GIF: `isaacsim_outputs/harim_amr_review_20260530_070051_16232.gif`
+  - 반복 검증 GIF: `isaacsim_outputs/harim_amr_review_20260530_070921_16244.gif`
   - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
   - GIF 크기: `960x540`, `151` frames
   - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `scripted_place_bin_motion_sample_count=335`, `released_bin_motion_sample_count=1638`, `max_scripted_place_bin_frame_displacement=0.0303`, `max_released_bin_frame_displacement=0.0000`, `max_attached_grasp_error=0.1569`, `max_arm_ee_frame_displacement=0.2092`
