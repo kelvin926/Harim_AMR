@@ -1283,3 +1283,52 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 - 2번째 이후 일부 박스에서 Isaac Sim surface gripper가 실제 물리 close 판정을 못 받아 warning을 출력할 수 있다. 데모 로직은 `demo_carried_bin` 기반 fallback attach/release로 진행되므로 적재 시퀀스는 계속 동작한다.
 - GUI 시각 품질을 더 높이려면 후속 작업에서 pick station 위치, UR10 중간 경유 자세, suction gripper의 실제 grip threshold를 추가로 튜닝하면 된다.
+
+---
+
+## 2026-05-29 UR10 pre-grip 정렬과 release 안정화 추가 보강
+
+GUI 확인에서 박스가 그리퍼에 계속 붙어 보이는 문제를 더 줄이기 위해 pick 직전과 release 구간을 다시 조정했다.
+
+수정 내용:
+
+- [x] `DemoSettleBinAtGripper` state 추가
+  - `ReachToPick` 직후 active bin의 grasp frame을 현재 UR10 end-effector frame에 맞춘다.
+  - 0.20초 동안 같은 정렬을 유지해서 표면 그리퍼 close 직전 박스가 그리퍼 근처에 안정적으로 보이도록 한다.
+- [x] `demo_pre_grip_initial_offset` 기록
+  - headless debug에서 `pre-grip offset ... m` 로그로 실제 접근 오차를 확인한다.
+  - 오차가 작으면 실제 `suction_gripper.close()`를 시도한다.
+  - 오차가 큰 경우에는 Isaac Sim surface gripper close warning을 만들지 않도록 실제 close를 생략하고 scripted fallback attach로 진행한다.
+- [x] 스폰 직후 박스의 rigid body kinematic 상태는 강제로 바꾸지 않도록 정리
+  - 새 박스를 스폰할 때 dynamic/kinematic을 무리하게 전환하면 컨베이어 active 영역에 들어오기 전에 박스가 빠지는 경우가 있었다.
+  - 물리 상태는 기본 예제에 맡기고, active bin으로 잡힌 뒤 pick station과 gripper 정렬 단계에서만 kinematic 고정을 사용한다.
+- [x] release는 기존처럼 0.35초 동안 유지
+  - `open()`을 반복 호출하고, 박스를 목표 stack 좌표에 고정해 GUI에서 다시 그리퍼에 끌려가는 것처럼 보이는 현상을 줄인다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 4200 -SelfTestMinPlacedBins 4 -SelfTestDebugBins -Cycles 1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
+```
+
+확인된 결과:
+
+- [x] unittest 21개 통과
+- [x] Python compile 통과
+- [x] 4200-frame UR10 적재 self-test 통과
+  - `placed_bins=4`
+  - `pre-grip offset` 로그 확인
+  - 큰 offset에서는 `suction close skipped for fallback attach` 로그 후 적재 계속 진행
+- [x] 260-frame AMR transfer self-test 통과
+  - `attached 4 stacked items and 12 pallet parts`
+  - `slide-released pallet assembly at drop pose`
+  - `completed transfer cycle 1`
+
+남은 주의점:
+
+- 이번 보강은 설명용 데모의 안정성과 시각적 연속성을 우선한 방식이다. 큰 offset에서 fallback attach가 발생하면 박스가 그리퍼에 맞춰 보정되므로, 실제 물리 grasp 검증이라기보다는 데모 연출에 가깝다.
+- 더 현실적으로 만들려면 다음 단계에서 UR10의 pick 중간 경유 자세와 RMPflow 목표를 조정해서 `pre-grip offset`이 항상 8 cm 이하가 되도록 줄여야 한다.

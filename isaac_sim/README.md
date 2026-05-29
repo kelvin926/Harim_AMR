@@ -158,3 +158,16 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 - 4200프레임 검증에서 `placed_bins=4`까지 확인됨
 
 참고: 일부 박스에서 Isaac Sim surface gripper의 실제 물리 close 판정 warning이 나올 수 있습니다. 데모는 `demo_carried_bin` fallback attach/release로 계속 진행되도록 구성했습니다.
+
+## 2026-05-29 pre-grip 정렬 추가 보강
+
+`ReachToPick` 직후 `DemoSettleBinAtGripper`가 active bin의 grasp frame을 UR10 end-effector frame에 맞춰 0.20초 동안 유지합니다. 접근 오차가 작으면 실제 suction close를 시도하고, 오차가 큰 경우에는 surface gripper close를 생략한 뒤 scripted fallback attach/release로 진행합니다. GUI에서 박스가 그리퍼에 계속 붙어 보이거나 release 뒤 다시 끌려가는 현상을 줄이기 위한 처리입니다.
+
+추가 확인:
+
+```powershell
+cd E:\Harim_AMR
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 4200 -SelfTestMinPlacedBins 4 -SelfTestDebugBins -Cycles 1
+```
+
+2026-05-29 확인 결과: `placed_bins=4`까지 통과했고, AMR transfer self-test도 `completed transfer cycle 1`까지 통과했습니다.

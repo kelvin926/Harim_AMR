@@ -733,17 +733,70 @@ def main():
             return
         if not getattr(active_bin, "demo_pick_stationed", False):
             _position, orientation = active_bin.bin_obj.get_world_pose()
+            set_kinematic_for_demo(active_bin.bin_obj, True)
             active_bin.bin_obj.set_world_pose(position=PICK_STATION_BIN_POSITION, orientation=orientation)
             active_bin.demo_pick_stationed = True
+        else:
+            set_kinematic_for_demo(active_bin.bin_obj, True)
         stop_dynamic_prim(active_bin.bin_obj)
+
+    def place_active_bin_grasp_at_effector(context):
+        active_bin = getattr(context, "active_bin", None)
+        if active_bin is None:
+            return None
+        grasp_T = getattr(active_bin, "grasp_T", None)
+        if grasp_T is None:
+            return None
+
+        eff_T = context.robot.arm.get_fk_T()
+        bin_T = cortex_math_util.pq2T(*active_bin.bin_obj.get_world_pose())
+        grasp_to_bin_T = cortex_math_util.invert_T(grasp_T).dot(bin_T)
+        desired_bin_T = eff_T.dot(grasp_to_bin_T)
+        position, orientation = cortex_math_util.T2pq(desired_bin_T)
+        set_kinematic_for_demo(active_bin.bin_obj, True)
+        active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
+        stop_dynamic_prim(active_bin.bin_obj)
+        return float(np.linalg.norm(eff_T[:3, 3] - grasp_T[:3, 3]))
+
+    class DemoSettleBinAtGripper(DfState):
+        def __init__(self, duration=0.20):
+            self.duration = duration
+            self.entry_time = None
+
+        def enter(self):
+            self.entry_time = time.time()
+            offset = place_active_bin_grasp_at_effector(self.context)
+            self.context.demo_pre_grip_initial_offset = offset
+            if args.self_test_debug_bins and offset is not None:
+                print(f"[HarimDemo] pre-grip offset {offset:.4f} m", flush=True)
+
+        def step(self):
+            if self.entry_time is None:
+                return None
+            place_active_bin_grasp_at_effector(self.context)
+            if time.time() - self.entry_time < self.duration:
+                return self
+            return None
+
+        def exit(self):
+            self.entry_time = None
 
     class DemoAttachBin(DfState):
         def enter(self):
             print("<close gripper>", flush=True)
-            try:
-                self.context.robot.suction_gripper.close()
-            except Exception as exc:
-                print(f"[HarimDemo] suction close fallback: {exc}", flush=True)
+            pre_grip_offset = getattr(self.context, "demo_pre_grip_initial_offset", None)
+            should_try_surface_grip = pre_grip_offset is None or pre_grip_offset <= 0.08
+            if should_try_surface_grip:
+                try:
+                    self.context.robot.suction_gripper.close()
+                except Exception as exc:
+                    print(f"[HarimDemo] suction close fallback: {exc}", flush=True)
+            elif args.self_test_debug_bins:
+                print(
+                    f"[HarimDemo] suction close skipped for fallback attach; "
+                    f"pre-grip offset={pre_grip_offset:.4f} m",
+                    flush=True,
+                )
 
             active_bin = self.context.active_bin
             if active_bin is None:
@@ -894,7 +947,7 @@ def main():
                 DfStateSequence(
                     [
                         DemoTimedState(behavior.ReachToPick(), max_duration=5.00, label="reach_pick"),
-                        DfWaitState(wait_time=0.35),
+                        DemoSettleBinAtGripper(duration=0.20),
                         DfSetLockState(set_locked_to=True, decider=self),
                         DemoAttachBin(),
                         DemoTimedArmLift(height=0.24, duration=0.60),
