@@ -595,6 +595,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if the AMR moves farther than this distance between sampled frames. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-arm-ee-frame-displacement",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the robot arm end-effector moves farther than this distance between sampled frames. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-active-bin-frame-displacement",
         type=float,
         default=0.0,
@@ -4325,8 +4331,7 @@ def main():
         def __init__(self, duration=POST_RELEASE_JOINT_SETTLE_DURATION):
             self.duration = duration
             self.entry_time = None
-            self.start_positions = None
-            self.target_positions = None
+            self.target_pq = None
             self.active = False
 
         def enter(self):
@@ -4334,17 +4339,9 @@ def main():
             self.active = False
             robot = self.context.robot
             try:
-                self.start_positions = np.array(robot.get_joint_positions(), dtype=float)
-                self.target_positions = np.array(robot.default_config, dtype=float)
+                self.target_pq = robot.arm.get_fk_pq()
             except Exception as exc:
                 print(f"[HarimDemo] joint settle skipped: {exc}", flush=True)
-                return
-            if self.start_positions.shape != self.target_positions.shape:
-                print(
-                    f"[HarimDemo] joint settle skipped: shape {self.start_positions.shape} "
-                    f"!= {self.target_positions.shape}",
-                    flush=True,
-                )
                 return
             self.active = True
             self.context.demo_joint_settle_count = int(getattr(self.context, "demo_joint_settle_count", 0)) + 1
@@ -4355,29 +4352,18 @@ def main():
             if not self.active:
                 return None
             elapsed = get_demo_time(self.context) - self.entry_time
-            t = clamp(elapsed / max(self.duration, 1e-6), 0.0, 1.0)
-            joint_positions = lerp(self.start_positions, self.target_positions, smoothstep(t))
-            robot = self.context.robot
             try:
-                robot.set_joint_positions(joint_positions)
-                if hasattr(robot, "set_joint_velocities"):
-                    robot.set_joint_velocities(np.zeros_like(joint_positions))
-                robot.arm.soft_reset()
+                self.context.robot.arm.send(MotionCommand(self.target_pq))
             except Exception as exc:
                 print(f"[HarimDemo] joint settle aborted: {exc}", flush=True)
                 return None
-            if t < 1.0:
+            if elapsed < self.duration:
                 return self
             return None
 
         def exit(self):
-            try:
-                self.context.robot.arm.soft_reset()
-            except Exception:
-                pass
             self.entry_time = None
-            self.start_positions = None
-            self.target_positions = None
+            self.target_pq = None
             self.active = False
 
     class DemoTimedArmMoveTo(DfState):
@@ -5480,6 +5466,10 @@ def main():
 
     def sample_motion_continuity():
         motion_continuity.sample("amr", "iw_hub", orchestrator.get_amr_position())
+        try:
+            motion_continuity.sample("arm_ee", "ur10_ee", decider_network.context.robot.arm.get_fk_p())
+        except Exception:
+            pass
 
         context = decider_network.context
         active_bin = (
@@ -5878,10 +5868,13 @@ def main():
             motion_continuity_tracked_item_count = motion_continuity.tracked_item_count()
             active_bin_motion_sample_count = motion_continuity.sample_count("active_bin")
             carried_payload_motion_sample_count = motion_continuity.sample_count("carried_payload")
+            arm_ee_motion_sample_count = motion_continuity.sample_count("arm_ee")
             max_amr_frame_displacement = motion_continuity.max_displacement("amr")
+            max_arm_ee_frame_displacement = motion_continuity.max_displacement("arm_ee")
             max_active_bin_frame_displacement = motion_continuity.max_displacement("active_bin")
             max_carried_payload_frame_displacement = motion_continuity.max_displacement("carried_payload")
             amr_motion_detail = motion_continuity.max_detail("amr")
+            arm_ee_motion_detail = motion_continuity.max_detail("arm_ee")
             active_bin_motion_detail = motion_continuity.max_detail("active_bin")
             carried_payload_motion_detail = motion_continuity.max_detail("carried_payload")
 
@@ -5911,6 +5904,15 @@ def main():
                     f"{args.self_test_max_amr_frame_displacement:.4f} m"
                     f"{format_motion_detail(amr_motion_detail)}"
                 )
+            if args.self_test_max_arm_ee_frame_displacement > 0:
+                if arm_ee_motion_sample_count <= 0:
+                    self_test_failures.append("arm end-effector motion continuity was not sampled")
+                elif max_arm_ee_frame_displacement > args.self_test_max_arm_ee_frame_displacement:
+                    self_test_failures.append(
+                        f"arm end-effector frame displacement {max_arm_ee_frame_displacement:.4f} m exceeded "
+                        f"{args.self_test_max_arm_ee_frame_displacement:.4f} m"
+                        f"{format_motion_detail(arm_ee_motion_detail)}"
+                    )
             if args.self_test_max_active_bin_frame_displacement > 0:
                 if active_bin_motion_sample_count <= 0:
                     self_test_failures.append("active bin motion continuity was not sampled")
@@ -6784,9 +6786,11 @@ def main():
                     f"active_bin_conveyor_belt_support_gap={active_bin_conveyor_belt_support_gap:.4f}; "
                     f"motion_continuity_sample_count={motion_continuity_sample_count}; "
                     f"motion_continuity_tracked_item_count={motion_continuity_tracked_item_count}; "
+                    f"arm_ee_motion_sample_count={arm_ee_motion_sample_count}; "
                     f"active_bin_motion_sample_count={active_bin_motion_sample_count}; "
                     f"carried_payload_motion_sample_count={carried_payload_motion_sample_count}; "
                     f"max_amr_frame_displacement={max_amr_frame_displacement:.4f}; "
+                    f"max_arm_ee_frame_displacement={max_arm_ee_frame_displacement:.4f}; "
                     f"max_active_bin_frame_displacement={max_active_bin_frame_displacement:.4f}; "
                     f"max_carried_payload_frame_displacement={max_carried_payload_frame_displacement:.4f}; "
                     f"safety_fence_part_count={safety_fence_part_count}; "

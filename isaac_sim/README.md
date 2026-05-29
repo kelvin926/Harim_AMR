@@ -1,5 +1,17 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Robot Arm End-Effector Continuity Gate 및 복귀 순간이동 제거
+
+- 로봇팔 end-effector 위치를 `MotionContinuityTracker`로 매 프레임 샘플링하고, strict self-test에서 `--self-test-max-arm-ee-frame-displacement`로 검증합니다.
+- 새 gate가 release 이후 관절 직접 세팅 중 발생하던 `1.3399 m` end-effector 한 프레임 이동을 검출했습니다.
+- `DemoTimedArmJointSettle`은 더 이상 `set_joint_positions()`로 홈 자세를 직접 쓰지 않고, 현재 FK pose를 `MotionCommand`로 잠깐 유지한 뒤 `return_ready` Cartesian command가 부드럽게 복귀하도록 바뀌었습니다.
+- strict wrapper 기준은 `SelfTestMaxArmEeFrameDisplacement = 0.22`입니다.
+- 검증 로그: `isaacsim_logs/harim_arm_ee_continuity_strict_022_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_053756_35324.gif`
+- 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+- GIF 크기: `960x540`, `151` frames
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `arm_ee_motion_sample_count=11999`, `max_arm_ee_frame_displacement=0.2092`, `max_active_bin_frame_displacement=0.0500`, `max_carried_payload_frame_displacement=0.0163`
+
 ## 2026-05-30 Motion Continuity Gate 및 Active Box 순간이동 보정
 
 - AMR, 팔레타이징 중인 active box, AMR에 실려 이동하는 carried payload를 `MotionContinuityTracker`로 매 프레임 샘플링합니다.

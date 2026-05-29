@@ -53,6 +53,7 @@ $RunnerArgs = @{
     SelfTestMaxActiveBinConveyorBeltSupportGap = 0.02
     SelfTestMinMotionContinuitySampleCount = 1000
     SelfTestMaxAmrFrameDisplacement = 0.05
+    SelfTestMaxArmEeFrameDisplacement = 0.22
     SelfTestMaxActiveBinFrameDisplacement = 0.08
     SelfTestMaxCarriedPayloadFrameDisplacement = 0.05
     SelfTestMinSafetyFencePartCount = 20

@@ -1,5 +1,22 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Robot Arm End-Effector Continuity Gate 및 복귀 순간이동 제거
+
+- [x] 로봇팔 end-effector 위치를 매 프레임 `MotionContinuityTracker`에 추가 샘플링했다.
+- [x] strict self-test에서 `--self-test-max-arm-ee-frame-displacement`로 로봇팔 end-effector의 프레임 간 최대 이동량을 검증하도록 했다.
+- [x] 첫 strict 실행에서 release 이후 `DemoTimedArmJointSettle`이 관절을 직접 `set_joint_positions()`로 홈 자세에 맞추며 end-effector가 한 프레임에 `1.3399 m` 이동하는 문제가 검출되었다.
+- [x] `DemoTimedArmJointSettle`을 관절 직접 세팅 대신 현재 FK pose를 `MotionCommand`로 잠깐 유지하는 안정화 state로 변경했다. 이후 `return_ready`가 Cartesian command로 복귀하도록 유지해 큰 순간이동을 제거했다.
+- [x] strict 기준은 현재 정상 RMPflow 이동을 허용하면서 큰 점프를 잡도록 `SelfTestMaxArmEeFrameDisplacement = 0.22`로 설정했다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 80개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_arm_ee_continuity_strict_022_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_053756_35324.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - GIF 크기: `960x540`, `151` frames
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `arm_ee_motion_sample_count=11999`, `max_arm_ee_frame_displacement=0.2092`, `max_active_bin_frame_displacement=0.0500`, `max_carried_payload_frame_displacement=0.0163`
+
 ## 2026-05-30 Motion Continuity Gate 및 Active Box 순간이동 보정
 
 - [x] AMR, 팔레타이징 중인 active box, AMR에 실려 이동하는 carried payload를 매 프레임 샘플링하는 `MotionContinuityTracker`를 추가했다.
