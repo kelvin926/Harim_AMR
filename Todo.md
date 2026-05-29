@@ -1,5 +1,23 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 AMR Drive Wheel/Caster Visual 보강
+
+- [x] AMR이 장거리 이동 중 바닥 위를 단순히 미끄러지는 박스처럼 보이지 않도록 하부 drive wheel 4개와 front/rear caster wheel 2개 visual을 추가했다.
+- [x] drive visual은 `HarimTransferOrchestrator.set_amr_pose()`에서 AMR pose와 동기화하고, `max_amr_drive_pose_error`로 drift를 기록한다.
+- [x] review GIF top view에도 wheel/caster footprint를 그려 headless strict self-test 결과물만 봐도 AMR 구동부 위치를 확인할 수 있게 했다.
+- [x] self-test gate를 추가했다.
+  - Python: `--self-test-min-amr-drive-part-count`
+  - Python: `--self-test-max-amr-drive-pose-error`
+  - Python: `--self-test-max-amr-wheel-floor-gap`
+  - Python: `--self-test-max-amr-wheel-floor-penetration`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - unittest 59개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_amr_drive_visual_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_011159_39152.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `amr_drive_part_count=6`, `amr_wheel_count=6`, `amr_wheel_floor_gap=0.0000`, `amr_wheel_floor_penetration=0.0000`, `max_amr_drive_pose_error=0.0000`
+
 ## 2026-05-30 AMR 이동 통로 guard/bollard 보강
 
 - [x] AMR 장거리 이동 구간이 열린 바닥을 그냥 지나가는 것처럼 보이지 않도록 통로 양쪽에 guard rail과 bollard visual을 추가했다.

@@ -147,6 +147,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         amr_safety_parts=None,
         amr_safety_offsets=None,
         amr_safety_roles=None,
+        amr_drive_parts=None,
+        amr_drive_offsets=None,
         camera_director=None,
     ):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
@@ -164,6 +166,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             amr_safety_parts=amr_safety_parts,
             amr_safety_offsets=amr_safety_offsets,
             amr_safety_roles=amr_safety_roles,
+            amr_drive_parts=amr_drive_parts,
+            amr_drive_offsets=amr_drive_offsets,
             pallet_parts=pallet_parts,
             pallet_part_offsets=pallet_part_offsets,
             load_restraint_parts=load_restraint_parts,
@@ -417,6 +421,18 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertEqual(metrics["amr_warning_indicator_count"], 3)
         self.assertEqual(metrics["amr_idle_indicator_count"], 2)
 
+    def test_amr_drive_visuals_have_floor_contact_and_stable_track(self):
+        metrics = self.demo.compute_amr_drive_visual_metrics()
+        specs = self.demo.make_amr_drive_visual_specs()
+
+        self.assertEqual(metrics["amr_drive_part_count"], len(specs))
+        self.assertGreaterEqual(metrics["amr_drive_part_count"], 6)
+        self.assertGreaterEqual(metrics["amr_wheel_count"], 6)
+        self.assertLessEqual(metrics["amr_wheel_floor_gap"], 0.01)
+        self.assertLessEqual(metrics["amr_wheel_floor_penetration"], 0.005)
+        self.assertGreaterEqual(metrics["amr_drive_wheelbase"], 1.0)
+        self.assertGreaterEqual(metrics["amr_drive_track_width"], 0.90)
+
     def test_camera_rig_has_required_story_cuts(self):
         metrics = self.demo.compute_camera_rig_metrics()
         specs = self.demo.make_camera_rig_specs()
@@ -665,6 +681,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("compute_amr_safety_visual_metrics", source)
         self.assertIn("_set_amr_safety_visual_pose", source)
         self.assertIn("_set_amr_indicator_visibility", source)
+        self.assertIn("create_amr_drive_visuals", source)
+        self.assertIn("AmrFrontLeftDriveWheel", source)
+        self.assertIn("compute_amr_drive_visual_metrics", source)
+        self.assertIn("_set_amr_drive_visual_pose", source)
         self.assertIn("create_drop_dock_alignment_visual", source)
         self.assertIn("DropDockStopBlock", source)
         self.assertIn("DropDockLocatorPost", source)
@@ -989,6 +1009,13 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("amr_warning_indicator_observed=", source)
         self.assertIn("amr_idle_indicator_observed=", source)
         self.assertIn("amr_indicator_visibility_mismatches=", source)
+        self.assertIn("amr_drive_part_count=", source)
+        self.assertIn("amr_wheel_count=", source)
+        self.assertIn("amr_wheel_floor_gap=", source)
+        self.assertIn("amr_wheel_floor_penetration=", source)
+        self.assertIn("amr_drive_wheelbase=", source)
+        self.assertIn("amr_drive_track_width=", source)
+        self.assertIn("max_amr_drive_pose_error=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("amr_exit_clearance=", source)
@@ -1075,6 +1102,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinAmrWarningObserved", source)
         self.assertIn("$SelfTestMinAmrIdleObserved", source)
         self.assertIn("$SelfTestMaxAmrIndicatorVisibilityMismatches", source)
+        self.assertIn("$SelfTestMinAmrDrivePartCount", source)
+        self.assertIn("$SelfTestMaxAmrDrivePoseError", source)
+        self.assertIn("$SelfTestMaxAmrWheelFloorGap", source)
+        self.assertIn("$SelfTestMaxAmrWheelFloorPenetration", source)
         self.assertIn("$SelfTestMinAmrExitClearance", source)
         self.assertIn("$SelfTestMaxLiftContactGap", source)
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
@@ -1130,6 +1161,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-amr-warning-observed", source)
         self.assertIn("--self-test-min-amr-idle-observed", source)
         self.assertIn("--self-test-max-amr-indicator-visibility-mismatches", source)
+        self.assertIn("--self-test-min-amr-drive-part-count", source)
+        self.assertIn("--self-test-max-amr-drive-pose-error", source)
+        self.assertIn("--self-test-max-amr-wheel-floor-gap", source)
+        self.assertIn("--self-test-max-amr-wheel-floor-penetration", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
@@ -1226,6 +1261,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinAmrWarningObserved", source)
         self.assertIn("SelfTestMinAmrIdleObserved", source)
         self.assertIn("SelfTestMaxAmrIndicatorVisibilityMismatches", source)
+        self.assertIn("SelfTestMinAmrDrivePartCount", source)
+        self.assertIn("SelfTestMaxAmrDrivePoseError", source)
+        self.assertIn("SelfTestMaxAmrWheelFloorGap", source)
+        self.assertIn("SelfTestMaxAmrWheelFloorPenetration", source)
         self.assertIn("SelfTestMinPayloadLift", source)
         self.assertIn("0.10", source)
         self.assertIn("SelfTestMaxDroppedPayloadDrift", source)
@@ -1334,6 +1373,22 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         for part, offset in zip(safety_parts, safety_offsets):
             np.testing.assert_allclose(part.get_world_pose()[0], target_pose + offset)
         self.assertAlmostEqual(orchestrator.max_amr_safety_pose_error, 0.0)
+
+    def test_amr_drive_visual_parts_move_with_amr(self):
+        drive_parts = [FakePosePrim(f"drive_{idx}") for idx in range(2)]
+        drive_offsets = [np.array([0.43, -0.48, 0.075]), np.array([-0.43, 0.48, 0.075])]
+        orchestrator, _context, _world, _items = self.build_orchestrator(
+            Args(),
+            amr_drive_parts=drive_parts,
+            amr_drive_offsets=drive_offsets,
+        )
+
+        target_pose = np.array([1.8, -0.35, Args.amr_z])
+        orchestrator.set_amr_pose(target_pose)
+
+        for part, offset in zip(drive_parts, drive_offsets):
+            np.testing.assert_allclose(part.get_world_pose()[0], target_pose + offset)
+        self.assertAlmostEqual(orchestrator.max_amr_drive_pose_error, 0.0)
 
     def test_amr_indicator_visibility_tracks_transfer_state(self):
         warning = FakePosePrim("warning")

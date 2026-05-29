@@ -232,6 +232,44 @@ AMR_SAFETY_VISUAL_SPECS = (
 )
 AMR_WARNING_INDICATOR_NAMES = {"AmrBeaconDome", "AmrLeftWarningStrip", "AmrRightWarningStrip"}
 AMR_IDLE_INDICATOR_NAMES = {"AmrLeftStatusStrip", "AmrRightStatusStrip"}
+AMR_DRIVE_VISUAL_SPECS = (
+    (
+        "AmrFrontLeftDriveWheel",
+        np.array([-0.43, -0.48, 0.075], dtype=float),
+        np.array([0.30, 0.095, 0.15], dtype=float),
+        np.array([0.035, 0.040, 0.045], dtype=float),
+    ),
+    (
+        "AmrFrontRightDriveWheel",
+        np.array([-0.43, 0.48, 0.075], dtype=float),
+        np.array([0.30, 0.095, 0.15], dtype=float),
+        np.array([0.035, 0.040, 0.045], dtype=float),
+    ),
+    (
+        "AmrRearLeftDriveWheel",
+        np.array([0.43, -0.48, 0.075], dtype=float),
+        np.array([0.30, 0.095, 0.15], dtype=float),
+        np.array([0.035, 0.040, 0.045], dtype=float),
+    ),
+    (
+        "AmrRearRightDriveWheel",
+        np.array([0.43, 0.48, 0.075], dtype=float),
+        np.array([0.30, 0.095, 0.15], dtype=float),
+        np.array([0.035, 0.040, 0.045], dtype=float),
+    ),
+    (
+        "AmrFrontCasterWheel",
+        np.array([-0.66, 0.0, 0.055], dtype=float),
+        np.array([0.12, 0.22, 0.11], dtype=float),
+        np.array([0.050, 0.055, 0.060], dtype=float),
+    ),
+    (
+        "AmrRearCasterWheel",
+        np.array([0.66, 0.0, 0.055], dtype=float),
+        np.array([0.12, 0.22, 0.11], dtype=float),
+        np.array([0.050, 0.055, 0.060], dtype=float),
+    ),
+)
 CAMERA_RIG_REQUIRED_ROLES = ("overview", "palletizer", "amr_route", "drop_dock")
 CAMERA_MIN_HEIGHT_ABOVE_FLOOR = 1.25
 CAMERA_MIN_TARGET_DISTANCE = 1.0
@@ -506,6 +544,30 @@ def parse_args():
         type=int,
         default=-1,
         help="Fail the fixed-frame self-test if AMR indicator visibility writes mismatch the requested state more than this many times. -1 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-drive-part-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many AMR drive wheel/caster visual parts are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-drive-pose-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR drive visuals drift from the AMR pose by more than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-wheel-floor-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR wheel visuals float above the floor by more than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-wheel-floor-penetration",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR wheel visuals penetrate below the floor by more than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -1301,6 +1363,37 @@ def compute_amr_safety_visual_metrics():
     }
 
 
+def make_amr_drive_visual_specs():
+    return [
+        (
+            name,
+            np.array(offset, dtype=float),
+            np.array(scale, dtype=float),
+            np.array(color, dtype=float),
+        )
+        for name, offset, scale, color in AMR_DRIVE_VISUAL_SPECS
+    ]
+
+
+def compute_amr_drive_visual_metrics():
+    specs = make_amr_drive_visual_specs()
+    wheel_specs = [(name, offset, scale) for name, offset, scale, _color in specs if "Wheel" in name]
+    wheel_bottoms = [float(offset[2] - scale[2] * 0.5) for _name, offset, scale in wheel_specs]
+    wheel_x = [float(offset[0]) for _name, offset, _scale in wheel_specs]
+    side_wheel_y = [float(offset[1]) for name, offset, _scale in wheel_specs if "Left" in name or "Right" in name]
+    min_bottom = min(wheel_bottoms) if wheel_bottoms else 0.0
+    max_bottom = max(wheel_bottoms) if wheel_bottoms else 0.0
+    return {
+        "amr_drive_part_count": len(specs),
+        "amr_wheel_count": len(wheel_specs),
+        "amr_wheel_floor_gap": max(0.0, min_bottom),
+        "amr_wheel_floor_penetration": max(0.0, -min_bottom),
+        "amr_wheel_max_floor_gap": max(0.0, max_bottom),
+        "amr_drive_wheelbase": float(max(wheel_x) - min(wheel_x)) if wheel_x else 0.0,
+        "amr_drive_track_width": float(max(side_wheel_y) - min(side_wheel_y)) if side_wheel_y else 0.0,
+    }
+
+
 def make_camera_rig_specs(
     pickup_x=DEFAULT_PICKUP_X,
     pickup_y=DEFAULT_PICKUP_Y,
@@ -1883,6 +1976,10 @@ class DemoGifRecorder:
 
         amr_position = np.array(orchestrator.get_amr_position(), dtype=float)
         draw_world_rect(amr_position, [1.0, 0.72], (59, 130, 246), (30, 64, 175))
+        for name, offset, scale, _color in make_amr_drive_visual_specs():
+            wheel_center = amr_position + np.array(offset, dtype=float)
+            fill = (15, 23, 42) if "DriveWheel" in name else (51, 65, 85)
+            draw_world_rect(wheel_center, [scale[0], scale[1]], fill, (15, 23, 42))
         amr_px = to_px(amr_position)
         draw.polygon(
             [(amr_px[0] + 16, amr_px[1]), (amr_px[0] + 2, amr_px[1] - 7), (amr_px[0] + 2, amr_px[1] + 7)],
@@ -1984,6 +2081,8 @@ class HarimTransferOrchestrator:
         amr_safety_parts=None,
         amr_safety_offsets=None,
         amr_safety_roles=None,
+        amr_drive_parts=None,
+        amr_drive_offsets=None,
         completion_signal=None,
         camera_director=None,
     ):
@@ -2001,6 +2100,12 @@ class HarimTransferOrchestrator:
             else tuple()
         )
         self.amr_safety_roles = tuple(amr_safety_roles) if amr_safety_roles is not None else tuple()
+        self.amr_drive_parts = list(amr_drive_parts) if amr_drive_parts is not None else []
+        self.amr_drive_offsets = (
+            tuple(np.array(offset, dtype=float) for offset in amr_drive_offsets)
+            if amr_drive_offsets is not None
+            else tuple()
+        )
         self.pallet_parts = pallet_parts
         self.pallet_part_offsets = (
             tuple(np.array(offset, dtype=float) for offset in pallet_part_offsets)
@@ -2034,6 +2139,7 @@ class HarimTransferOrchestrator:
         self.max_lift_contact_gap_observed = initial_lift_contact_gap
         self.min_lift_contact_gap_observed = initial_lift_contact_gap
         self.max_amr_safety_pose_error = 0.0
+        self.max_amr_drive_pose_error = 0.0
         self.amr_warning_indicator_on_observed = 0
         self.amr_idle_indicator_on_observed = 0
         self.amr_indicator_visibility_mismatch_count = 0
@@ -2129,6 +2235,7 @@ class HarimTransferOrchestrator:
     def set_amr_pose(self, position):
         self.amr.set_world_pose(position=np.array(position, dtype=float), orientation=yaw_to_quat(self.amr_yaw))
         self._set_amr_safety_visual_pose()
+        self._set_amr_drive_visual_pose()
 
     def get_amr_position(self):
         position, _orientation = self.amr.get_world_pose()
@@ -2164,6 +2271,26 @@ class HarimTransferOrchestrator:
                 current, _ = part.get_world_pose()
                 self.max_amr_safety_pose_error = max(
                     self.max_amr_safety_pose_error,
+                    float(np.linalg.norm(np.array(current, dtype=float) - expected)),
+                )
+            except Exception:
+                pass
+
+    def _set_amr_drive_visual_pose(self):
+        if not self.amr_drive_parts:
+            return
+        amr_pos = self.get_amr_position()
+        if len(self.amr_drive_offsets) == len(self.amr_drive_parts):
+            offsets = self.amr_drive_offsets
+        else:
+            offsets = tuple(np.array([0.0, 0.0, 0.0], dtype=float) for _ in self.amr_drive_parts)
+        for part, offset in zip(self.amr_drive_parts, offsets):
+            expected = amr_pos + np.array(offset, dtype=float)
+            part.set_world_pose(position=expected, orientation=yaw_to_quat(self.amr_yaw))
+            try:
+                current, _ = part.get_world_pose()
+                self.max_amr_drive_pose_error = max(
+                    self.max_amr_drive_pose_error,
                     float(np.linalg.norm(np.array(current, dtype=float) - expected)),
                 )
             except Exception:
@@ -3941,6 +4068,27 @@ def main():
 
     amr_safety_parts, amr_safety_offsets, amr_safety_roles = create_amr_safety_visuals()
 
+    def create_amr_drive_visuals():
+        drive_parts = []
+        drive_offsets = []
+        start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
+        for part_idx, (part_name, offset, scale, color) in enumerate(make_amr_drive_visual_specs()):
+            drive_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/{part_name}",
+                        name=f"harim_amr_drive_{part_idx}",
+                        position=start_pose + offset,
+                        scale=scale,
+                        color=color,
+                    )
+                )
+            )
+            drive_offsets.append(offset)
+        return drive_parts, drive_offsets
+
+    amr_drive_parts, amr_drive_offsets = create_amr_drive_visuals()
+
     def create_drop_slide_workstation():
         workstation_parts = []
         rail_color = np.array([0.18, 0.20, 0.21])
@@ -4201,6 +4349,8 @@ def main():
         amr_safety_parts=amr_safety_parts,
         amr_safety_offsets=amr_safety_offsets,
         amr_safety_roles=amr_safety_roles,
+        amr_drive_parts=amr_drive_parts,
+        amr_drive_offsets=amr_drive_offsets,
         lift_plate=lift_plate,
         lift_plate_parts=lift_plate_parts,
         pallet_parts=pallet_parts,
@@ -4619,6 +4769,46 @@ def main():
                     f"AMR indicator visibility mismatches {amr_indicator_visibility_mismatches} exceeded "
                     f"{args.self_test_max_amr_indicator_visibility_mismatches}"
                 )
+            amr_drive_metrics = compute_amr_drive_visual_metrics()
+            amr_drive_part_count = amr_drive_metrics["amr_drive_part_count"]
+            amr_wheel_count = amr_drive_metrics["amr_wheel_count"]
+            amr_wheel_floor_gap = amr_drive_metrics["amr_wheel_floor_gap"]
+            amr_wheel_floor_penetration = amr_drive_metrics["amr_wheel_floor_penetration"]
+            amr_drive_wheelbase = amr_drive_metrics["amr_drive_wheelbase"]
+            amr_drive_track_width = amr_drive_metrics["amr_drive_track_width"]
+            max_amr_drive_pose_error = float(getattr(orchestrator, "max_amr_drive_pose_error", 0.0))
+            if (
+                args.self_test_min_amr_drive_part_count > 0
+                and amr_drive_part_count < args.self_test_min_amr_drive_part_count
+            ):
+                self_test_failures.append(
+                    f"AMR drive part count {amr_drive_part_count} was below "
+                    f"{args.self_test_min_amr_drive_part_count}"
+                )
+            if (
+                args.self_test_max_amr_drive_pose_error > 0
+                and max_amr_drive_pose_error > args.self_test_max_amr_drive_pose_error
+            ):
+                self_test_failures.append(
+                    f"AMR drive pose error {max_amr_drive_pose_error:.4f} m exceeded "
+                    f"{args.self_test_max_amr_drive_pose_error:.4f} m"
+                )
+            if (
+                args.self_test_max_amr_wheel_floor_gap > 0
+                and amr_wheel_floor_gap > args.self_test_max_amr_wheel_floor_gap
+            ):
+                self_test_failures.append(
+                    f"AMR wheel floor gap {amr_wheel_floor_gap:.4f} m exceeded "
+                    f"{args.self_test_max_amr_wheel_floor_gap:.4f} m"
+                )
+            if (
+                args.self_test_max_amr_wheel_floor_penetration > 0
+                and amr_wheel_floor_penetration > args.self_test_max_amr_wheel_floor_penetration
+            ):
+                self_test_failures.append(
+                    f"AMR wheel floor penetration {amr_wheel_floor_penetration:.4f} m exceeded "
+                    f"{args.self_test_max_amr_wheel_floor_penetration:.4f} m"
+                )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
@@ -4989,6 +5179,13 @@ def main():
                     f"amr_warning_indicator_observed={amr_warning_indicator_observed}; "
                     f"amr_idle_indicator_observed={amr_idle_indicator_observed}; "
                     f"amr_indicator_visibility_mismatches={amr_indicator_visibility_mismatches}; "
+                    f"amr_drive_part_count={amr_drive_part_count}; "
+                    f"amr_wheel_count={amr_wheel_count}; "
+                    f"amr_wheel_floor_gap={amr_wheel_floor_gap:.4f}; "
+                    f"amr_wheel_floor_penetration={amr_wheel_floor_penetration:.4f}; "
+                    f"amr_drive_wheelbase={amr_drive_wheelbase:.4f}; "
+                    f"amr_drive_track_width={amr_drive_track_width:.4f}; "
+                    f"max_amr_drive_pose_error={max_amr_drive_pose_error:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "

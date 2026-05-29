@@ -1,5 +1,14 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 AMR Drive Wheel/Caster Visual 보강
+
+- `iw_hub`가 바닥 위를 미끄러지는 물체처럼 보이지 않도록 AMR 하부에 drive wheel 4개와 front/rear caster wheel 2개 visual을 추가했습니다.
+- drive visual은 AMR pose에 매 frame 동기화되며, review GIF top view에도 검은 wheel/caster footprint가 같이 표시됩니다.
+- strict self-test에 AMR drive part count, pose error, wheel floor gap, wheel floor penetration gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_amr_drive_visual_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_011159_39152.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `amr_drive_part_count=6`, `amr_wheel_count=6`, `amr_wheel_floor_gap=0.0000`, `amr_wheel_floor_penetration=0.0000`, `max_amr_drive_pose_error=0.0000`
+
 ## 2026-05-30 AMR 이동 통로 Guard 보강
 
 - AMR 장거리 이동 구간 양쪽에 guard rail과 bollard visual을 추가했습니다. 열린 바닥 위를 지나가는 느낌을 줄이고, 물류센터의 지정 AMR 통로처럼 보이게 하기 위한 요소입니다.
