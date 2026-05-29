@@ -1,5 +1,14 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Drop Approach/Dock-In 분리
+
+- AMR이 적재물을 싣고 목표 작업대까지 이동할 때 바로 drop pose로 들어가지 않고, `MOVE_TO_DROP_APPROACH`에서 작업대 앞 1.05 m 지점에 먼저 정렬한 뒤 `MOVE_TO_DROP`에서 느린 dock-in으로 최종 하역 위치에 들어가도록 바꿨습니다.
+- pickup 쪽 under-pallet 진입과 drop 쪽 최종 dock-in은 `AMR_DOCK_MOVE_SPEED_SCALE = 0.45`를 적용해 장거리 이동보다 천천히 진입합니다.
+- strict self-test에 drop approach standoff, dock arrival count, final dock error gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_drop_docking_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_012544_37380.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `drop_approach_standoff=1.0500`, `drop_dock_arrival_count=1`, `drop_approach_final_error=0.0000`, `drop_dock_final_error=0.0000`
+
 ## 2026-05-30 AMR Drive Wheel/Caster Visual 보강
 
 - `iw_hub`가 바닥 위를 미끄러지는 물체처럼 보이지 않도록 AMR 하부에 drive wheel 4개와 front/rear caster wheel 2개 visual을 추가했습니다.

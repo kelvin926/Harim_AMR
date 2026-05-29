@@ -1,5 +1,22 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Drop Approach/Dock-In 분리
+
+- [x] AMR이 목표 작업대의 drop pose로 바로 들어가지 않고, `MOVE_TO_DROP_APPROACH`에서 작업대 앞 1.05 m 지점에 먼저 정렬하도록 했다.
+- [x] `MOVE_TO_DROP`는 최종 dock-in 단계로 유지하고, pickup under-pallet 진입과 drop dock-in에는 `AMR_DOCK_MOVE_SPEED_SCALE = 0.45`를 적용해 장거리 이동보다 천천히 들어가도록 했다.
+- [x] `drop_approach_pose`, `drop_dock_arrival_count`, `drop_approach_final_error`, `drop_dock_final_error`를 기록해 좌표 오차를 self-test에서 확인할 수 있게 했다.
+- [x] self-test gate를 추가했다.
+  - Python: `--self-test-min-drop-approach-standoff`
+  - Python: `--self-test-min-drop-dock-arrival-count`
+  - Python: `--self-test-max-drop-dock-final-error`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - unittest 61개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_drop_docking_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_012544_37380.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `drop_approach_standoff=1.0500`, `drop_dock_arrival_count=1`, `drop_approach_final_error=0.0000`, `drop_dock_final_error=0.0000`
+
 ## 2026-05-30 AMR Drive Wheel/Caster Visual 보강
 
 - [x] AMR이 장거리 이동 중 바닥 위를 단순히 미끄러지는 박스처럼 보이지 않도록 하부 drive wheel 4개와 front/rear caster wheel 2개 visual을 추가했다.

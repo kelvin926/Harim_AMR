@@ -90,6 +90,9 @@ $RunnerArgs = @{
     SelfTestMinAmrRouteGuardSpan = 8.00
     SelfTestMinAmrRouteGuardClearance = 0.30
     SelfTestMinAmrRouteBollardHeight = 0.65
+    SelfTestMinDropApproachStandoff = 0.90
+    SelfTestMinDropDockArrivalCount = 1
+    SelfTestMaxDropDockFinalError = 0.03
 }
 
 if (-not $ShowGui) {

@@ -41,6 +41,8 @@ RETURN_READY_DURATION = 10.0
 RETURN_READY_POSITION_THRESHOLD = 0.04
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
+AMR_DROP_APPROACH_STANDOFF = 1.05
+AMR_DOCK_MOVE_SPEED_SCALE = 0.45
 AMR_LIFT_DURATION = 1.25
 AMR_LIFT_SETTLE_TIME = 0.25
 SLIDE_EXIT_DISTANCE = 1.8
@@ -773,6 +775,24 @@ def parse_args():
         default=0.0,
         help="Fail the fixed-frame self-test if AMR route bollards are shorter than this height above the floor. 0 disables the check.",
     )
+    parser.add_argument(
+        "--self-test-min-drop-approach-standoff",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR drop approach waypoint is closer to the final drop pose than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-drop-dock-arrival-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless the AMR reaches the drop approach waypoint at least this many times. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-drop-dock-final-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR final dock-in position is farther from the drop pose than this distance. 0 disables the check.",
+    )
     return parser.parse_args()
 
 
@@ -816,6 +836,7 @@ class TransferState(Enum):
     MOVE_UNDER_PALLET = auto()
     LIFT_UP = auto()
     ATTACH = auto()
+    MOVE_TO_DROP_APPROACH = auto()
     MOVE_TO_DROP = auto()
     LIFT_DOWN = auto()
     DETACH = auto()
@@ -831,6 +852,7 @@ CAMERA_DIRECTOR_ROLE_BY_STATE_NAME = {
     "MOVE_UNDER_PALLET": "amr_route",
     "LIFT_UP": "amr_route",
     "ATTACH": "amr_route",
+    "MOVE_TO_DROP_APPROACH": "amr_route",
     "MOVE_TO_DROP": "amr_route",
     "LIFT_DOWN": "drop_dock",
     "DETACH": "drop_dock",
@@ -1608,6 +1630,17 @@ def compute_amr_route_guard_metrics(
     }
 
 
+def compute_drop_docking_metrics(pickup_x=DEFAULT_PICKUP_X, drop_x=DEFAULT_DROP_X):
+    travel_direction = 1.0 if float(drop_x) >= float(pickup_x) else -1.0
+    drop_approach_x = float(drop_x) - travel_direction * AMR_DROP_APPROACH_STANDOFF
+    return {
+        "drop_approach_standoff": abs(float(drop_x) - drop_approach_x),
+        "drop_approach_x": drop_approach_x,
+        "drop_travel_direction": travel_direction,
+        "dock_move_speed_scale": float(AMR_DOCK_MOVE_SPEED_SCALE),
+    }
+
+
 def compute_lift_contact_gap(amr_z=DEFAULT_AMR_Z, lift_offset=0.0):
     pallet_underside_z = PALLET_DECK_UNDERSIDE_Z + float(lift_offset)
     lift_plate_top_z = float(amr_z) + AMR_LIFT_PLATE_OFFSET_Z + float(lift_offset) + LIFT_FORK_SCALE[2] * 0.5
@@ -2153,12 +2186,27 @@ class HarimTransferOrchestrator:
         self.move_target = None
         self.move_start_pose = None
         self.move_duration = 0.0
+        self.drop_dock_arrival_count = 0
+        self.drop_approach_final_error = 0.0
+        self.drop_dock_final_error = 0.0
 
+        self.travel_direction = 1.0 if float(args.drop_x) >= float(args.pickup_x) else -1.0
         self.start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         self.approach_pose = np.array([args.pickup_x + AMR_APPROACH_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         self.pickup_pose = np.array([args.pickup_x, args.pickup_y, args.amr_z], dtype=float)
+        self.drop_approach_pose = np.array(
+            [
+                args.drop_x - self.travel_direction * AMR_DROP_APPROACH_STANDOFF,
+                args.drop_y,
+                args.amr_z,
+            ],
+            dtype=float,
+        )
         self.drop_pose = np.array([args.drop_x, args.drop_y, args.amr_z], dtype=float)
-        self.exit_pose = np.array([args.drop_x + SLIDE_EXIT_DISTANCE, args.drop_y, args.amr_z], dtype=float)
+        self.exit_pose = np.array(
+            [args.drop_x + self.travel_direction * SLIDE_EXIT_DISTANCE, args.drop_y, args.amr_z],
+            dtype=float,
+        )
 
         self.reset_visual_state()
 
@@ -2173,6 +2221,8 @@ class HarimTransferOrchestrator:
             self.move_target = self.approach_pose
         elif state == TransferState.MOVE_UNDER_PALLET:
             self.move_target = self.pickup_pose
+        elif state == TransferState.MOVE_TO_DROP_APPROACH:
+            self.move_target = self.drop_approach_pose
         elif state == TransferState.MOVE_TO_DROP:
             self.move_target = self.drop_pose
         elif state == TransferState.SLIDE_OUT_FROM_PALLET:
@@ -2182,7 +2232,7 @@ class HarimTransferOrchestrator:
         if self.move_target is not None:
             self.move_start_pose = self.get_amr_position()
             move_distance = float(np.linalg.norm((self.move_target - self.move_start_pose)[:2]))
-            self.move_duration = max(move_distance / max(float(self.args.move_speed), 1e-6), 0.35)
+            self.move_duration = self._compute_move_duration(move_distance)
         else:
             self.move_start_pose = None
             self.move_duration = 0.0
@@ -2347,6 +2397,12 @@ class HarimTransferOrchestrator:
         for part, offset in zip(self.pallet_parts, self.pallet_part_offsets):
             part.set_world_pose(position=center + offset, orientation=yaw_to_quat(0.0))
 
+    def _compute_move_duration(self, move_distance):
+        speed = max(float(self.args.move_speed), 1e-6)
+        if self.state in (TransferState.MOVE_UNDER_PALLET, TransferState.MOVE_TO_DROP):
+            speed *= AMR_DOCK_MOVE_SPEED_SCALE
+        return max(float(move_distance) / max(speed, 1e-6), 0.35)
+
     def _move_amr_toward_target(self, dt):
         if self.move_target is None:
             return True
@@ -2354,7 +2410,7 @@ class HarimTransferOrchestrator:
         if self.move_start_pose is None:
             self.move_start_pose = self.get_amr_position()
             move_distance = float(np.linalg.norm((self.move_target - self.move_start_pose)[:2]))
-            self.move_duration = max(move_distance / max(float(self.args.move_speed), 1e-6), 0.35)
+            self.move_duration = self._compute_move_duration(move_distance)
 
         t = clamp(self.state_time / max(self.move_duration, 1e-6), 0.0, 1.0)
         next_pos = lerp(self.move_start_pose, self.move_target, smoothstep(t))
@@ -2579,6 +2635,7 @@ class HarimTransferOrchestrator:
         elif self.state in (
             TransferState.MOVE_TO_APPROACH,
             TransferState.MOVE_UNDER_PALLET,
+            TransferState.MOVE_TO_DROP_APPROACH,
             TransferState.MOVE_TO_DROP,
             TransferState.SLIDE_OUT_FROM_PALLET,
         ):
@@ -2588,7 +2645,16 @@ class HarimTransferOrchestrator:
                     self._transition(TransferState.MOVE_UNDER_PALLET)
                 elif self.state == TransferState.MOVE_UNDER_PALLET:
                     self._transition(TransferState.LIFT_UP)
+                elif self.state == TransferState.MOVE_TO_DROP_APPROACH:
+                    self.drop_dock_arrival_count += 1
+                    self.drop_approach_final_error = float(
+                        np.linalg.norm((self.get_amr_position() - self.drop_approach_pose)[:2])
+                    )
+                    self._transition(TransferState.MOVE_TO_DROP)
                 elif self.state == TransferState.MOVE_TO_DROP:
+                    self.drop_dock_final_error = float(
+                        np.linalg.norm((self.get_amr_position() - self.drop_pose)[:2])
+                    )
                     self._transition(TransferState.LIFT_DOWN)
                 elif self.state == TransferState.SLIDE_OUT_FROM_PALLET:
                     self._transition(TransferState.RESET_CYCLE)
@@ -2606,7 +2672,7 @@ class HarimTransferOrchestrator:
 
         elif self.state == TransferState.ATTACH:
             self._attach_assembly()
-            self._transition(TransferState.MOVE_TO_DROP)
+            self._transition(TransferState.MOVE_TO_DROP_APPROACH)
 
         elif self.state == TransferState.LIFT_DOWN:
             t = clamp(self.state_time / AMR_LIFT_DURATION, 0.0, 1.0)
@@ -5125,6 +5191,36 @@ def main():
                     f"AMR route bollard height {amr_route_bollard_height:.4f} m was below "
                     f"{args.self_test_min_amr_route_bollard_height:.4f} m"
                 )
+            drop_docking_metrics = compute_drop_docking_metrics(args.pickup_x, args.drop_x)
+            drop_approach_standoff = drop_docking_metrics["drop_approach_standoff"]
+            dock_move_speed_scale = drop_docking_metrics["dock_move_speed_scale"]
+            drop_dock_arrival_count = int(getattr(orchestrator, "drop_dock_arrival_count", 0))
+            drop_approach_final_error = float(getattr(orchestrator, "drop_approach_final_error", 0.0))
+            drop_dock_final_error = float(getattr(orchestrator, "drop_dock_final_error", 0.0))
+            if (
+                args.self_test_min_drop_approach_standoff > 0
+                and drop_approach_standoff < args.self_test_min_drop_approach_standoff
+            ):
+                self_test_failures.append(
+                    f"drop approach standoff {drop_approach_standoff:.4f} m was below "
+                    f"{args.self_test_min_drop_approach_standoff:.4f} m"
+                )
+            if (
+                args.self_test_min_drop_dock_arrival_count > 0
+                and drop_dock_arrival_count < args.self_test_min_drop_dock_arrival_count
+            ):
+                self_test_failures.append(
+                    f"drop dock arrival count {drop_dock_arrival_count} was below "
+                    f"{args.self_test_min_drop_dock_arrival_count}"
+                )
+            if (
+                args.self_test_max_drop_dock_final_error > 0
+                and drop_dock_final_error > args.self_test_max_drop_dock_final_error
+            ):
+                self_test_failures.append(
+                    f"drop dock final error {drop_dock_final_error:.4f} m exceeded "
+                    f"{args.self_test_max_drop_dock_final_error:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 save_review_gif()
@@ -5222,6 +5318,11 @@ def main():
                     f"amr_route_guard_span={amr_route_guard_span:.4f}; "
                     f"amr_route_guard_clearance={amr_route_guard_clearance:.4f}; "
                     f"amr_route_bollard_height={amr_route_bollard_height:.4f}; "
+                    f"drop_approach_standoff={drop_approach_standoff:.4f}; "
+                    f"dock_move_speed_scale={dock_move_speed_scale:.4f}; "
+                    f"drop_dock_arrival_count={drop_dock_arrival_count}; "
+                    f"drop_approach_final_error={drop_approach_final_error:.4f}; "
+                    f"drop_dock_final_error={drop_dock_final_error:.4f}; "
                     f"review_gif_path={review_gif_path or ''}",
                     flush=True,
                 )
