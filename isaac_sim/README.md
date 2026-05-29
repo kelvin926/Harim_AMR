@@ -1,5 +1,12 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Review GIF 매 실행 저장 보강
+
+- demo/self-test 실행은 기본적으로 `E:\Harim_AMR\isaacsim_outputs`에 review GIF를 남깁니다.
+- 정상 캡처 frame이 하나도 없는 상태에서 종료되어도 fallback frame을 만들어 GIF 파일을 저장합니다.
+- GIF 캡처 중 예외가 나면 원인을 기록하고, 기존 frame 또는 fallback frame으로 저장을 계속 시도합니다.
+- 완료/실패 로그에는 `review_gif_path=`가 출력됩니다.
+
 ## 2026-05-30 Carried Payload 동적 Pose 검증
 
 - AMR이 팔레트와 박스를 싣고 이동하는 동안 pallet visual뿐 아니라 stacked payload item도 AMR-relative offset에서 드리프트하지 않는지 기록합니다.

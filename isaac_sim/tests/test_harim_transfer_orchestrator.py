@@ -607,6 +607,43 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             self.assertTrue(output_path.exists())
             self.assertGreater(output_path.stat().st_size, 0)
 
+    def test_review_gif_recorder_saves_fallback_when_no_frames_exist(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            recorder = self.demo.DemoGifRecorder(
+                enabled=True,
+                output_dir=tmp_dir,
+                frame_stride=1,
+                max_frames=3,
+            )
+            output_path = Path(recorder.save())
+
+            self.assertEqual(output_path.suffix, ".gif")
+            self.assertTrue(output_path.exists())
+            self.assertGreater(output_path.stat().st_size, 0)
+
+    def test_review_gif_recorder_saves_fallback_after_capture_failure(self):
+        orchestrator, context, _world, _items = self.build_orchestrator(Args())
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            recorder = self.demo.DemoGifRecorder(
+                enabled=True,
+                output_dir=tmp_dir,
+                frame_stride=1,
+                max_frames=3,
+            )
+
+            def fail_draw_frame(_frame_index, _orchestrator, _context, _args):
+                raise RuntimeError("forced capture failure")
+
+            recorder._draw_frame = fail_draw_frame
+            recorder.maybe_capture(0, orchestrator, context, Args())
+            output_path = Path(recorder.save())
+
+            self.assertFalse(recorder.enabled)
+            self.assertEqual(output_path.suffix, ".gif")
+            self.assertTrue(output_path.exists())
+            self.assertGreater(output_path.stat().st_size, 0)
+            self.assertIn("forced capture failure", recorder.disabled_reason)
+
     def test_slide_exit_clears_dropped_pallet_footprint(self):
         orchestrator, _context, _world, _items = self.build_orchestrator(Args())
         clearance = self.demo.compute_amr_exit_clearance(orchestrator.exit_pose[0], Args.drop_x)
@@ -744,6 +781,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("gif_recorder.maybe_capture", source)
         self.assertIn("save_review_gif", source)
         self.assertIn("review_gif_path=", source)
+        self.assertIn("requested_enabled", source)
+        self.assertIn("disabled_reason", source)
+        self.assertIn("def _draw_fallback_frame", source)
         self.assertIn("PICK_READY_EE_POSITION", source)
         self.assertIn("class DemoTimedArmMoveTo", source)
         self.assertIn("class DemoTimedArmJointSettle", source)

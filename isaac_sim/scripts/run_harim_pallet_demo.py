@@ -1969,7 +1969,8 @@ class DemoGifRecorder:
         frame_duration_ms=GIF_FRAME_DURATION_MS,
         canvas_size=GIF_CANVAS_SIZE,
     ):
-        self.enabled = bool(enabled)
+        self.requested_enabled = bool(enabled)
+        self.enabled = self.requested_enabled
         self.output_dir = resolve_project_path(output_dir)
         self.frame_stride = max(1, int(frame_stride))
         self.max_frames = max(1, int(max_frames))
@@ -1978,6 +1979,7 @@ class DemoGifRecorder:
         self.frames = []
         self.saved_path = None
         self.last_captured_frame = None
+        self.disabled_reason = None
 
     def maybe_capture(self, frame_index, orchestrator, context, args, force=False):
         if not self.enabled:
@@ -1997,11 +1999,12 @@ class DemoGifRecorder:
                 self.frames.append(frame)
             self.last_captured_frame = frame_index
         except Exception as exc:
-            print(f"[HarimDemo] GIF capture skipped: {exc}", flush=True)
+            self.disabled_reason = f"capture skipped: {exc}"
+            print(f"[HarimDemo] GIF {self.disabled_reason}", flush=True)
             self.enabled = False
 
     def save(self):
-        if not self.enabled or not self.frames:
+        if not self.requested_enabled:
             return None
         if self.saved_path is not None:
             return self.saved_path
@@ -2009,7 +2012,9 @@ class DemoGifRecorder:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             stamp = time.strftime("%Y%m%d_%H%M%S")
             output_path = self.output_dir / f"harim_amr_review_{stamp}_{os.getpid()}.gif"
-            frames = self.frames
+            frames = list(self.frames)
+            if not frames:
+                frames = [self._draw_fallback_frame()]
             if len(frames) == 1:
                 frames = [frames[0], frames[0].copy()]
             frames[0].save(
@@ -2027,6 +2032,22 @@ class DemoGifRecorder:
             print(f"[HarimDemo] review GIF save failed: {exc}", flush=True)
             self.enabled = False
             return None
+
+    def _draw_fallback_frame(self):
+        from PIL import Image, ImageDraw
+
+        width, height = self.canvas_size
+        image = Image.new("RGB", (width, height), (245, 247, 250))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((0, 0, width, 52), fill=(24, 31, 40))
+        draw.text((18, 17), "Harim AMR palletizing review", fill=(255, 255, 255))
+        draw.text((18, 86), "Review GIF fallback frame", fill=(24, 31, 40))
+        reason = self.disabled_reason or "No simulation review frames were captured before shutdown."
+        draw.text((18, 124), reason, fill=(89, 99, 110))
+        draw.text((18, 166), "The run still created a GIF so the latest execution has a visible artifact.", fill=(89, 99, 110))
+        draw.rectangle((18, height - 88, width - 18, height - 36), outline=(154, 164, 178), width=2)
+        draw.text((32, height - 70), "Check the matching log for the self-test status and metric output.", fill=(89, 99, 110))
+        return image
 
     def _draw_frame(self, frame_index, orchestrator, context, args):
         from PIL import Image, ImageDraw
