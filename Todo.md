@@ -919,7 +919,7 @@ cd E:\Harim_AMR
 
 - [x] `SimulationApp` 생성 직후 `isaacsim.robot.surface_gripper` extension enable
 - [x] 필수 extension enable 실패 시 명확한 `RuntimeError` 발생
-- [x] `isaacsim.anim.robot`은 optional extension으로 enable 시도 후 실패해도 visual/asset 기반 AMR 데모는 계속 가능하게 처리
+- [x] `isaacsim.anim.robot`은 optional extension enable 과정에서 `pkg_resources` 의존성 문제를 유발해 제거하고, USD asset reference 기반으로 `iw_hub`를 직접 로드하도록 정리
 - [x] extension enable 이후 `simulation_app.update()` 호출
 - [x] `CortexUr10` import 전에 surface gripper extension을 enable하는 source-order unittest 추가
 - [x] `iw_hub/chassis/lift`가 Xformable prim일 때만 `SingleXFormPrim`으로 wrapping하도록 보강
@@ -948,3 +948,53 @@ USD reference를 stage에 추가한 직후 child prim을 검사하거나 robot w
 - [x] custom orchestrator unittest 6개 통과
 - [x] Python compile 통과
 - [x] PowerShell wrapper syntax 통과
+
+---
+
+## 2026-05-29 headless Isaac Sim 검증 메모
+
+사용자가 NVIDIA Omniverse Kit EULA 동의 의사를 명시했으므로 `run_harim_demo.ps1 -AcceptEula` 경로로 실제 Isaac Sim headless self-test를 수행했다.
+
+추가 수정한 항목:
+
+- [x] pip 설치 환경에서 `isaacsim.examples.interactive.ur10_palletizing` import가 불가능한 문제를 제거
+- [x] 필요한 `Ur10Assets`와 `BinStackingTask` 최소 구현을 `run_harim_pallet_demo.py` 내부에 두어 interactive sample extension 의존성 제거
+- [x] `isaacsim.core.utils.math`에 없는 `pack_R` 사용을 `isaacsim.cortex.framework.math_util`로 교체
+- [x] headless self-test에서 `SimulationApp.is_running()`이 false인 경우에도 지정 프레임을 직접 실행하도록 `--self-test-frames` 경로 수정
+- [x] `--self-test-frames`가 `is_running()` gate에 막히지 않는지 source-order unittest 추가
+- [x] `isaacsim.anim.robot` enable 제거로 `pkg_resources` 관련 런타임 오류 회피
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1
+```
+
+검증 결과:
+
+- [x] custom orchestrator unittest 9개 통과
+- [x] Python compile 통과
+- [x] Isaac Sim 5.1.0 headless self-test 통과
+- [x] 로그에서 `[HarimDemo] using iw_hub lift prim: /World/HarimDemo/iw_hub/chassis/lift` 확인
+- [x] 로그에서 `[HarimDemo] self-test completed after 2 frames` 확인
+
+현재 구현 완료 범위:
+
+- [x] 컨베이어 기반 bin 공급 task
+- [x] UR10 + suction gripper 기반 Cortex bin stacking behavior 연결
+- [x] stack pattern 옵션화
+- [x] `stack_complete` 감시
+- [x] `iw_hub` USD asset 로드
+- [x] `iw_hub/chassis/lift` prim 연동
+- [x] 팔레트 visual assembly 생성
+- [x] pickup, lift-up, attach, drop 이동, lift-down, detach, exit FSM 구현
+- [x] `--cycles 0` 기본 무한 반복 유지
+
+남겨둔 범위:
+
+- [ ] 실제 장시간 GUI 실행에서 전체 적재 완료까지 눈으로 확인
+- [ ] 카메라 컷/영상 렌더링
+- [ ] ROS2/Nav2 기반 자율주행

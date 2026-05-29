@@ -1,6 +1,7 @@
 import argparse
 import math
 import os
+import random
 from enum import Enum, auto
 from pathlib import Path
 
@@ -99,6 +100,15 @@ def make_stack_coordinates(cols, rows, layers):
             for col in range(cols):
                 coords.append(np.array([x0 + dx * col, y0 + dy * row, z0 + dz * layer], dtype=float))
     return coords
+
+
+def random_bin_spawn_transform():
+    x = random.uniform(-0.15, 0.15)
+    y = 1.5
+    z = -0.15
+    position = np.array([x, y, z], dtype=float)
+    orientation = yaw_to_quat(random.uniform(-0.05, 0.05))
+    return position, orientation
 
 
 class HarimTransferOrchestrator:
@@ -427,32 +437,81 @@ def main():
 
     if not enable_extension("isaacsim.robot.surface_gripper"):
         raise RuntimeError("Failed to enable required extension: isaacsim.robot.surface_gripper")
-    if not enable_extension("isaacsim.anim.robot"):
-        print("[HarimDemo] optional extension not enabled: isaacsim.anim.robot")
     simulation_app.update()
 
     from isaacsim.core.api.objects.cuboid import VisualCuboid
     from isaacsim.core.api.objects.capsule import VisualCapsule
     from isaacsim.core.api.objects.sphere import VisualSphere
+    from isaacsim.core.api.tasks.base_task import BaseTask
     from isaacsim.core.prims import SingleXFormPrim
-    from isaacsim.core.utils import math as math_util
     from isaacsim.core.utils.prims import get_prim_at_path, is_prim_path_valid
     from isaacsim.core.utils.stage import add_reference_to_stage
     from isaacsim.core.utils.nucleus import get_assets_root_path
+    import isaacsim.cortex.framework.math_util as cortex_math_util
     from isaacsim.cortex.framework.cortex_world import CortexWorld
+    from isaacsim.cortex.framework.cortex_rigid_prim import CortexRigidPrim
     from isaacsim.cortex.framework.robot import CortexUr10
     from isaacsim.cortex.behaviors.ur10 import bin_stacking_behavior as behavior
-    from isaacsim.examples.interactive.ur10_palletizing.ur10_palletizing import BinStackingTask, Ur10Assets
     from pxr import UsdGeom
 
     assets_root = get_assets_root_path()
     if assets_root is None:
         raise RuntimeError("Could not resolve the Isaac Sim assets root path.")
 
+    class Ur10Assets:
+        def __init__(self, root_path):
+            self.assets_root_path = root_path
+            self.ur10_table_usd = root_path + "/Isaac/Samples/Leonardo/Stage/ur10_bin_stacking_short_suction.usd"
+            self.small_klt_usd = root_path + "/Isaac/Props/KLT_Bin/small_KLT.usd"
+            self.background_usd = root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+
+    class BinStackingTask(BaseTask):
+        def __init__(self, env_path, assets) -> None:
+            super().__init__("bin_stacking")
+            self.assets = assets
+            self.env_path = env_path
+            self.bins = []
+            self.on_conveyor = None
+
+        def _spawn_bin(self, rigid_bin):
+            position, orientation = random_bin_spawn_transform()
+            rigid_bin.set_world_pose(position=position, orientation=orientation)
+            rigid_bin.set_linear_velocity(np.array([0.0, -0.30, 0.0], dtype=float))
+            rigid_bin.set_visibility(True)
+
+        def post_reset(self) -> None:
+            if len(self.bins) > 0:
+                for rigid_bin in self.bins:
+                    self.scene.remove_object(rigid_bin.name)
+                self.bins.clear()
+            self.on_conveyor = None
+
+        def pre_step(self, time_step_index, simulation_time) -> None:
+            spawn_new = False
+            if self.on_conveyor is None:
+                spawn_new = True
+            else:
+                (x, y, _z), _ = self.on_conveyor.get_world_pose()
+                is_on_conveyor = y > 0.0 and -0.4 < x < 0.4
+                if not is_on_conveyor:
+                    spawn_new = True
+
+            if spawn_new:
+                name = f"bin_{len(self.bins)}"
+                prim_path = f"{self.env_path}/bins/{name}"
+                add_reference_to_stage(usd_path=self.assets.small_klt_usd, prim_path=prim_path)
+                self.on_conveyor = self.scene.add(CortexRigidPrim(name=name, prim_path=prim_path))
+                self._spawn_bin(self.on_conveyor)
+                self.bins.append(self.on_conveyor)
+
+        def world_cleanup(self):
+            self.bins = []
+            self.on_conveyor = None
+
     usd_context = omni.usd.get_context()
     world = CortexWorld()
 
-    ur10_assets = Ur10Assets()
+    ur10_assets = Ur10Assets(assets_root)
     add_reference_to_stage(ur10_assets.ur10_table_usd, "/World/Ur10Table")
     add_reference_to_stage(ur10_assets.background_usd, "/World/Background")
     wait_for_stage_loading(simulation_app, usd_context, "UR10 palletizing scene")
@@ -485,8 +544,8 @@ def main():
     az = np.array([1.0, 0.0, -0.3])
     ax = np.array([0.0, 1.0, 0.0])
     ay = np.cross(az, ax)
-    rotation = math_util.pack_R(ax, ay, az)
-    quat = math_util.matrix_to_quat(rotation)
+    rotation = cortex_math_util.pack_R(ax, ay, az)
+    quat = cortex_math_util.matrix_to_quat(rotation)
     obs = world.scene.add(
         VisualCapsule(
             "/World/Ur10Table/Obstacles/NavigationBarrier",
@@ -596,15 +655,18 @@ def main():
     decider_network.context.stack_coordinates = stack_coordinates
     orchestrator.reset_visual_state()
 
-    frame_count = 0
+    def step_demo_frame():
+        world.step(render=not args.headless)
+        orchestrator.step(world.get_physics_dt())
+
     try:
-        while simulation_app.is_running():
-            world.step(render=not args.headless)
-            orchestrator.step(world.get_physics_dt())
-            frame_count += 1
-            if args.self_test_frames > 0 and frame_count >= args.self_test_frames:
-                print(f"[HarimDemo] self-test completed after {frame_count} frames")
-                break
+        if args.self_test_frames > 0:
+            for _frame_count in range(args.self_test_frames):
+                step_demo_frame()
+            print(f"[HarimDemo] self-test completed after {args.self_test_frames} frames", flush=True)
+        else:
+            while simulation_app.is_running():
+                step_demo_frame()
     finally:
         simulation_app.close()
 

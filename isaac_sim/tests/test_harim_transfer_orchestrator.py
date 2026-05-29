@@ -173,6 +173,27 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertLess(enable_index, cortex_import_index)
 
+    def test_demo_does_not_depend_on_interactive_or_anim_robot_extensions(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn("isaacsim.examples.interactive", source)
+        self.assertNotIn('enable_extension("isaacsim.anim.robot")', source)
+
+    def test_self_test_runs_fixed_frames_without_is_running_gate(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+        self_test_index = source.index("if args.self_test_frames > 0:")
+        is_running_index = source.index("while simulation_app.is_running():")
+
+        self.assertLess(self_test_index, is_running_index)
+        self.assertIn("for _frame_count in range(args.self_test_frames):", source)
+
+    def test_navigation_obstacle_uses_cortex_math_helpers(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("import isaacsim.cortex.framework.math_util as cortex_math_util", source)
+        self.assertIn("cortex_math_util.pack_R", source)
+        self.assertNotIn("from isaacsim.core.utils import math as math_util", source)
+
     def test_wait_for_stage_loading_updates_until_no_pending_assets(self):
         app = FakeSimulationApp()
         usd_context = FakeUsdContext([(0, 0, 2), (0, 0, 1), (0, 0, 0)])
