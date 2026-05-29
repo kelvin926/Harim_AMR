@@ -365,6 +365,11 @@ def parse_args():
         help="Maximum frames retained for the review GIF.",
     )
     parser.add_argument(
+        "--self-test-require-review-gif",
+        action="store_true",
+        help="Fail the fixed-frame self-test unless the timestamp review GIF and latest_review.gif are saved.",
+    )
+    parser.add_argument(
         "--self-test-frames",
         type=int,
         default=0,
@@ -6343,14 +6348,25 @@ def main():
                     f"drop dock final error {drop_dock_final_error:.4f} m exceeded "
                     f"{args.self_test_max_drop_dock_final_error:.4f} m"
                 )
+            review_gif_path = save_review_gif()
+            review_gif_latest_path = getattr(gif_recorder, "latest_path", None)
+            review_gif_frame_count = len(getattr(gif_recorder, "frames", []))
+            review_gif_width = int(gif_recorder.canvas_size[0])
+            review_gif_height = int(gif_recorder.canvas_size[1])
+            if args.self_test_require_review_gif:
+                if not review_gif_path or not Path(review_gif_path).exists():
+                    self_test_failures.append("review GIF was not saved")
+                if not review_gif_latest_path or not Path(review_gif_latest_path).exists():
+                    self_test_failures.append("latest review GIF was not updated")
+                if review_gif_frame_count <= 0:
+                    self_test_failures.append("review GIF captured no simulation frames")
+
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
-                save_review_gif()
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
                 print("[HarimDemo] preserving failure exit; skipping SimulationApp.close()", flush=True)
                 os._exit(1)
             else:
-                save_review_gif()
                 print(
                     f"[HarimDemo] self-test completed after {args.self_test_frames} frames; "
                     f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}; "
@@ -6487,8 +6503,11 @@ def main():
                     f"drop_dock_arrival_count={drop_dock_arrival_count}; "
                     f"drop_approach_final_error={drop_approach_final_error:.4f}; "
                     f"drop_dock_final_error={drop_dock_final_error:.4f}; "
+                    f"review_gif_canvas_width={review_gif_width}; "
+                    f"review_gif_canvas_height={review_gif_height}; "
+                    f"review_gif_frame_count={review_gif_frame_count}; "
                     f"review_gif_path={review_gif_path or ''}; "
-                    f"latest_review_gif_path={getattr(gif_recorder, 'latest_path', '') or ''}",
+                    f"latest_review_gif_path={review_gif_latest_path or ''}",
                     flush=True,
                 )
         else:

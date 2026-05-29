@@ -1,5 +1,17 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Review GIF 저장 Strict Gate 추가
+
+- strict self-test에서 review GIF 저장을 필수 gate로 승격했습니다.
+- `--self-test-require-review-gif`는 timestamp GIF, `latest_review.gif`, 실제 캡처 frame 수를 검사합니다.
+- `run_harim_demo.ps1`에는 `-SelfTestRequireReviewGif`를 연결했고, `run_harim_strict_self_test.ps1`에서는 기본으로 켭니다.
+- self-test 완료 summary에 `review_gif_canvas_width`, `review_gif_canvas_height`, `review_gif_frame_count`가 남습니다.
+- 검증 로그: `isaacsim_logs/harim_require_review_gif_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_041928_24892.gif`
+- 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+- GIF 크기: `960x540`, `151` frames
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `review_gif_canvas_width=960`, `review_gif_canvas_height=540`, `review_gif_frame_count=151`
+
 ## 2026-05-30 Review GIF 가독성 보강
 
 - review GIF 기본 캔버스를 `720x420`에서 `960x540`으로 키워 `latest_review.gif`를 바로 열었을 때 상태 패널과 release clearance 정보를 더 쉽게 볼 수 있게 했습니다.

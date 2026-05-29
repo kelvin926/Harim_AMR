@@ -12,6 +12,7 @@ param(
     [string]$GifOutputDir = "",
     [int]$GifFrameStride = 80,
     [int]$GifMaxFrames = 180,
+    [switch]$SelfTestRequireReviewGif,
     [int]$SelfTestMinPlacedBins = 0,
     [int]$SelfTestMinTransferCycles = 0,
     [double]$SelfTestMaxPreGripOffset = 0.0,
@@ -280,6 +281,10 @@ if ($SelfTestForceStackComplete) {
 
 if ($SelfTestDebugBins) {
     $ArgsList += "--self-test-debug-bins"
+}
+
+if ($SelfTestRequireReviewGif) {
+    $ArgsList += "--self-test-require-review-gif"
 }
 
 if ($NoGif) {

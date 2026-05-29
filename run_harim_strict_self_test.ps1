@@ -18,6 +18,7 @@ if (-not (Test-Path -LiteralPath $Runner)) {
 $RunnerArgs = @{
     Cycles = $Cycles
     SelfTestFrames = $SelfTestFrames
+    SelfTestRequireReviewGif = $true
     SelfTestMinPlacedBins = 8
     SelfTestMinTransferCycles = 1
     SelfTestMaxPreGripOffset = 0.05
