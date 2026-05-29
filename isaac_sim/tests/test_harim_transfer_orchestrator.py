@@ -386,6 +386,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def test_infeed_conveyor_visual_spans_spawn_and_pick_points(self):
         metrics = self.demo.compute_infeed_conveyor_metrics()
         marker_specs = self.demo.make_infeed_motion_marker_specs()
+        feed_carton_specs = self.demo.make_infeed_feed_carton_specs()
 
         self.assertGreaterEqual(metrics["infeed_conveyor_length"], 0.80)
         self.assertGreaterEqual(metrics["infeed_spawn_margin"], 0.30)
@@ -397,6 +398,13 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertEqual(len(marker_specs), metrics["infeed_motion_marker_count"])
         self.assertGreaterEqual(metrics["infeed_motion_marker_spacing"], 0.10)
         self.assertGreaterEqual(metrics["infeed_motion_marker_speed"], 0.15)
+        self.assertEqual(metrics["infeed_feed_carton_count"], 1)
+        self.assertEqual(len(feed_carton_specs), metrics["infeed_feed_carton_count"])
+        self.assertGreaterEqual(metrics["infeed_feed_carton_path_length"], 0.25)
+        self.assertGreaterEqual(metrics["infeed_feed_carton_stop_clearance"], 0.05)
+        self.assertGreaterEqual(metrics["infeed_feed_carton_guide_clearance"], 0.40)
+        self.assertGreaterEqual(metrics["infeed_feed_carton_belt_support_gap"], 0.0)
+        self.assertLessEqual(metrics["infeed_feed_carton_belt_support_gap"], 0.02)
         self.assertLess(self.demo.INFEED_CONVEYOR_START_Y, self.demo.PICK_STATION_BIN_POSITION[1])
         self.assertGreater(self.demo.INFEED_CONVEYOR_END_Y, self.demo.CONVEYOR_PICK_WINDOW_Y)
 
@@ -414,6 +422,35 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertEqual(controller.update_count, 2)
         self.assertGreater(controller.max_marker_observed_travel, 0.10)
         self.assertLess(second_position[1], first_position[1])
+
+    def test_infeed_feed_carton_controller_moves_upstream_cartons(self):
+        carton_specs = self.demo.make_infeed_feed_carton_specs()
+        body_parts = [FakePosePrim(f"{name}_body") for name, *_rest in carton_specs]
+        tape_parts = [FakePosePrim(f"{name}_tape") for name, *_rest in carton_specs]
+        base_y_values = [base_y for _name, _body_position, _tape_position, _body_scale, _tape_scale, base_y in carton_specs]
+        controller = self.demo.InfeedFeedCartonMotionController(
+            list(zip(body_parts, tape_parts)),
+            base_y_values,
+        )
+
+        controller.update(0.0)
+        first_body_position = body_parts[0].get_world_pose()[0].copy()
+        first_tape_position = tape_parts[0].get_world_pose()[0].copy()
+        controller.update(1.0)
+        second_body_position = body_parts[0].get_world_pose()[0]
+        second_tape_position = tape_parts[0].get_world_pose()[0]
+
+        self.assertEqual(controller.update_count, 2)
+        self.assertGreater(controller.max_carton_observed_travel, 0.05)
+        self.assertLess(second_body_position[1], first_body_position[1])
+        np.testing.assert_allclose(
+            first_tape_position - first_body_position,
+            np.array([0.0, 0.0, self.demo.INFEED_FEED_CARTON_TAPE_OFFSET_Z], dtype=float),
+        )
+        np.testing.assert_allclose(
+            second_tape_position - second_body_position,
+            np.array([0.0, 0.0, self.demo.INFEED_FEED_CARTON_TAPE_OFFSET_Z], dtype=float),
+        )
 
     def test_safety_fence_leaves_amr_and_infeed_gate_clearance(self):
         metrics = self.demo.compute_safety_fence_metrics()
@@ -925,6 +962,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("make_infeed_motion_marker_specs", source)
         self.assertIn("InfeedConveyorMotionController", source)
         self.assertIn("infeed_motion_controller.update", source)
+        self.assertIn("InfeedFeedCarton", source)
+        self.assertIn("make_infeed_feed_carton_specs", source)
+        self.assertIn("InfeedFeedCartonMotionController", source)
+        self.assertIn("infeed_feed_carton_controller.update", source)
         self.assertIn("InfeedGuideRail", source)
         self.assertIn("InfeedPhotoEyeBeam", source)
         self.assertIn("create_safety_fence_visual", source)
@@ -1120,6 +1161,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-infeed-belt-support-gap", source)
         self.assertIn("--self-test-min-infeed-motion-marker-count", source)
         self.assertIn("--self-test-min-infeed-motion-observed-travel", source)
+        self.assertIn("--self-test-min-infeed-feed-carton-count", source)
+        self.assertIn("--self-test-min-infeed-feed-carton-observed-travel", source)
+        self.assertIn("--self-test-min-infeed-feed-carton-stop-clearance", source)
+        self.assertIn("--self-test-min-infeed-feed-carton-guide-clearance", source)
+        self.assertIn("--self-test-max-infeed-feed-carton-belt-support-gap", source)
         self.assertIn("--self-test-min-safety-fence-part-count", source)
         self.assertIn("--self-test-min-safety-fence-amr-gate-clearance", source)
         self.assertIn("--self-test-min-amr-cell-gate-clearance", source)
@@ -1221,6 +1267,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("infeed belt support gap", source)
         self.assertIn("infeed motion marker count", source)
         self.assertIn("infeed motion observed travel", source)
+        self.assertIn("infeed feed carton count", source)
+        self.assertIn("infeed feed carton observed travel", source)
+        self.assertIn("infeed feed carton stop clearance", source)
+        self.assertIn("infeed feed carton guide clearance", source)
+        self.assertIn("infeed feed carton belt support gap", source)
         self.assertIn("safety fence part count", source)
         self.assertIn("safety fence AMR gate clearance", source)
         self.assertIn("AMR cell gate clearance", source)
@@ -1323,6 +1374,13 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("infeed_motion_marker_spacing=", source)
         self.assertIn("infeed_motion_marker_speed=", source)
         self.assertIn("infeed_motion_observed_travel=", source)
+        self.assertIn("infeed_feed_carton_count=", source)
+        self.assertIn("infeed_feed_carton_path_length=", source)
+        self.assertIn("infeed_feed_carton_speed=", source)
+        self.assertIn("infeed_feed_carton_observed_travel=", source)
+        self.assertIn("infeed_feed_carton_stop_clearance=", source)
+        self.assertIn("infeed_feed_carton_guide_clearance=", source)
+        self.assertIn("infeed_feed_carton_belt_support_gap=", source)
         self.assertIn("safety_fence_part_count=", source)
         self.assertIn("safety_fence_amr_gate_clearance=", source)
         self.assertIn("amr_cell_gate_clearance=", source)
@@ -1461,6 +1519,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxInfeedBeltSupportGap", source)
         self.assertIn("$SelfTestMinInfeedMotionMarkerCount", source)
         self.assertIn("$SelfTestMinInfeedMotionObservedTravel", source)
+        self.assertIn("$SelfTestMinInfeedFeedCartonCount", source)
+        self.assertIn("$SelfTestMinInfeedFeedCartonObservedTravel", source)
+        self.assertIn("$SelfTestMinInfeedFeedCartonStopClearance", source)
+        self.assertIn("$SelfTestMinInfeedFeedCartonGuideClearance", source)
+        self.assertIn("$SelfTestMaxInfeedFeedCartonBeltSupportGap", source)
         self.assertIn("$SelfTestMinSafetyFencePartCount", source)
         self.assertIn("$SelfTestMinSafetyFenceAmrGateClearance", source)
         self.assertIn("$SelfTestMinAmrCellGateClearance", source)
@@ -1551,6 +1614,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-infeed-belt-support-gap", source)
         self.assertIn("--self-test-min-infeed-motion-marker-count", source)
         self.assertIn("--self-test-min-infeed-motion-observed-travel", source)
+        self.assertIn("--self-test-min-infeed-feed-carton-count", source)
+        self.assertIn("--self-test-min-infeed-feed-carton-observed-travel", source)
+        self.assertIn("--self-test-min-infeed-feed-carton-stop-clearance", source)
+        self.assertIn("--self-test-min-infeed-feed-carton-guide-clearance", source)
+        self.assertIn("--self-test-max-infeed-feed-carton-belt-support-gap", source)
         self.assertIn("--self-test-min-safety-fence-part-count", source)
         self.assertIn("--self-test-min-safety-fence-amr-gate-clearance", source)
         self.assertIn("--self-test-min-amr-cell-gate-clearance", source)
@@ -1678,6 +1746,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxInfeedBeltSupportGap", source)
         self.assertIn("SelfTestMinInfeedMotionMarkerCount", source)
         self.assertIn("SelfTestMinInfeedMotionObservedTravel", source)
+        self.assertIn("SelfTestMinInfeedFeedCartonCount", source)
+        self.assertIn("SelfTestMinInfeedFeedCartonObservedTravel", source)
+        self.assertIn("SelfTestMinInfeedFeedCartonStopClearance", source)
+        self.assertIn("SelfTestMinInfeedFeedCartonGuideClearance", source)
+        self.assertIn("SelfTestMaxInfeedFeedCartonBeltSupportGap", source)
         self.assertIn("SelfTestMinSafetyFencePartCount", source)
         self.assertIn("20", source)
         self.assertIn("SelfTestMinSafetyFenceAmrGateClearance", source)

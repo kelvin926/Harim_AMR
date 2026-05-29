@@ -1,5 +1,26 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Infeed Feed Carton Visual 및 이동 검증
+
+- [x] 컨베이어가 비어 보이지 않도록 pick station 뒤쪽, 즉 상류 구간에서 계속 움직이는 visual-only feed carton 1개를 추가했다.
+- [x] feed carton은 실제 로봇팔이 집는 active bin과 물리적으로 섞이지 않도록 collision 없는 visual로 두고, `INFEED_STOP_LINE_Y` 앞에는 들어오지 않게 path를 제한했다.
+- [x] 상자 본체와 상단 테이프 visual을 컨베이어 벨트 위에 올리고, guide rail 사이 clearance와 belt support gap을 self-test metric으로 기록한다.
+- [x] strict self-test gate를 추가했다.
+  - Python: `--self-test-min-infeed-feed-carton-count`
+  - Python: `--self-test-min-infeed-feed-carton-observed-travel`
+  - Python: `--self-test-min-infeed-feed-carton-stop-clearance`
+  - Python: `--self-test-min-infeed-feed-carton-guide-clearance`
+  - Python: `--self-test-max-infeed-feed-carton-belt-support-gap`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 77개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_infeed_feed_carton_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_035710_6964.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `infeed_feed_carton_count=1`, `infeed_feed_carton_observed_travel=0.1520`, `infeed_feed_carton_stop_clearance=0.0700`, `infeed_feed_carton_guide_clearance=0.4450`, `infeed_feed_carton_belt_support_gap=0.0080`
+
 ## 2026-05-30 AMR Lift Guide Visual 및 연결성 검증
 
 - [x] AMR lift fork가 본체와 분리되어 공중에 떠 보이는 문제를 줄이기 위해 AMR 본체에 붙어 이동하는 lift guide rail visual 4개를 추가했다.

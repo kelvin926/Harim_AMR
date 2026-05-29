@@ -173,6 +173,12 @@ INFEED_MOTION_MARKER_SPEED = 0.22
 INFEED_MOTION_MARKER_SCALE = np.array([INFEED_CONVEYOR_WIDTH * 0.76, 0.035, 0.006], dtype=float)
 INFEED_MOTION_MARKER_Z = INFEED_CONVEYOR_TOP_Z + INFEED_MOTION_MARKER_SCALE[2] * 0.5 + 0.002
 INFEED_MOTION_MARKER_COLOR = np.array([0.22, 0.26, 0.28], dtype=float)
+INFEED_FEED_CARTON_COUNT = 1
+INFEED_FEED_CARTON_SPEED = 0.12
+INFEED_FEED_CARTON_MIN_Y = float(INFEED_STOP_LINE_Y + CARTON_BODY_SCALE[1] * 0.5 + 0.07)
+INFEED_FEED_CARTON_MAX_Y = float(INFEED_CONVEYOR_END_Y - CARTON_BODY_SCALE[1] * 0.5 - 0.02)
+INFEED_FEED_CARTON_PATH_LENGTH = INFEED_FEED_CARTON_MAX_Y - INFEED_FEED_CARTON_MIN_Y
+INFEED_FEED_CARTON_TAPE_OFFSET_Z = float(CARTON_BODY_SCALE[2] * 0.5 + CARTON_TAPE_TOP_SCALE[2] * 0.5)
 SAFETY_FENCE_MIN_X = -0.82
 SAFETY_FENCE_MAX_X = 1.76
 SAFETY_FENCE_MIN_Y = -1.18
@@ -492,6 +498,36 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test unless conveyor belt markers visibly travel at least this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-infeed-feed-carton-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many upstream infeed carton visuals are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-infeed-feed-carton-observed-travel",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test unless upstream infeed carton visuals visibly travel at least this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-infeed-feed-carton-stop-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if upstream infeed carton visuals come closer to the pick stop line than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-infeed-feed-carton-guide-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if upstream infeed carton visuals have less side guide clearance than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-infeed-feed-carton-belt-support-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if upstream infeed carton visuals float above the belt by more than this distance. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-safety-fence-part-count",
@@ -1347,6 +1383,7 @@ def compute_load_restraint_metrics(
 def compute_infeed_conveyor_metrics():
     carton_bottom_z = float(PICK_STATION_BIN_POSITION[2] - CARTON_BODY_SCALE[2] * 0.5)
     motion_marker_spacing = INFEED_CONVEYOR_LENGTH / max(INFEED_MOTION_MARKER_COUNT, 1)
+    feed_carton_stop_clearance = INFEED_FEED_CARTON_MIN_Y - (INFEED_STOP_LINE_Y + CARTON_BODY_SCALE[1] * 0.5)
     return {
         "infeed_conveyor_length": float(INFEED_CONVEYOR_LENGTH),
         "infeed_spawn_margin": float(INFEED_CONVEYOR_END_Y - CONVEYOR_PICK_WINDOW_Y),
@@ -1356,6 +1393,12 @@ def compute_infeed_conveyor_metrics():
         "infeed_motion_marker_count": int(INFEED_MOTION_MARKER_COUNT),
         "infeed_motion_marker_spacing": float(motion_marker_spacing),
         "infeed_motion_marker_speed": float(INFEED_MOTION_MARKER_SPEED),
+        "infeed_feed_carton_count": int(INFEED_FEED_CARTON_COUNT),
+        "infeed_feed_carton_path_length": float(INFEED_FEED_CARTON_PATH_LENGTH),
+        "infeed_feed_carton_speed": float(INFEED_FEED_CARTON_SPEED),
+        "infeed_feed_carton_stop_clearance": float(feed_carton_stop_clearance),
+        "infeed_feed_carton_guide_clearance": float(INFEED_GUIDE_INNER_WIDTH - CARTON_BODY_SCALE[0]),
+        "infeed_feed_carton_belt_support_gap": float(carton_bottom_z - INFEED_CONVEYOR_TOP_Z),
     }
 
 
@@ -1382,6 +1425,32 @@ def make_infeed_motion_marker_specs(sim_time=0.0):
     return specs
 
 
+def compute_infeed_feed_carton_y(base_y, sim_time):
+    distance_from_min = (float(base_y) - INFEED_FEED_CARTON_MIN_Y) - INFEED_FEED_CARTON_SPEED * float(sim_time)
+    return float(INFEED_FEED_CARTON_MIN_Y + (distance_from_min % INFEED_FEED_CARTON_PATH_LENGTH))
+
+
+def make_infeed_feed_carton_specs(sim_time=0.0):
+    spacing = INFEED_FEED_CARTON_PATH_LENGTH / max(INFEED_FEED_CARTON_COUNT, 1)
+    specs = []
+    for carton_idx in range(INFEED_FEED_CARTON_COUNT):
+        base_y = INFEED_FEED_CARTON_MIN_Y + spacing * (carton_idx + 0.5)
+        carton_y = compute_infeed_feed_carton_y(base_y, sim_time)
+        body_position = np.array([0.0, carton_y, PICK_STATION_BIN_POSITION[2]], dtype=float)
+        tape_position = body_position + np.array([0.0, 0.0, INFEED_FEED_CARTON_TAPE_OFFSET_Z], dtype=float)
+        specs.append(
+            (
+                f"InfeedFeedCarton_{carton_idx}",
+                body_position,
+                tape_position,
+                CARTON_BODY_SCALE.copy(),
+                CARTON_TAPE_TOP_SCALE.copy(),
+                float(base_y),
+            )
+        )
+    return specs
+
+
 class InfeedConveyorMotionController:
     def __init__(self, marker_parts, marker_base_y_values):
         self.marker_parts = list(marker_parts)
@@ -1401,6 +1470,29 @@ class InfeedConveyorMotionController:
             marker.set_world_pose(position=position)
             travel = float(np.linalg.norm(position - self.initial_positions[marker_name]))
             self.max_marker_observed_travel = max(self.max_marker_observed_travel, travel)
+
+
+class InfeedFeedCartonMotionController:
+    def __init__(self, carton_part_pairs, carton_base_y_values):
+        self.carton_part_pairs = list(carton_part_pairs)
+        self.carton_base_y_values = [float(value) for value in carton_base_y_values]
+        self.initial_positions = {}
+        self.max_carton_observed_travel = 0.0
+        self.update_count = 0
+
+    def update(self, sim_time):
+        self.update_count += 1
+        for (body_part, tape_part), base_y in zip(self.carton_part_pairs, self.carton_base_y_values):
+            carton_y = compute_infeed_feed_carton_y(base_y, sim_time)
+            body_position = np.array([0.0, carton_y, PICK_STATION_BIN_POSITION[2]], dtype=float)
+            tape_position = body_position + np.array([0.0, 0.0, INFEED_FEED_CARTON_TAPE_OFFSET_Z], dtype=float)
+            body_part.set_world_pose(position=body_position)
+            tape_part.set_world_pose(position=tape_position)
+            part_name = getattr(body_part, "name", str(id(body_part)))
+            if part_name not in self.initial_positions:
+                self.initial_positions[part_name] = body_position.copy()
+            travel = float(np.linalg.norm(body_position - self.initial_positions[part_name]))
+            self.max_carton_observed_travel = max(self.max_carton_observed_travel, travel)
 
 
 def make_safety_fence_specs(pickup_y=DEFAULT_PICKUP_Y):
@@ -2260,6 +2352,10 @@ class DemoGifRecorder:
         sim_time = float(getattr(context, "demo_sim_time", 0.0))
         for _name, marker_position, marker_scale, _color, _base_y in make_infeed_motion_marker_specs(sim_time):
             draw_world_rect(marker_position, marker_scale, (148, 163, 184), (71, 85, 105))
+        for _name, body_position, _tape_position, body_scale, _tape_scale, _base_y in make_infeed_feed_carton_specs(
+            sim_time
+        ):
+            draw_world_rect(body_position, body_scale, (191, 120, 66), (124, 45, 18))
         draw_world_rect(pickup, [1.75, 1.35], (254, 243, 199), (217, 119, 6))
         draw_world_rect(drop, [1.95, 1.45], (219, 234, 254), (37, 99, 235))
         draw.text((pickup_px[0] - 28, pickup_px[1] - 48), "PICK", fill=(146, 64, 14))
@@ -4420,6 +4516,8 @@ def main():
         visual_parts = []
         motion_parts = []
         motion_base_y_values = []
+        feed_carton_part_pairs = []
+        feed_carton_base_y_values = []
         belt_color = np.array([0.11, 0.12, 0.13], dtype=float)
         rail_color = np.array([0.60, 0.64, 0.66], dtype=float)
         roller_color = np.array([0.34, 0.37, 0.39], dtype=float)
@@ -4460,6 +4558,28 @@ def main():
             visual_parts.append(marker)
             motion_parts.append(marker)
             motion_base_y_values.append(marker_base_y)
+        for carton_name, body_position, tape_position, body_scale, tape_scale, carton_base_y in make_infeed_feed_carton_specs():
+            body = world.scene.add(
+                VisualCuboid(
+                    f"{harim_root}/{carton_name}Body",
+                    name=f"harim_{carton_name.lower()}_body",
+                    position=np.array(body_position, dtype=float),
+                    scale=np.array(body_scale, dtype=float),
+                    color=CARTON_BODY_COLOR,
+                )
+            )
+            tape = world.scene.add(
+                VisualCuboid(
+                    f"{harim_root}/{carton_name}TopTape",
+                    name=f"harim_{carton_name.lower()}_top_tape",
+                    position=np.array(tape_position, dtype=float),
+                    scale=np.array(tape_scale, dtype=float),
+                    color=CARTON_TAPE_COLOR,
+                )
+            )
+            visual_parts.extend([body, tape])
+            feed_carton_part_pairs.append((body, tape))
+            feed_carton_base_y_values.append(carton_base_y)
         for rail_idx, x_offset in enumerate(INFEED_GUIDE_RAIL_X_OFFSETS):
             visual_parts.append(
                 world.scene.add(
@@ -4532,9 +4652,13 @@ def main():
                 )
             )
         )
-        return visual_parts, InfeedConveyorMotionController(motion_parts, motion_base_y_values)
+        return (
+            visual_parts,
+            InfeedConveyorMotionController(motion_parts, motion_base_y_values),
+            InfeedFeedCartonMotionController(feed_carton_part_pairs, feed_carton_base_y_values),
+        )
 
-    _infeed_conveyor_visuals, infeed_motion_controller = create_infeed_conveyor_visual()
+    _infeed_conveyor_visuals, infeed_motion_controller, infeed_feed_carton_controller = create_infeed_conveyor_visual()
 
     def create_completion_signal():
         signal_x = args.pickup_x + 0.92
@@ -5127,6 +5251,7 @@ def main():
         decider_network.context.demo_sim_time = getattr(decider_network.context, "demo_sim_time", 0.0) + physics_dt
         hold_demo_released_bin_at_target(decider_network.context)
         infeed_motion_controller.update(decider_network.context.demo_sim_time)
+        infeed_feed_carton_controller.update(decider_network.context.demo_sim_time)
         world.step(render=not args.headless)
         sync_demo_attached_bin(decider_network.context)
         hold_demo_released_bin_at_target(decider_network.context)
@@ -5319,8 +5444,17 @@ def main():
             infeed_motion_marker_count = infeed_metrics["infeed_motion_marker_count"]
             infeed_motion_marker_spacing = infeed_metrics["infeed_motion_marker_spacing"]
             infeed_motion_marker_speed = infeed_metrics["infeed_motion_marker_speed"]
+            infeed_feed_carton_count = infeed_metrics["infeed_feed_carton_count"]
+            infeed_feed_carton_path_length = infeed_metrics["infeed_feed_carton_path_length"]
+            infeed_feed_carton_speed = infeed_metrics["infeed_feed_carton_speed"]
+            infeed_feed_carton_stop_clearance = infeed_metrics["infeed_feed_carton_stop_clearance"]
+            infeed_feed_carton_guide_clearance = infeed_metrics["infeed_feed_carton_guide_clearance"]
+            infeed_feed_carton_belt_support_gap = infeed_metrics["infeed_feed_carton_belt_support_gap"]
             infeed_motion_observed_travel = float(
                 getattr(infeed_motion_controller, "max_marker_observed_travel", 0.0)
+            )
+            infeed_feed_carton_observed_travel = float(
+                getattr(infeed_feed_carton_controller, "max_carton_observed_travel", 0.0)
             )
             if (
                 args.self_test_min_infeed_conveyor_length > 0
@@ -5372,6 +5506,48 @@ def main():
                     f"infeed motion observed travel {infeed_motion_observed_travel:.4f} m was below "
                     f"{args.self_test_min_infeed_motion_observed_travel:.4f} m"
                 )
+            if (
+                args.self_test_min_infeed_feed_carton_count > 0
+                and infeed_feed_carton_count < args.self_test_min_infeed_feed_carton_count
+            ):
+                self_test_failures.append(
+                    f"infeed feed carton count {infeed_feed_carton_count} was below "
+                    f"{args.self_test_min_infeed_feed_carton_count}"
+                )
+            if (
+                args.self_test_min_infeed_feed_carton_observed_travel > 0
+                and infeed_feed_carton_observed_travel < args.self_test_min_infeed_feed_carton_observed_travel
+            ):
+                self_test_failures.append(
+                    f"infeed feed carton observed travel {infeed_feed_carton_observed_travel:.4f} m was below "
+                    f"{args.self_test_min_infeed_feed_carton_observed_travel:.4f} m"
+                )
+            if (
+                args.self_test_min_infeed_feed_carton_stop_clearance > 0
+                and infeed_feed_carton_stop_clearance < args.self_test_min_infeed_feed_carton_stop_clearance
+            ):
+                self_test_failures.append(
+                    f"infeed feed carton stop clearance {infeed_feed_carton_stop_clearance:.4f} m was below "
+                    f"{args.self_test_min_infeed_feed_carton_stop_clearance:.4f} m"
+                )
+            if (
+                args.self_test_min_infeed_feed_carton_guide_clearance > 0
+                and infeed_feed_carton_guide_clearance < args.self_test_min_infeed_feed_carton_guide_clearance
+            ):
+                self_test_failures.append(
+                    f"infeed feed carton guide clearance {infeed_feed_carton_guide_clearance:.4f} m was below "
+                    f"{args.self_test_min_infeed_feed_carton_guide_clearance:.4f} m"
+                )
+            if args.self_test_max_infeed_feed_carton_belt_support_gap > 0:
+                if infeed_feed_carton_belt_support_gap > args.self_test_max_infeed_feed_carton_belt_support_gap:
+                    self_test_failures.append(
+                        f"infeed feed carton belt support gap {infeed_feed_carton_belt_support_gap:.4f} m exceeded "
+                        f"{args.self_test_max_infeed_feed_carton_belt_support_gap:.4f} m"
+                    )
+                if infeed_feed_carton_belt_support_gap < -0.005:
+                    self_test_failures.append(
+                        f"infeed feed carton overlapped belt {-infeed_feed_carton_belt_support_gap:.4f} m exceeded 0.0050 m"
+                    )
             safety_fence_metrics = compute_safety_fence_metrics(args.pickup_y)
             safety_fence_part_count = safety_fence_metrics["safety_fence_part_count"]
             safety_fence_amr_gate_clearance = safety_fence_metrics["safety_fence_amr_gate_clearance"]
@@ -6198,6 +6374,13 @@ def main():
                     f"infeed_motion_marker_spacing={infeed_motion_marker_spacing:.4f}; "
                     f"infeed_motion_marker_speed={infeed_motion_marker_speed:.4f}; "
                     f"infeed_motion_observed_travel={infeed_motion_observed_travel:.4f}; "
+                    f"infeed_feed_carton_count={infeed_feed_carton_count}; "
+                    f"infeed_feed_carton_path_length={infeed_feed_carton_path_length:.4f}; "
+                    f"infeed_feed_carton_speed={infeed_feed_carton_speed:.4f}; "
+                    f"infeed_feed_carton_observed_travel={infeed_feed_carton_observed_travel:.4f}; "
+                    f"infeed_feed_carton_stop_clearance={infeed_feed_carton_stop_clearance:.4f}; "
+                    f"infeed_feed_carton_guide_clearance={infeed_feed_carton_guide_clearance:.4f}; "
+                    f"infeed_feed_carton_belt_support_gap={infeed_feed_carton_belt_support_gap:.4f}; "
                     f"safety_fence_part_count={safety_fence_part_count}; "
                     f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "
                     f"amr_cell_gate_clearance={amr_cell_gate_clearance:.4f}; "
