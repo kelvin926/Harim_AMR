@@ -15,6 +15,13 @@ def load_demo_module():
     return module
 
 
+def rotate_vector_by_quat(vector, quat):
+    w, x, y, z = quat
+    q_vec = np.array([x, y, z], dtype=float)
+    vector = np.array(vector, dtype=float)
+    return vector + 2.0 * np.cross(q_vec, np.cross(q_vec, vector) + w * vector)
+
+
 class FakePosePrim:
     def __init__(self, name, position=(0.0, 0.0, 0.0)):
         self.name = name
@@ -139,6 +146,52 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         for item in items:
             np.testing.assert_allclose(item.linear_velocity, np.zeros(3))
             np.testing.assert_allclose(item.angular_velocity, np.zeros(3))
+
+    def test_default_drop_distance_is_over_ten_meters(self):
+        self.assertGreaterEqual(self.demo.DEFAULT_DROP_X - self.demo.DEFAULT_PICKUP_X, 10.0)
+
+    def test_spawned_bins_are_upside_down_to_skip_flip_station(self):
+        for _ in range(10):
+            _position, orientation = self.demo.random_bin_spawn_transform()
+            local_z_in_world = rotate_vector_by_quat([0.0, 0.0, 1.0], orientation)
+
+            self.assertLess(local_z_in_world[2], -0.99)
+
+    def test_demo_uses_no_flip_dispatch(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("class NoFlipDispatch", source)
+        self.assertIn("make_no_flip_decider_network", source)
+        self.assertIn("hide_stage_prims_containing", source)
+        self.assertNotIn('add_child("flip_bin"', source)
+        self.assertNotIn("behavior.make_decider_network", source)
+
+    def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
+        block_offsets = self.demo.PALLET_BLOCK_OFFSETS
+        tunnel_half_width = self.demo.PALLET_TUNNEL_HALF_WIDTH
+
+        self.assertGreater(tunnel_half_width, 0.0)
+        for offset in block_offsets:
+            self.assertGreaterEqual(abs(offset[1]), tunnel_half_width)
+
+    def test_slide_out_keeps_dropped_payload_stationary(self):
+        orchestrator, context, _world, items = self.build_orchestrator(Args())
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.SLIDE_OUT_FROM_PALLET)
+
+        dropped_item_positions = {item.name: item.get_world_pose()[0] for item in items}
+        dropped_pallet_positions = {part.name: part.get_world_pose()[0] for part in orchestrator.pallet_parts}
+        amr_x_before = orchestrator.get_amr_position()[0]
+
+        orchestrator.step(0.1)
+        orchestrator.step(0.1)
+
+        self.assertGreater(orchestrator.get_amr_position()[0], amr_x_before)
+        for item in items:
+            np.testing.assert_allclose(item.get_world_pose()[0], dropped_item_positions[item.name])
+        for part in orchestrator.pallet_parts:
+            np.testing.assert_allclose(part.get_world_pose()[0], dropped_pallet_positions[part.name])
 
     def test_infinite_cycles_reset_for_next_stack(self):
         orchestrator, context, world, _items = self.build_orchestrator(RepeatArgs())

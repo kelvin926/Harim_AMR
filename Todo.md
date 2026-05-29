@@ -782,14 +782,14 @@ AMR 대기 위치
 
 바로 진행할 순서는 다음과 같다.
 
-- [ ] Isaac Sim 5.1 설치/실행 확인
-- [ ] UR10 Bin Stacking 예제 실행
-- [ ] `iw_hub` 예제 또는 asset 로드 확인
-- [ ] `LiftUp` / `LiftDown` 단독 테스트
-- [ ] UR10 예제에서 적재 완료 조건 찾기
-- [ ] 적재 완료 후 AMR FSM 호출 구조 설계
-- [ ] 팔레트 attach/detach 테스트
-- [ ] 전체 1-cycle 데모 구현
+- [x] Isaac Sim 5.1 설치/실행 확인
+- [x] UR10 Bin Stacking 예제 실행
+- [x] `iw_hub` 예제 또는 asset 로드 확인
+- [x] `LiftUp` / `LiftDown` 단독 테스트
+- [x] UR10 예제에서 적재 완료 조건 찾기
+- [x] 적재 완료 후 AMR FSM 호출 구조 설계
+- [x] 팔레트 attach/detach 테스트
+- [x] 전체 1-cycle 데모 구현
 - [ ] 카메라 컷 추가
 - [ ] 최종 영상 렌더링
 
@@ -998,3 +998,58 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 - [ ] 실제 장시간 GUI 실행에서 전체 적재 완료까지 눈으로 확인
 - [ ] 카메라 컷/영상 렌더링
 - [ ] ROS2/Nav2 기반 자율주행
+
+---
+
+## 2026-05-29 슬라이드 하역/No-Flip 진행 메모
+
+사용자 추가 요구사항:
+
+- [x] 팔레트/박스가 바닥이나 AMR을 뚫는 것처럼 보이는 문제 완화
+- [x] 목표 위치에서 참고 영상처럼 팔레트를 내려놓고 AMR이 슬라이드 형태로 빠져나가는 연출 구현
+- [x] AMR 운반 거리를 10 m 이상으로 설정
+- [x] bin이 처음부터 upside-down 상태로 스폰되게 변경
+- [x] flip station을 거치지 않고 바로 place 동작으로 진행
+- [x] `Todo.md` 체크박스 진행 상태 갱신
+
+구현한 항목:
+
+- [x] 기본 drop X를 pickup X 기준 `+10.6 m`로 변경
+- [x] PowerShell 래퍼에 `-MoveSpeed`, `-PickupX`, `-PickupY`, `-DropX`, `-DropY` 옵션 추가
+- [x] 하역 후 `DETACH`에서 팔레트/박스 assembly의 world pose를 기록
+- [x] `SLIDE_OUT_FROM_PALLET` 상태 추가
+- [x] 하역 후에는 팔레트/박스 pose를 고정하고 AMR만 전방으로 슬라이드 이탈
+- [x] 팔레트 하부 중앙 통로를 확보하도록 중앙 블록을 제거한 visual pallet layout 적용
+- [x] dropped assembly를 매 step 고정하고 velocity를 0으로 만들어 물리 관통/낙하 연출을 줄임
+- [x] bin spawn orientation을 공식 예제의 flip quaternion 방식에 맞춰 항상 upside-down으로 설정
+- [x] `NoFlipDispatch`를 추가해 `flip_bin` child 없이 `pick_bin -> place_bin`만 사용
+- [x] UR10 stage 안의 flip 관련 prim은 로드 후 invisible 처리
+- [x] 빠른 Isaac 검증용 `--self-test-force-stack-complete` 옵션 추가
+
+검증한 항목:
+
+- [x] default pickup/drop 거리 10 m 이상 unittest 추가
+- [x] upside-down spawn orientation unittest 추가
+- [x] no-flip dispatch source-order unittest 추가
+- [x] 팔레트 하부 중앙 통로 unittest 추가
+- [x] 슬라이드 이탈 중 dropped payload stationary unittest 추가
+- [x] custom orchestrator unittest 14개 통과
+- [x] Python compile 통과
+- [x] Isaac Sim 5.1.0 headless transfer self-test 통과
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
+```
+
+headless transfer self-test 로그 확인:
+
+- [x] `[HarimDemo] state -> MOVE_TO_DROP`
+- [x] `[HarimDemo] slide-released pallet assembly at drop pose`
+- [x] `[HarimDemo] state -> SLIDE_OUT_FROM_PALLET`
+- [x] `[HarimDemo] completed transfer cycle 1`
+- [x] `[HarimDemo] self-test completed after 260 frames`

@@ -10,6 +10,31 @@ import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+DEFAULT_PICKUP_X = 0.82
+DEFAULT_PICKUP_Y = -0.31
+DEFAULT_DROP_X = DEFAULT_PICKUP_X + 10.6
+DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
+DEFAULT_AMR_Z = -1.05
+DEFAULT_LIFT_HEIGHT = 0.11
+DEFAULT_MOVE_SPEED = 0.65
+SLIDE_EXIT_DISTANCE = 1.8
+PALLET_TUNNEL_HALF_WIDTH = 0.42
+UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
+PALLET_DECK_OFFSETS = (
+    np.array([0.0, -0.44, 0.0], dtype=float),
+    np.array([0.0, 0.0, 0.0], dtype=float),
+    np.array([0.0, 0.44, 0.0], dtype=float),
+)
+PALLET_BLOCK_OFFSETS = (
+    np.array([-0.38, -0.56, -0.075], dtype=float),
+    np.array([0.0, -0.56, -0.075], dtype=float),
+    np.array([0.38, -0.56, -0.075], dtype=float),
+    np.array([-0.38, 0.56, -0.075], dtype=float),
+    np.array([0.0, 0.56, -0.075], dtype=float),
+    np.array([0.38, 0.56, -0.075], dtype=float),
+)
+PALLET_PART_OFFSETS = PALLET_DECK_OFFSETS + PALLET_BLOCK_OFFSETS
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Harim UR10 palletizing + iw_hub AMR transfer demo.")
@@ -18,18 +43,23 @@ def parse_args():
     parser.add_argument("--stack-cols", type=int, default=2, help="Number of stack columns along X.")
     parser.add_argument("--stack-rows", type=int, default=2, help="Number of stack rows along Y.")
     parser.add_argument("--stack-layers", type=int, default=2, help="Number of stack layers along Z.")
-    parser.add_argument("--amr-z", type=float, default=-1.05, help="World Z origin for the iw_hub actor.")
-    parser.add_argument("--lift-height", type=float, default=0.11, help="Visual lift height for pallet pickup.")
-    parser.add_argument("--move-speed", type=float, default=0.65, help="Scripted iw_hub movement speed in m/s.")
-    parser.add_argument("--pickup-x", type=float, default=0.82, help="Pickup X under the pallet stack.")
-    parser.add_argument("--pickup-y", type=float, default=-0.31, help="Pickup Y under the pallet stack.")
-    parser.add_argument("--drop-x", type=float, default=2.45, help="Drop X for delivered pallet.")
-    parser.add_argument("--drop-y", type=float, default=-0.31, help="Drop Y for delivered pallet.")
+    parser.add_argument("--amr-z", type=float, default=DEFAULT_AMR_Z, help="World Z origin for the iw_hub actor.")
+    parser.add_argument("--lift-height", type=float, default=DEFAULT_LIFT_HEIGHT, help="Visual lift height for pallet pickup.")
+    parser.add_argument("--move-speed", type=float, default=DEFAULT_MOVE_SPEED, help="Scripted iw_hub movement speed in m/s.")
+    parser.add_argument("--pickup-x", type=float, default=DEFAULT_PICKUP_X, help="Pickup X under the pallet stack.")
+    parser.add_argument("--pickup-y", type=float, default=DEFAULT_PICKUP_Y, help="Pickup Y under the pallet stack.")
+    parser.add_argument("--drop-x", type=float, default=DEFAULT_DROP_X, help="Drop X for delivered pallet. Default is over 10 m from pickup.")
+    parser.add_argument("--drop-y", type=float, default=DEFAULT_DROP_Y, help="Drop Y for delivered pallet.")
     parser.add_argument(
         "--self-test-frames",
         type=int,
         default=0,
         help="Run a fixed number of simulation frames and exit. 0 keeps the demo running.",
+    )
+    parser.add_argument(
+        "--self-test-force-stack-complete",
+        action="store_true",
+        help="Force stack_complete during self-test so the AMR transfer sequence can be verified quickly.",
     )
     return parser.parse_args()
 
@@ -54,6 +84,21 @@ def wait_for_stage_loading(simulation_app, usd_context, label, max_updates=600):
     raise RuntimeError(f"Timed out waiting for USD assets to load: {label}; status={status}")
 
 
+def hide_stage_prims_containing(stage, root_path, patterns):
+    from pxr import Usd, UsdGeom
+
+    root = stage.GetPrimAtPath(root_path)
+    if not root.IsValid():
+        return
+    lower_patterns = tuple(pattern.lower() for pattern in patterns)
+    for prim in Usd.PrimRange(root):
+        name = prim.GetName().lower()
+        if any(pattern in name for pattern in lower_patterns):
+            imageable = UsdGeom.Imageable(prim)
+            if imageable and imageable.GetPrim().IsValid():
+                imageable.MakeInvisible()
+
+
 class TransferState(Enum):
     WAIT_STACK_COMPLETE = auto()
     ARM_SETTLE = auto()
@@ -64,7 +109,7 @@ class TransferState(Enum):
     MOVE_TO_DROP = auto()
     LIFT_DOWN = auto()
     DETACH = auto()
-    MOVE_TO_EXIT = auto()
+    SLIDE_OUT_FROM_PALLET = auto()
     RESET_CYCLE = auto()
     DONE_IDLE = auto()
 
@@ -80,6 +125,21 @@ def lerp(a, b, t):
 def yaw_to_quat(yaw):
     half = yaw * 0.5
     return np.array([math.cos(half), 0.0, 0.0, math.sin(half)], dtype=float)
+
+
+def quat_multiply(q1, q2):
+    w1, x1, y1, z1 = q1
+    w2, x2, y2, z2 = q2
+    quat = np.array(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ],
+        dtype=float,
+    )
+    return quat / max(np.linalg.norm(quat), 1e-9)
 
 
 def make_stack_coordinates(cols, rows, layers):
@@ -107,7 +167,7 @@ def random_bin_spawn_transform():
     y = 1.5
     z = -0.15
     position = np.array([x, y, z], dtype=float)
-    orientation = yaw_to_quat(random.uniform(-0.05, 0.05))
+    orientation = quat_multiply(yaw_to_quat(random.uniform(-0.05, 0.05)), UPSIDE_DOWN_BIN_QUAT)
     return position, orientation
 
 
@@ -142,6 +202,8 @@ class HarimTransferOrchestrator:
         self.attached_items = []
         self.item_offsets = {}
         self.pallet_base_offsets = {}
+        self.dropped_item_poses = {}
+        self.dropped_pallet_poses = {}
 
         self.stack_center = self._compute_stack_center()
         self.amr_yaw = 0.0
@@ -154,7 +216,7 @@ class HarimTransferOrchestrator:
         self.approach_pose = np.array([args.pickup_x - 0.55, args.pickup_y, args.amr_z], dtype=float)
         self.pickup_pose = np.array([args.pickup_x, args.pickup_y, args.amr_z], dtype=float)
         self.drop_pose = np.array([args.drop_x, args.drop_y, args.amr_z], dtype=float)
-        self.exit_pose = np.array([args.drop_x + 0.80, args.drop_y, args.amr_z], dtype=float)
+        self.exit_pose = np.array([args.drop_x + SLIDE_EXIT_DISTANCE, args.drop_y, args.amr_z], dtype=float)
 
         self.reset_visual_state()
 
@@ -171,7 +233,7 @@ class HarimTransferOrchestrator:
             self.move_target = self.pickup_pose
         elif state == TransferState.MOVE_TO_DROP:
             self.move_target = self.drop_pose
-        elif state == TransferState.MOVE_TO_EXIT:
+        elif state == TransferState.SLIDE_OUT_FROM_PALLET:
             self.move_target = self.exit_pose
         else:
             self.move_target = None
@@ -182,6 +244,8 @@ class HarimTransferOrchestrator:
         self.attached_items = []
         self.item_offsets = {}
         self.pallet_base_offsets = {}
+        self.dropped_item_poses = {}
+        self.dropped_pallet_poses = {}
         self.lift_offset = 0.0
         self.set_amr_pose(self.start_pose)
         self._set_lift_plate_pose()
@@ -215,18 +279,7 @@ class HarimTransferOrchestrator:
 
     def _reset_pallet_pose(self):
         center = np.array([self.args.pickup_x, self.args.pickup_y, -0.60 + self.lift_offset], dtype=float)
-        offsets = [
-            np.array([0.0, -0.32, 0.0], dtype=float),
-            np.array([0.0, 0.0, 0.0], dtype=float),
-            np.array([0.0, 0.32, 0.0], dtype=float),
-            np.array([-0.36, -0.32, -0.075], dtype=float),
-            np.array([-0.36, 0.0, -0.075], dtype=float),
-            np.array([-0.36, 0.32, -0.075], dtype=float),
-            np.array([0.36, -0.32, -0.075], dtype=float),
-            np.array([0.36, 0.0, -0.075], dtype=float),
-            np.array([0.36, 0.32, -0.075], dtype=float),
-        ]
-        for part, offset in zip(self.pallet_parts, offsets):
+        for part, offset in zip(self.pallet_parts, PALLET_PART_OFFSETS):
             part.set_world_pose(position=center + offset, orientation=yaw_to_quat(0.0))
 
     def _move_amr_toward_target(self, dt):
@@ -239,14 +292,14 @@ class HarimTransferOrchestrator:
         if distance <= 0.01:
             self.set_amr_pose(self.move_target)
             self._set_lift_plate_pose()
-            self._update_attached_items()
+            self._sync_payload_pose()
             return True
 
         step = min(distance, self.args.move_speed * max(dt, 1.0 / 120.0))
         next_pos = current + delta * (step / max(distance, 1e-6))
         self.set_amr_pose(next_pos)
         self._set_lift_plate_pose()
-        self._update_attached_items()
+        self._sync_payload_pose()
         return False
 
     def _get_stacked_items(self):
@@ -320,15 +373,47 @@ class HarimTransferOrchestrator:
             offset, orient = data
             part.set_world_pose(position=amr_pos + offset, orientation=orient)
 
+    def _record_dropped_assembly(self):
+        self.dropped_item_poses = {}
+        for item in self.attached_items:
+            try:
+                pos, orient = item.get_world_pose()
+                self.dropped_item_poses[item.name] = (item, np.array(pos, dtype=float), orient)
+            except Exception as exc:
+                print(f"[HarimDemo] could not record dropped item: {exc}")
+
+        self.dropped_pallet_poses = {}
+        for part in self.pallet_parts:
+            pos, orient = part.get_world_pose()
+            self.dropped_pallet_poses[part.name] = (part, np.array(pos, dtype=float), orient)
+
+    def _hold_dropped_assembly(self):
+        for item, pos, orient in self.dropped_item_poses.values():
+            try:
+                item.set_world_pose(position=pos, orientation=orient)
+                self._stop_dynamic_item(item)
+            except Exception as exc:
+                print(f"[HarimDemo] could not hold dropped item: {exc}")
+        for part, pos, orient in self.dropped_pallet_poses.values():
+            part.set_world_pose(position=pos, orientation=orient)
+
+    def _sync_payload_pose(self):
+        if self.carrying:
+            self._update_attached_items()
+        else:
+            self._hold_dropped_assembly()
+
     def _detach_assembly(self):
         self._update_attached_items()
         for item in self.attached_items:
             self._stop_dynamic_item(item)
+        self._record_dropped_assembly()
         self.carrying = False
         self.attached_items = []
         self.item_offsets = {}
         self.pallet_base_offsets = {}
-        print("[HarimDemo] detached pallet assembly")
+        self._hold_dropped_assembly()
+        print("[HarimDemo] slide-released pallet assembly at drop pose")
 
     def _reset_for_next_cycle(self):
         self.completed_cycles += 1
@@ -347,7 +432,7 @@ class HarimTransferOrchestrator:
     def step(self, dt):
         self.state_time += dt
         self._set_lift_plate_pose()
-        self._update_attached_items()
+        self._sync_payload_pose()
 
         if self.state == TransferState.WAIT_STACK_COMPLETE:
             if getattr(self.context, "stack_complete", False):
@@ -358,7 +443,12 @@ class HarimTransferOrchestrator:
             if self.state_time >= 1.0:
                 self._transition(TransferState.MOVE_TO_APPROACH)
 
-        elif self.state in (TransferState.MOVE_TO_APPROACH, TransferState.MOVE_UNDER_PALLET, TransferState.MOVE_TO_DROP, TransferState.MOVE_TO_EXIT):
+        elif self.state in (
+            TransferState.MOVE_TO_APPROACH,
+            TransferState.MOVE_UNDER_PALLET,
+            TransferState.MOVE_TO_DROP,
+            TransferState.SLIDE_OUT_FROM_PALLET,
+        ):
             arrived = self._move_amr_toward_target(dt)
             if arrived:
                 if self.state == TransferState.MOVE_TO_APPROACH:
@@ -367,7 +457,7 @@ class HarimTransferOrchestrator:
                     self._transition(TransferState.LIFT_UP)
                 elif self.state == TransferState.MOVE_TO_DROP:
                     self._transition(TransferState.LIFT_DOWN)
-                elif self.state == TransferState.MOVE_TO_EXIT:
+                elif self.state == TransferState.SLIDE_OUT_FROM_PALLET:
                     self._transition(TransferState.RESET_CYCLE)
 
         elif self.state == TransferState.LIFT_UP:
@@ -406,7 +496,7 @@ class HarimTransferOrchestrator:
 
         elif self.state == TransferState.DETACH:
             self._detach_assembly()
-            self._transition(TransferState.MOVE_TO_EXIT)
+            self._transition(TransferState.SLIDE_OUT_FROM_PALLET)
 
         elif self.state == TransferState.RESET_CYCLE:
             self._reset_for_next_cycle()
@@ -450,6 +540,8 @@ def main():
     import isaacsim.cortex.framework.math_util as cortex_math_util
     from isaacsim.cortex.framework.cortex_world import CortexWorld
     from isaacsim.cortex.framework.cortex_rigid_prim import CortexRigidPrim
+    from isaacsim.cortex.framework.df import DfDecider, DfDecision, DfNetwork, DfStateMachineDecider
+    from isaacsim.cortex.framework.dfb import make_go_home
     from isaacsim.cortex.framework.robot import CortexUr10
     from isaacsim.cortex.behaviors.ur10 import bin_stacking_behavior as behavior
     from pxr import UsdGeom
@@ -508,6 +600,26 @@ def main():
             self.bins = []
             self.on_conveyor = None
 
+    class NoFlipDispatch(DfDecider):
+        def __init__(self):
+            super().__init__()
+            self.add_child("pick_bin", behavior.PickBin())
+            self.add_child("place_bin", behavior.PlaceBin())
+            self.add_child("go_home", make_go_home())
+            self.add_child("do_nothing", DfStateMachineDecider(behavior.DoNothing()))
+
+        def decide(self):
+            if self.context.stack_complete:
+                return DfDecision("go_home")
+            if self.context.has_active_bin:
+                if not self.context.active_bin.is_attached:
+                    return DfDecision("pick_bin")
+                return DfDecision("place_bin")
+            return DfDecision("go_home")
+
+    def make_no_flip_decider_network(robot, monitor_fn):
+        return DfNetwork(NoFlipDispatch(), context=behavior.BinStackingContext(robot, monitor_fn))
+
     usd_context = omni.usd.get_context()
     world = CortexWorld()
 
@@ -515,6 +627,7 @@ def main():
     add_reference_to_stage(ur10_assets.ur10_table_usd, "/World/Ur10Table")
     add_reference_to_stage(ur10_assets.background_usd, "/World/Background")
     wait_for_stage_loading(simulation_app, usd_context, "UR10 palletizing scene")
+    hide_stage_prims_containing(usd_context.get_stage(), "/World/Ur10Table", ("flip",))
     SingleXFormPrim("/World/Background", position=[10.00, 2.00, -1.18180], orientation=[0.7071, 0, 0, 0.7071])
 
     robot = world.add_robot(CortexUr10(name="robot", prim_path="/World/Ur10Table/ur10"))
@@ -576,7 +689,7 @@ def main():
     task.set_up_scene(world.scene)
     world.add_task(task)
 
-    decider_network = behavior.make_decider_network(robot, lambda _diagnostic: None)
+    decider_network = make_no_flip_decider_network(robot, lambda _diagnostic: None)
     decider_network.context.stack_coordinates = stack_coordinates
     world.add_decider_network(decider_network)
 
@@ -621,7 +734,7 @@ def main():
                 VisualCuboid(
                     f"{harim_root}/PalletDeck_{idx}",
                     name=f"harim_pallet_deck_{idx}",
-                    scale=np.array([0.92, 0.12, 0.055]),
+                    scale=np.array([1.10, 0.12, 0.055]),
                     color=plank_color,
                 )
             )
@@ -637,6 +750,25 @@ def main():
                 )
             )
         )
+
+    class SelfTestBinState:
+        def __init__(self, bin_obj):
+            self.bin_obj = bin_obj
+
+    self_test_payload = []
+    if args.self_test_force_stack_complete:
+        for idx, coord in enumerate(stack_coordinates[: max(1, min(4, len(stack_coordinates)))]):
+            self_test_payload.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/SelfTestPayload_{idx}",
+                        name=f"harim_self_test_payload_{idx}",
+                        position=np.array(coord, dtype=float),
+                        scale=np.array([0.18, 0.26, 0.12]),
+                        color=np.array([0.78, 0.42, 0.16]),
+                    )
+                )
+            )
 
     orchestrator = HarimTransferOrchestrator(
         world=world,
@@ -655,8 +787,18 @@ def main():
     decider_network.context.stack_coordinates = stack_coordinates
     orchestrator.reset_visual_state()
 
+    def force_self_test_stack_complete():
+        if not args.self_test_force_stack_complete:
+            return
+        if self_test_payload:
+            decider_network.context.stacked_bins = [SelfTestBinState(item) for item in self_test_payload]
+            decider_network.context.stack_coordinates = [
+                np.array(item.get_world_pose()[0], dtype=float) for item in self_test_payload
+            ]
+
     def step_demo_frame():
         world.step(render=not args.headless)
+        force_self_test_stack_complete()
         orchestrator.step(world.get_physics_dt())
 
     try:

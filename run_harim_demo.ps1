@@ -5,7 +5,13 @@ param(
     [int]$StackCols = 2,
     [int]$StackRows = 2,
     [int]$StackLayers = 2,
-    [int]$SelfTestFrames = 0
+    [int]$SelfTestFrames = 0,
+    [switch]$SelfTestForceStackComplete,
+    [double]$MoveSpeed = 0.65,
+    [double]$PickupX = 0.82,
+    [double]$PickupY = -0.31,
+    [double]$DropX = 11.42,
+    [double]$DropY = -0.31
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,11 +38,20 @@ $ArgsList = @(
     "--stack-cols", $StackCols,
     "--stack-rows", $StackRows,
     "--stack-layers", $StackLayers,
-    "--self-test-frames", $SelfTestFrames
+    "--self-test-frames", $SelfTestFrames,
+    "--move-speed", $MoveSpeed,
+    "--pickup-x", $PickupX,
+    "--pickup-y", $PickupY,
+    "--drop-x", $DropX,
+    "--drop-y", $DropY
 )
 
 if ($Headless) {
     $ArgsList += "--headless"
+}
+
+if ($SelfTestForceStackComplete) {
+    $ArgsList += "--self-test-force-stack-complete"
 }
 
 & $PythonExe @ArgsList
