@@ -636,6 +636,27 @@ AMR 이동 장면이 장비처럼 보이도록 safety beacon, front/rear scanner
 - 완료 로그: `amr_safety_part_count=6; amr_safety_beacon_height=0.7450; amr_safety_scanner_clearance=0.1325; max_amr_safety_pose_error=0.0000; placed_bins=8; transfer_cycles=1`
 
 ---
+## Infeed Conveyor Motion
+
+The infeed conveyor now has moving belt markers so the box feed looks like an active conveyor instead of a static platform. The marker motion is driven from simulation time and is also drawn into the review GIF.
+
+Added runtime pieces:
+
+- `InfeedMotionMarker_*` visual cuboids on the belt surface
+- `InfeedConveyorMotionController`
+- `infeed_motion_controller.update(...)` during every demo frame
+
+Strict gates:
+
+- `SelfTestMinInfeedMotionMarkerCount = 6`
+- `SelfTestMinInfeedMotionObservedTravel = 0.10`
+
+Latest verified run:
+
+- log: `isaacsim_logs/harim_infeed_motion_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_005727_36252.gif`
+- key metrics: `placed_bins=8`, `transfer_cycles=1`, `infeed_motion_marker_count=6`, `infeed_motion_observed_travel=0.8287`, `release_gripper_not_open=0`, `release_gripped_object_max=0`
+
 ## Review GIF Auto Export
 
 Every demo run now writes a review GIF for quick visual inspection. The GIF is generated from live simulation coordinates, so it also works during headless strict self-tests. It shows the AMR route, pickup/drop zones, pallet, stacked boxes, current transfer state, and release clearance between the suction TCP and the released box.

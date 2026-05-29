@@ -2935,3 +2935,56 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -Accep
   - `review_gif_path=E:\Harim_AMR\isaacsim_outputs\harim_amr_review_20260530_004529_29628.gif`
 
 ---
+---
+## 2026-05-30 Infeed conveyor motion 보강
+
+컨베이어가 belt/roller visual만 있고 정적으로 보여 박스 유입 설비처럼 읽히지 않는 문제가 있었습니다. 이번 보강에서는 컨베이어 belt 위에 반복 motion marker를 추가하고, self-test frame마다 marker 위치를 순환시켜 유입 방향이 보이도록 만들었습니다. review GIF에도 동일한 motion marker가 반영되어 headless 검증 결과만 봐도 컨베이어가 움직이는지 확인할 수 있습니다.
+
+수정 내용:
+
+- [x] `INFEED_MOTION_MARKER_COUNT = 6` 추가
+- [x] `INFEED_MOTION_MARKER_SPEED = 0.22` m/s 추가
+- [x] `make_infeed_motion_marker_specs()` 추가
+- [x] `InfeedConveyorMotionController` 추가
+  - marker world pose를 simulation time 기준으로 순환 이동
+  - `max_marker_observed_travel` metric 기록
+- [x] `create_infeed_conveyor_visual()`에서 `InfeedMotionMarker_*` visual 생성
+- [x] `step_demo_frame()`에서 매 frame `infeed_motion_controller.update(...)` 호출
+- [x] review GIF top view에 컨베이어와 motion marker 표시
+- [x] strict self-test gate 추가
+  - Python: `--self-test-min-infeed-motion-marker-count`
+  - Python: `--self-test-min-infeed-motion-observed-travel`
+  - PowerShell: `-SelfTestMinInfeedMotionMarkerCount`
+  - PowerShell: `-SelfTestMinInfeedMotionObservedTravel`
+  - strict 기준: marker 6개 이상, observed travel 0.10 m 이상
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] unittest 57개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- [x] 로그 파일: `isaacsim_logs/harim_infeed_motion_strict_full_e2e_12000.log`
+- [x] GIF 파일: `isaacsim_outputs/harim_amr_review_20260530_005727_36252.gif`
+- [x] 주요 완료 metric:
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `infeed_conveyor_length=0.9000`
+  - `infeed_motion_marker_count=6`
+  - `infeed_motion_marker_spacing=0.1500`
+  - `infeed_motion_marker_speed=0.2200`
+  - `infeed_motion_observed_travel=0.8287`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `max_dropped_payload_drift=0.0000`
+  - `review_gif_path=E:\Harim_AMR\isaacsim_outputs\harim_amr_review_20260530_005727_36252.gif`
+
+---
