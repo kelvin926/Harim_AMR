@@ -163,9 +163,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
     def test_spawned_bins_are_upside_down_to_skip_flip_station(self):
         for _ in range(10):
-            _position, orientation = self.demo.random_bin_spawn_transform()
+            position, orientation = self.demo.random_bin_spawn_transform()
             local_z_in_world = rotate_vector_by_quat([0.0, 0.0, 1.0], orientation)
 
+            self.assertAlmostEqual(position[1], self.demo.CONVEYOR_PICK_WINDOW_Y)
+            self.assertAlmostEqual(position[0], 0.0)
+            np.testing.assert_allclose(orientation, self.demo.UPSIDE_DOWN_BIN_QUAT)
             self.assertLess(local_z_in_world[2], -0.99)
 
     def test_demo_uses_no_flip_dispatch(self):
@@ -176,13 +179,27 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("class DemoAttachBin", source)
         self.assertIn("class DemoReleaseBin", source)
         self.assertIn("class DemoPickAndPlaceBin", source)
-        self.assertIn('label="reach_pick"', source)
+        self.assertIn("PICK_READY_EE_POSITION", source)
+        self.assertIn("class DemoTimedArmMoveTo", source)
+        self.assertIn("target_position=self.target_position", source)
+        self.assertIn("posture_config=self.context.robot.default_config", source)
+        self.assertIn('max_duration=8.00, label="reach_pick"', source)
+        self.assertIn('max_duration=5.00, label="reach_place"', source)
+        self.assertIn('label="return_ready"', source)
         self.assertIn("hold_active_bin_for_pick", source)
         self.assertIn("class DemoSettleBinAtGripper", source)
+        self.assertIn("quat_lerp", source)
+        self.assertIn("compute_active_bin_grasp_pose_at_effector", source)
         self.assertIn("place_active_bin_grasp_at_effector", source)
+        self.assertIn("get_demo_pre_grip_bin", source)
+        self.assertIn('getattr(self.context, "demo_pre_grip_bin", None) is not None', source)
+        self.assertIn("self.context.demo_pre_grip_bin = active_bin", source)
+        self.assertIn("self.context.demo_pre_grip_bin = None", source)
         self.assertIn("demo_pre_grip_initial_offset", source)
         self.assertIn("suction close skipped for fallback attach", source)
-        self.assertIn("DemoSettleBinAtGripper(duration=0.20)", source)
+        self.assertIn("using scripted attach", source)
+        self.assertNotIn("suction_gripper.close()", source)
+        self.assertIn("DemoSettleBinAtGripper(min_duration=0.25, max_duration=1.10)", source)
         self.assertIn("set_kinematic_for_demo(active_bin.bin_obj, True)", source)
         self.assertIn("PICK_STATION_BIN_POSITION", source)
         self.assertIn("demo_pick_stationed", source)

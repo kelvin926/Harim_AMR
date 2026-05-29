@@ -1,7 +1,6 @@
 import argparse
 import math
 import os
-import random
 import time
 from enum import Enum, auto
 from pathlib import Path
@@ -20,6 +19,8 @@ DEFAULT_AMR_Z = WORLD_FLOOR_Z
 DEFAULT_LIFT_HEIGHT = 0.11
 DEFAULT_MOVE_SPEED = 0.65
 PICK_STATION_BIN_POSITION = np.array([0.0, 0.42, -0.15], dtype=float)
+CONVEYOR_PICK_WINDOW_Y = 0.68
+PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
 AMR_LIFT_PLATE_OFFSET_Z = 0.48
@@ -173,6 +174,15 @@ def quat_multiply(q1, q2):
     return quat / max(np.linalg.norm(quat), 1e-9)
 
 
+def quat_lerp(q1, q2, t):
+    q1 = np.array(q1, dtype=float)
+    q2 = np.array(q2, dtype=float)
+    if np.dot(q1, q2) < 0.0:
+        q2 = -q2
+    quat = (1.0 - t) * q1 + t * q2
+    return quat / max(np.linalg.norm(quat), 1e-9)
+
+
 def make_stack_coordinates(cols, rows, layers):
     cols = max(1, cols)
     rows = max(1, rows)
@@ -194,11 +204,11 @@ def make_stack_coordinates(cols, rows, layers):
 
 
 def random_bin_spawn_transform():
-    x = random.uniform(-0.15, 0.15)
-    y = 1.5
+    x = 0.0
+    y = CONVEYOR_PICK_WINDOW_Y
     z = -0.15
     position = np.array([x, y, z], dtype=float)
-    orientation = quat_multiply(yaw_to_quat(random.uniform(-0.05, 0.05)), UPSIDE_DOWN_BIN_QUAT)
+    orientation = UPSIDE_DOWN_BIN_QUAT.copy()
     return position, orientation
 
 
@@ -675,6 +685,7 @@ def main():
         def pre_step(self, time_step_index, simulation_time) -> None:
             if self.context is not None and (
                 getattr(self.context, "active_bin", None) is not None
+                or getattr(self.context, "demo_pre_grip_bin", None) is not None
                 or getattr(self.context, "demo_carried_bin", None) is not None
             ):
                 return
@@ -725,10 +736,14 @@ def main():
     def get_demo_carried_bin(context):
         return getattr(context, "demo_carried_bin", None)
 
+    def get_demo_pre_grip_bin(context):
+        return getattr(context, "demo_pre_grip_bin", None)
+
     def hold_active_bin_for_pick(context):
-        active_bin = getattr(context, "active_bin", None)
+        active_bin = get_demo_pre_grip_bin(context) or getattr(context, "active_bin", None)
         if active_bin is None or getattr(active_bin, "demo_attached", False):
             return
+        context.active_bin = active_bin
         if active_bin in getattr(context, "stacked_bins", []):
             return
         if not getattr(active_bin, "demo_pick_stationed", False):
@@ -740,8 +755,8 @@ def main():
             set_kinematic_for_demo(active_bin.bin_obj, True)
         stop_dynamic_prim(active_bin.bin_obj)
 
-    def place_active_bin_grasp_at_effector(context):
-        active_bin = getattr(context, "active_bin", None)
+    def compute_active_bin_grasp_pose_at_effector(context, active_bin=None):
+        active_bin = active_bin or getattr(context, "active_bin", None)
         if active_bin is None:
             return None
         grasp_T = getattr(active_bin, "grasp_T", None)
@@ -753,61 +768,111 @@ def main():
         grasp_to_bin_T = cortex_math_util.invert_T(grasp_T).dot(bin_T)
         desired_bin_T = eff_T.dot(grasp_to_bin_T)
         position, orientation = cortex_math_util.T2pq(desired_bin_T)
+        offset = float(np.linalg.norm(eff_T[:3, 3] - grasp_T[:3, 3]))
+        return position, orientation, offset
+
+    def place_active_bin_grasp_at_effector(context, active_bin=None):
+        active_bin = active_bin or getattr(context, "active_bin", None)
+        target = compute_active_bin_grasp_pose_at_effector(context, active_bin)
+        if active_bin is None or target is None:
+            return None
+        position, orientation, offset = target
+        context.active_bin = active_bin
         set_kinematic_for_demo(active_bin.bin_obj, True)
         active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
         stop_dynamic_prim(active_bin.bin_obj)
-        return float(np.linalg.norm(eff_T[:3, 3] - grasp_T[:3, 3]))
+        return offset
 
     class DemoSettleBinAtGripper(DfState):
-        def __init__(self, duration=0.20):
-            self.duration = duration
+        def __init__(self, min_duration=0.25, max_duration=1.10):
+            self.min_duration = min_duration
+            self.max_duration = max_duration
+            self.duration = min_duration
             self.entry_time = None
+            self.start_position = None
+            self.start_orientation = None
 
         def enter(self):
             self.entry_time = time.time()
-            offset = place_active_bin_grasp_at_effector(self.context)
+            active_bin = getattr(self.context, "active_bin", None)
+            self.context.demo_pre_grip_bin = active_bin
+            target = compute_active_bin_grasp_pose_at_effector(self.context, active_bin)
+            offset = None
+            if active_bin is not None and target is not None:
+                self.start_position, self.start_orientation = active_bin.bin_obj.get_world_pose()
+                _target_position, _target_orientation, offset = target
+                self.duration = clamp(0.30 + offset * 0.60, self.min_duration, self.max_duration)
+                set_kinematic_for_demo(active_bin.bin_obj, True)
+                stop_dynamic_prim(active_bin.bin_obj)
             self.context.demo_pre_grip_initial_offset = offset
             if args.self_test_debug_bins and offset is not None:
-                print(f"[HarimDemo] pre-grip offset {offset:.4f} m", flush=True)
+                print(f"[HarimDemo] pre-grip offset {offset:.4f} m; settle={self.duration:.2f}s", flush=True)
 
         def step(self):
             if self.entry_time is None:
                 return None
-            place_active_bin_grasp_at_effector(self.context)
-            if time.time() - self.entry_time < self.duration:
+            active_bin = get_demo_pre_grip_bin(self.context) or getattr(self.context, "active_bin", None)
+            target = compute_active_bin_grasp_pose_at_effector(self.context, active_bin)
+            if active_bin is None or target is None:
+                return None
+            self.context.active_bin = active_bin
+            if self.start_position is None or self.start_orientation is None:
+                self.start_position, self.start_orientation = active_bin.bin_obj.get_world_pose()
+            target_position, target_orientation, _offset = target
+            t = clamp((time.time() - self.entry_time) / max(self.duration, 1e-6), 0.0, 1.0)
+            smooth_t = t * t * (3.0 - 2.0 * t)
+            position = lerp(np.array(self.start_position, dtype=float), np.array(target_position, dtype=float), smooth_t)
+            orientation = quat_lerp(self.start_orientation, target_orientation, smooth_t)
+            set_kinematic_for_demo(active_bin.bin_obj, True)
+            active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
+            stop_dynamic_prim(active_bin.bin_obj)
+            if t < 1.0:
                 return self
             return None
 
         def exit(self):
+            active_bin = get_demo_pre_grip_bin(self.context)
+            if active_bin is not None:
+                place_active_bin_grasp_at_effector(self.context, active_bin)
             self.entry_time = None
+            self.start_position = None
+            self.start_orientation = None
 
     class DemoAttachBin(DfState):
         def enter(self):
             print("<close gripper>", flush=True)
-            pre_grip_offset = getattr(self.context, "demo_pre_grip_initial_offset", None)
-            should_try_surface_grip = pre_grip_offset is None or pre_grip_offset <= 0.08
-            if should_try_surface_grip:
-                try:
-                    self.context.robot.suction_gripper.close()
-                except Exception as exc:
-                    print(f"[HarimDemo] suction close fallback: {exc}", flush=True)
-            elif args.self_test_debug_bins:
-                print(
-                    f"[HarimDemo] suction close skipped for fallback attach; "
-                    f"pre-grip offset={pre_grip_offset:.4f} m",
-                    flush=True,
-                )
-
-            active_bin = self.context.active_bin
+            active_bin = get_demo_pre_grip_bin(self.context) or getattr(self.context, "active_bin", None)
             if active_bin is None:
+                if args.self_test_debug_bins:
+                    print("[HarimDemo] demo attach skipped: no active bin", flush=True)
+                self.context.demo_pre_grip_bin = None
                 return
 
+            self.context.active_bin = active_bin
+            pre_grip_offset = getattr(self.context, "demo_pre_grip_initial_offset", None)
+            try:
+                self.context.robot.suction_gripper.open()
+            except Exception as exc:
+                print(f"[HarimDemo] suction pre-open fallback: {exc}", flush=True)
+            if args.self_test_debug_bins:
+                if pre_grip_offset is None:
+                    print("[HarimDemo] suction close skipped for fallback attach; using scripted attach", flush=True)
+                else:
+                    print(
+                        f"[HarimDemo] suction close skipped for fallback attach; "
+                        f"pre-grip offset={pre_grip_offset:.4f} m; using scripted attach",
+                        flush=True,
+                    )
+
+            place_active_bin_grasp_at_effector(self.context, active_bin)
             eff_T = self.context.robot.arm.get_fk_T()
             bin_T = cortex_math_util.pq2T(*active_bin.bin_obj.get_world_pose())
             active_bin.demo_attached = True
             active_bin.demo_attach_T = cortex_math_util.invert_T(eff_T).dot(bin_T)
             active_bin.is_attached = True
+            active_bin.demo_pick_stationed = True
             self.context.demo_carried_bin = active_bin
+            self.context.demo_pre_grip_bin = None
             stop_dynamic_prim(active_bin.bin_obj)
             set_kinematic_for_demo(active_bin.bin_obj, True)
             print(f"[HarimDemo] demo-attached {active_bin.bin_obj.name}", flush=True)
@@ -890,6 +955,32 @@ def main():
             self.entry_time = None
             self.target_pq = None
 
+    class DemoTimedArmMoveTo(DfState):
+        def __init__(self, position, duration, label):
+            self.position = np.array(position, dtype=float)
+            self.duration = duration
+            self.label = label
+            self.entry_time = None
+            self.target_position = None
+
+        def enter(self):
+            self.entry_time = time.time()
+            self.target_position = self.position.copy()
+            print(f"[HarimDemo] {self.label} start", flush=True)
+
+        def step(self):
+            self.context.robot.arm.send(
+                MotionCommand(target_position=self.target_position, posture_config=self.context.robot.default_config)
+            )
+            if time.time() - self.entry_time < self.duration:
+                return self
+            print(f"[HarimDemo] {self.label} timed release", flush=True)
+            return None
+
+        def exit(self):
+            self.entry_time = None
+            self.target_position = None
+
     class DemoTimedState(DfState):
         def __init__(self, state, max_duration, label):
             self.state = state
@@ -933,6 +1024,8 @@ def main():
                 )
             self.context.active_bin = None
             self.context.demo_carried_bin = None
+            self.context.demo_pre_grip_bin = None
+            self.context.demo_pre_grip_initial_offset = None
 
     class DemoWaitForNextBin(DfState):
         def enter(self):
@@ -946,15 +1039,16 @@ def main():
             super().__init__(
                 DfStateSequence(
                     [
-                        DemoTimedState(behavior.ReachToPick(), max_duration=5.00, label="reach_pick"),
-                        DemoSettleBinAtGripper(duration=0.20),
+                        DemoTimedState(behavior.ReachToPick(), max_duration=8.00, label="reach_pick"),
+                        DemoSettleBinAtGripper(min_duration=0.25, max_duration=1.10),
                         DfSetLockState(set_locked_to=True, decider=self),
                         DemoAttachBin(),
                         DemoTimedArmLift(height=0.24, duration=0.60),
-                        DemoTimedState(behavior.ReachToPlace(), max_duration=3.00, label="reach_place"),
+                        DemoTimedState(behavior.ReachToPlace(), max_duration=5.00, label="reach_place"),
                         DfWaitState(wait_time=0.15),
                         DemoReleaseBin(),
                         DemoTimedArmLift(height=0.10, duration=0.40),
+                        DemoTimedArmMoveTo(PICK_READY_EE_POSITION, duration=2.20, label="return_ready"),
                         DemoMarkCarriedBinComplete(),
                         DfSetLockState(set_locked_to=False, decider=self),
                     ]

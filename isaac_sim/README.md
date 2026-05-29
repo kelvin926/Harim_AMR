@@ -157,11 +157,11 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 - 각 박스에 대해 `reach_pick`, `demo-attached`, `reach_place`, `<open gripper>`, `demo-placed` 로그가 이어짐
 - 4200프레임 검증에서 `placed_bins=4`까지 확인됨
 
-참고: 일부 박스에서 Isaac Sim surface gripper의 실제 물리 close 판정 warning이 나올 수 있습니다. 데모는 `demo_carried_bin` fallback attach/release로 계속 진행되도록 구성했습니다.
+참고: 현재 데모는 GUI release 안정성을 우선해서 실제 `suction_gripper.close()` joint를 만들지 않고, `demo_carried_bin` 기반 scripted suction attach/release로 진행합니다.
 
 ## 2026-05-29 pre-grip 정렬 추가 보강
 
-`ReachToPick` 직후 `DemoSettleBinAtGripper`가 active bin의 grasp frame을 UR10 end-effector frame에 맞춰 0.20초 동안 유지합니다. 접근 오차가 작으면 실제 suction close를 시도하고, 오차가 큰 경우에는 surface gripper close를 생략한 뒤 scripted fallback attach/release로 진행합니다. GUI에서 박스가 그리퍼에 계속 붙어 보이거나 release 뒤 다시 끌려가는 현상을 줄이기 위한 처리입니다.
+`ReachToPick` 직후 `DemoSettleBinAtGripper`가 active bin의 grasp frame을 UR10 end-effector frame에 맞춰 최소 0.30초 동안 보간합니다. GUI에서 박스가 그리퍼에 계속 붙어 보이거나 release 뒤 다시 끌려가는 현상을 줄이기 위해 실제 surface gripper close는 기본 경로에서 제외하고 scripted attach/release만 사용합니다.
 
 추가 확인:
 
@@ -171,3 +171,30 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 ```
 
 2026-05-29 확인 결과: `placed_bins=4`까지 통과했고, AMR transfer self-test도 `completed transfer cycle 1`까지 통과했습니다.
+
+## 2026-05-29 GUI release 최종 보강
+
+GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제를 기준으로 attach/release를 더 보수적으로 바꿨습니다.
+
+- pick 직후 settle 중인 bin을 `demo_pre_grip_bin`으로 고정해 중간에 `active_bin`이 비거나 다른 bin으로 바뀌어도 release 대상이 바뀌지 않게 했습니다.
+- 실제 `suction_gripper.close()`는 호출하지 않습니다. surface gripper joint가 release 뒤에도 박스를 붙잡아 보이는 경로를 없애고, scripted suction attach/release로만 박스를 이동합니다.
+- attach 전에는 `suction_gripper.open()`을 호출하고, release 중에는 0.35초 동안 `open()`을 반복 호출합니다.
+- 박스는 컨베이어 pick window 근처에서 같은 upside-down orientation으로 정렬 스폰됩니다.
+- `return_ready`는 full pose가 아니라 position-only 명령과 기본 posture bias를 사용합니다. place 자세의 orientation에 묶여 다음 pick으로 복귀하지 못하는 문제를 줄이기 위한 변경입니다.
+
+확인 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 5600 -SelfTestMinPlacedBins 4 -SelfTestDebugBins -Cycles 1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
+```
+
+확인 결과:
+
+- unittest 21개 통과
+- Python compile 통과
+- UR10 5600-frame self-test 통과: `self-test completed after 5600 frames; placed_bins=4`
+- AMR 260-frame transfer self-test 통과: `completed transfer cycle 1`
