@@ -178,6 +178,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if boxes float above the pallet or lower layer by more than this distance in meters, or overlap vertically by more than 5 mm. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-min-stack-pallet-margin",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the carton stack footprint leaves less pallet deck margin than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-payload-lift",
         type=float,
         default=0.0,
@@ -402,6 +408,41 @@ def compute_stack_geometry_metrics(stack_coordinates, cols, rows, layers):
         "min_stack_lateral_gap": float(min(lateral_gaps)),
         "max_stack_support_gap": float(max(support_gaps)),
         "min_stack_support_gap": float(min(support_gaps)),
+    }
+
+
+def compute_stack_pallet_footprint_metrics(
+    stack_coordinates,
+    pallet_center_x=DEFAULT_PICKUP_X,
+    pallet_center_y=DEFAULT_PICKUP_Y,
+):
+    coords = clone_stack_coordinates(stack_coordinates)
+    if not coords:
+        return {
+            "min_stack_pallet_margin": 0.0,
+            "max_stack_pallet_overhang": 0.0,
+        }
+
+    stack_min_x = min(float(coord[0]) - CARTON_BODY_SCALE[0] * 0.5 for coord in coords)
+    stack_max_x = max(float(coord[0]) + CARTON_BODY_SCALE[0] * 0.5 for coord in coords)
+    stack_min_y = min(float(coord[1]) - CARTON_BODY_SCALE[1] * 0.5 for coord in coords)
+    stack_max_y = max(float(coord[1]) + CARTON_BODY_SCALE[1] * 0.5 for coord in coords)
+
+    pallet_min_x = float(pallet_center_x) - PALLET_DECK_SCALE[0] * 0.5
+    pallet_max_x = float(pallet_center_x) + PALLET_DECK_SCALE[0] * 0.5
+    pallet_min_y = float(pallet_center_y) - PALLET_DECK_SCALE[1] * 0.5
+    pallet_max_y = float(pallet_center_y) + PALLET_DECK_SCALE[1] * 0.5
+
+    margins = [
+        stack_min_x - pallet_min_x,
+        pallet_max_x - stack_max_x,
+        stack_min_y - pallet_min_y,
+        pallet_max_y - stack_max_y,
+    ]
+    min_margin = float(min(margins))
+    return {
+        "min_stack_pallet_margin": min_margin,
+        "max_stack_pallet_overhang": float(max(0.0, -min_margin)),
     }
 
 
@@ -2103,6 +2144,21 @@ def main():
                     self_test_failures.append(
                         f"stack vertical overlap {-min_stack_support_gap:.4f} m exceeded 0.0050 m"
                     )
+            stack_footprint = compute_stack_pallet_footprint_metrics(
+                stack_coordinates,
+                args.pickup_x,
+                args.pickup_y,
+            )
+            min_stack_pallet_margin = stack_footprint["min_stack_pallet_margin"]
+            max_stack_pallet_overhang = stack_footprint["max_stack_pallet_overhang"]
+            if (
+                args.self_test_min_stack_pallet_margin > 0
+                and min_stack_pallet_margin < args.self_test_min_stack_pallet_margin
+            ):
+                self_test_failures.append(
+                    f"stack pallet margin {min_stack_pallet_margin:.4f} m was below "
+                    f"{args.self_test_min_stack_pallet_margin:.4f} m"
+                )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
@@ -2207,6 +2263,8 @@ def main():
                     f"min_stack_lateral_gap={min_stack_lateral_gap:.4f}; "
                     f"max_stack_support_gap={max_stack_support_gap:.4f}; "
                     f"min_stack_support_gap={min_stack_support_gap:.4f}; "
+                    f"min_stack_pallet_margin={min_stack_pallet_margin:.4f}; "
+                    f"max_stack_pallet_overhang={max_stack_pallet_overhang:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"max_lift_contact_gap={max_lift_contact_gap:.4f}; "

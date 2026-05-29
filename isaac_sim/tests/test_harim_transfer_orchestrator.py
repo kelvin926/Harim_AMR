@@ -240,6 +240,17 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertLessEqual(metrics["max_stack_support_gap"], 0.02)
         np.testing.assert_allclose(coordinates[0], np.array([1.05, -0.62, -0.51]))
 
+    def test_stack_footprint_stays_inside_pallet_deck(self):
+        coordinates = self.demo.make_stack_coordinates(2, 2, 2)
+        metrics = self.demo.compute_stack_pallet_footprint_metrics(
+            coordinates,
+            self.demo.DEFAULT_PICKUP_X,
+            self.demo.DEFAULT_PICKUP_Y,
+        )
+
+        self.assertGreaterEqual(metrics["min_stack_pallet_margin"], 0.08)
+        self.assertAlmostEqual(metrics["max_stack_pallet_overhang"], 0.0)
+
     def test_lift_plate_sits_just_below_pallet_underside(self):
         contact_gap = self.demo.compute_lift_contact_gap(self.demo.DEFAULT_AMR_Z)
         lift_top_z = (
@@ -446,6 +457,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-require-gripper-open-after-release", source)
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
+        self.assertIn("--self-test-min-stack-pallet-margin", source)
         self.assertIn("--self-test-min-payload-lift", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
@@ -465,6 +477,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max stack lateral gap", source)
         self.assertIn("max stack support gap", source)
         self.assertIn("stack vertical overlap", source)
+        self.assertIn("stack pallet margin", source)
         self.assertIn("payload lift", source)
         self.assertIn("max dropped payload drift", source)
         self.assertIn("max lift contact gap", source)
@@ -482,6 +495,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("joint_settle_count=", source)
         self.assertIn("max_stack_lateral_gap=", source)
         self.assertIn("max_stack_support_gap=", source)
+        self.assertIn("min_stack_pallet_margin=", source)
+        self.assertIn("max_stack_pallet_overhang=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("max_lift_contact_gap=", source)
@@ -506,6 +521,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-require-gripper-open-after-release", source)
         self.assertIn("$SelfTestMaxStackLateralGap", source)
         self.assertIn("$SelfTestMaxStackSupportGap", source)
+        self.assertIn("$SelfTestMinStackPalletMargin", source)
         self.assertIn("$SelfTestMaxLiftContactGap", source)
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
         self.assertIn("$SelfTestMinLiftForkInnerGap", source)
@@ -515,6 +531,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinDropForkClearance", source)
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
+        self.assertIn("--self-test-min-stack-pallet-margin", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
         self.assertIn("--self-test-min-lift-fork-inner-gap", source)

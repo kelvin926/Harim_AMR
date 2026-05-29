@@ -1991,6 +1991,56 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 ---
 
+## 2026-05-29 stack footprint / pallet deck margin gate 추가
+
+박스 간 간격과 수직 지지는 검증했지만, 적재된 박스 전체 footprint가 팔레트 deck 안쪽에 충분히 들어오는지는 별도 gate가 없었다. 이번 보강에서는 carton 외곽과 pallet deck 외곽 사이의 최소 margin을 계산해, 박스가 팔레트 밖으로 튀어나오거나 가장자리에 너무 붙는 경우 self-test가 실패하도록 했다.
+
+수정 내용:
+
+- [x] `compute_stack_pallet_footprint_metrics()` 추가
+  - 모든 stack coordinate의 carton body 외곽 X/Y 범위를 계산한다.
+  - `pickup_x`, `pickup_y` 기준 pallet deck footprint와 비교한다.
+  - 최소 여백 `min_stack_pallet_margin`을 계산한다.
+  - 음수 margin은 overhang으로 보고 `max_stack_pallet_overhang`으로 기록한다.
+- [x] self-test gate 추가
+  - Python 옵션: `--self-test-min-stack-pallet-margin`
+  - PowerShell 옵션: `-SelfTestMinStackPalletMargin`
+- [x] 완료 로그에 stack footprint 지표 추가
+  - `min_stack_pallet_margin`
+  - `max_stack_pallet_overhang`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestRequireGripperOpenAfterRelease -SelfTestMaxStackLateralGap 0.03 -SelfTestMaxStackSupportGap 0.02 -SelfTestMinStackPalletMargin 0.08 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestMaxLiftContactGap 0.01 -SelfTestMinPalletTunnelClearance 0.10 -SelfTestMinLiftForkInnerGap 0.30 -SelfTestMaxDropSupportGap 0.01 -SelfTestMinDropLaneClearance 0.03 -SelfTestMinDropRunnerClearance 0.05 -SelfTestMinDropForkClearance 0.03 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] Python compile 통과
+- [x] unittest 39개 통과
+- [x] 12000-frame full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_stack_pallet_margin_gate_full_e2e_12000.log`
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0398`
+  - `max_release_drift=0.0000`
+  - `max_stack_lateral_gap=0.0200`
+  - `max_stack_support_gap=0.0100`
+  - `min_stack_pallet_margin=0.0850`
+  - `max_stack_pallet_overhang=0.0000`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`
+  - `max_lift_contact_gap=0.0050`
+  - `pallet_tunnel_clearance=0.1600`
+  - `drop_fork_clearance=0.0400`
+
+---
+
 ## 2026-05-29 GUI release 강제 해제 추가 보강
 
 GUI 확인에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 증상이 다시 관찰되어, release 순간에 scripted attach 상태와 실제 surface gripper 상태를 더 강하게 분리했다. 핵심은 “시각적으로 박스가 그리퍼를 따라가는 경로”를 줄이는 것이다.
