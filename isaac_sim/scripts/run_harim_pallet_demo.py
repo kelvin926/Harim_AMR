@@ -829,6 +829,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if dropped pallet parts drift from their deck-relative offsets by more than this distance. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-dropped-pallet-part-orientation-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if dropped pallet parts rotate away from their deck-relative orientations by more than this angle in radians. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-amr-exit-clearance",
         type=float,
         default=0.0,
@@ -1117,6 +1123,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if carried pallet visuals drift from their AMR-relative offsets by more than this distance. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-carried-pallet-orientation-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if carried pallet visuals rotate away from their AMR-relative orientations by more than this angle in radians. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-carried-payload-pose-error",
         type=float,
         default=0.0,
@@ -1282,6 +1294,15 @@ def quat_lerp(q1, q2, t):
         q2 = -q2
     quat = (1.0 - t) * q1 + t * q2
     return quat / max(np.linalg.norm(quat), 1e-9)
+
+
+def quat_angular_error(q1, q2):
+    q1 = np.array(q1, dtype=float)
+    q2 = np.array(q2, dtype=float)
+    q1 = q1 / max(np.linalg.norm(q1), 1e-9)
+    q2 = q2 / max(np.linalg.norm(q2), 1e-9)
+    dot = abs(float(np.dot(q1, q2)))
+    return float(2.0 * math.acos(clamp(dot, -1.0, 1.0)))
 
 
 def make_stack_coordinates(cols, rows, layers):
@@ -2769,6 +2790,7 @@ class HarimTransferOrchestrator:
             args.drop_y,
         )
         self.max_carried_pallet_pose_error = 0.0
+        self.max_carried_pallet_orientation_error = 0.0
         self.max_carried_payload_pose_error = 0.0
         self.dropped_stack_item_count = 0
         self.max_dropped_stack_pose_error = 0.0
@@ -2778,6 +2800,7 @@ class HarimTransferOrchestrator:
         self.max_dropped_stack_pallet_overhang = 0.0
         self.dropped_pallet_part_count = 0
         self.max_dropped_pallet_part_pose_error = 0.0
+        self.max_dropped_pallet_part_orientation_error = 0.0
         self.drop_handoff_xy_error = 0.0
         self.drop_handoff_support_gap = compute_drop_workstation_support_gap()
         self.drop_handoff_support_penetration = 0.0
@@ -3347,13 +3370,17 @@ class HarimTransferOrchestrator:
             data = self.pallet_base_offsets.get(part.name)
             if data is None:
                 continue
-            offset, _orient = data
+            offset, expected_orient = data
             try:
-                current_pos, _ = part.get_world_pose()
+                current_pos, current_orient = part.get_world_pose()
                 expected_pos = amr_pos + offset
                 self.max_carried_pallet_pose_error = max(
                     self.max_carried_pallet_pose_error,
                     float(np.linalg.norm(np.array(current_pos, dtype=float) - expected_pos)),
+                )
+                self.max_carried_pallet_orientation_error = max(
+                    self.max_carried_pallet_orientation_error,
+                    quat_angular_error(current_orient, expected_orient),
                 )
             except Exception:
                 pass
@@ -3478,25 +3505,30 @@ class HarimTransferOrchestrator:
         if not self.pallet_parts:
             return
         try:
-            deck_pos, _deck_orient = self.pallet_parts[0].get_world_pose()
+            deck_pos, deck_orient = self.pallet_parts[0].get_world_pose()
         except Exception:
             return
         pallet_center = np.array(deck_pos, dtype=float) - PALLET_DECK_OFFSETS[0]
         part_count = 0
         max_pose_error = 0.0
+        max_orientation_error = 0.0
         for part, offset in zip(self.pallet_parts, self.pallet_part_offsets):
             try:
-                pos, _orient = part.get_world_pose()
+                pos, orient = part.get_world_pose()
             except Exception:
                 continue
             expected_pos = pallet_center + np.array(offset, dtype=float)
+            base_data = self.pallet_base_offsets.get(part.name)
+            expected_orient = base_data[1] if base_data is not None else deck_orient
             part_count += 1
             max_pose_error = max(
                 max_pose_error,
                 float(np.linalg.norm(np.array(pos, dtype=float) - expected_pos)),
             )
+            max_orientation_error = max(max_orientation_error, quat_angular_error(orient, expected_orient))
         self.dropped_pallet_part_count = int(part_count)
         self.max_dropped_pallet_part_pose_error = float(max_pose_error)
+        self.max_dropped_pallet_part_orientation_error = float(max_orientation_error)
 
     def _hold_dropped_assembly(self):
         for item, pos, orient in self.dropped_item_poses.values():
@@ -6390,6 +6422,9 @@ def main():
             max_dropped_pallet_part_pose_error = float(
                 getattr(orchestrator, "max_dropped_pallet_part_pose_error", 0.0)
             )
+            max_dropped_pallet_part_orientation_error = float(
+                getattr(orchestrator, "max_dropped_pallet_part_orientation_error", 0.0)
+            )
             if (
                 args.self_test_min_dropped_stack_item_count > 0
                 and dropped_stack_item_count < args.self_test_min_dropped_stack_item_count
@@ -6443,6 +6478,19 @@ def main():
                     self_test_failures.append(
                         f"dropped pallet part pose error {max_dropped_pallet_part_pose_error:.4f} m exceeded "
                         f"{args.self_test_max_dropped_pallet_part_pose_error:.4f} m"
+                    )
+            if args.self_test_max_dropped_pallet_part_orientation_error > 0:
+                if transfer_cycles <= 0:
+                    self_test_failures.append(
+                        "dropped pallet part orientation error was not available before a completed transfer"
+                    )
+                elif (
+                    max_dropped_pallet_part_orientation_error
+                    > args.self_test_max_dropped_pallet_part_orientation_error
+                ):
+                    self_test_failures.append(
+                        f"dropped pallet part orientation error {max_dropped_pallet_part_orientation_error:.4f} rad exceeded "
+                        f"{args.self_test_max_dropped_pallet_part_orientation_error:.4f} rad"
                     )
             amr_exit_clearance = compute_amr_exit_clearance(orchestrator.get_amr_position()[0], args.drop_x)
             if args.self_test_min_amr_exit_clearance > 0:
@@ -6880,6 +6928,9 @@ def main():
                 getattr(orchestrator, "min_loaded_route_guard_clearance", 0.0)
             )
             max_carried_pallet_pose_error = float(getattr(orchestrator, "max_carried_pallet_pose_error", 0.0))
+            max_carried_pallet_orientation_error = float(
+                getattr(orchestrator, "max_carried_pallet_orientation_error", 0.0)
+            )
             max_carried_payload_pose_error = float(getattr(orchestrator, "max_carried_payload_pose_error", 0.0))
             if (
                 args.self_test_max_loaded_route_y_error > 0
@@ -6904,6 +6955,14 @@ def main():
                 self_test_failures.append(
                     f"carried pallet pose error {max_carried_pallet_pose_error:.4f} m exceeded "
                     f"{args.self_test_max_carried_pallet_pose_error:.4f} m"
+                )
+            if (
+                args.self_test_max_carried_pallet_orientation_error > 0
+                and max_carried_pallet_orientation_error > args.self_test_max_carried_pallet_orientation_error
+            ):
+                self_test_failures.append(
+                    f"carried pallet orientation error {max_carried_pallet_orientation_error:.4f} rad exceeded "
+                    f"{args.self_test_max_carried_pallet_orientation_error:.4f} rad"
                 )
             if (
                 args.self_test_max_carried_payload_pose_error > 0
@@ -7069,6 +7128,7 @@ def main():
                     f"max_dropped_stack_pallet_overhang={max_dropped_stack_pallet_overhang:.4f}; "
                     f"dropped_pallet_part_count={dropped_pallet_part_count}; "
                     f"max_dropped_pallet_part_pose_error={max_dropped_pallet_part_pose_error:.4f}; "
+                    f"max_dropped_pallet_part_orientation_error={max_dropped_pallet_part_orientation_error:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "
                     f"max_lift_contact_gap={max_lift_contact_gap:.4f}; "
                     f"min_lift_contact_gap={min_lift_contact_gap:.4f}; "
@@ -7122,6 +7182,7 @@ def main():
                     f"max_loaded_route_y_error={max_loaded_route_y_error:.4f}; "
                     f"min_loaded_route_guard_clearance={min_loaded_route_guard_clearance:.4f}; "
                     f"max_carried_pallet_pose_error={max_carried_pallet_pose_error:.4f}; "
+                    f"max_carried_pallet_orientation_error={max_carried_pallet_orientation_error:.4f}; "
                     f"max_carried_payload_pose_error={max_carried_payload_pose_error:.4f}; "
                     f"drop_approach_standoff={drop_approach_standoff:.4f}; "
                     f"dock_move_speed_scale={dock_move_speed_scale:.4f}; "

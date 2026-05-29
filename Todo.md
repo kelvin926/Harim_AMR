@@ -1,5 +1,24 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Pallet Part Orientation Error Gate 추가
+
+- [x] 팔레트가 AMR에 실려 이동하는 동안 deck/runner/block/load-restraint part가 AMR 기준 offset뿐 아니라 원래 orientation도 유지하는지 `max_carried_pallet_orientation_error`로 계측하도록 했다.
+- [x] 하역 후 dropped pallet assembly가 목표 작업대 위에 남을 때 각 팔레트 부품의 orientation이 유지되는지 `max_dropped_pallet_part_orientation_error`로 계측하도록 했다.
+- [x] quaternion 부호가 반대여도 같은 자세로 취급하고, yaw 차이는 radian error로 잡을 수 있도록 `quat_angular_error()`를 추가했다.
+- [x] strict self-test에 orientation gate를 추가했다.
+  - Python: `--self-test-max-dropped-pallet-part-orientation-error`
+  - Python: `--self-test-max-carried-pallet-orientation-error`
+  - PowerShell wrapper: `SelfTestMaxDroppedPalletPartOrientationError`, `SelfTestMaxCarriedPalletOrientationError`
+  - strict 기준: 두 값 모두 `0.01 rad`
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 83개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_pallet_orientation_gate_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_074601_39220.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `carried_pallet_motion_sample_count=21402`, `max_carried_pallet_frame_displacement=0.0163`, `max_dropped_pallet_part_orientation_error=0.0000`, `max_carried_pallet_orientation_error=0.0000`, `review_gif_frame_count=151`
+
 ## 2026-05-30 Carried Pallet Motion Continuity Gate 추가
 
 - [x] AMR가 팔레트를 실어 이동하는 동안 팔레트 deck/runner/block/load-restraint part 각각을 `carried_pallet` motion continuity group으로 샘플링하도록 했다.
