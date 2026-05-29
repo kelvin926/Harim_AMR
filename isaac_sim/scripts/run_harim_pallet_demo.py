@@ -35,6 +35,7 @@ RELEASE_RETREAT_DURATION = 0.90
 SURFACE_GRIPPER_RELEASE_RETRIES = 3
 SCRIPTED_PLACE_DURATION = 0.70
 SCRIPTED_PLACE_EE_HOVER = 0.30
+ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP = 0.05
 POST_RELEASE_JOINT_SETTLE_DURATION = 0.65
 ARM_CLEAR_SETTLE_TIME = 1.8
 REACH_PICK_MAX_DURATION = 12.0
@@ -580,6 +581,30 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the active carton visual floats above the infeed belt by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-motion-continuity-sample-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless motion continuity sampled at least this many AMR frames. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-frame-displacement",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR moves farther than this distance between sampled frames. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-active-bin-frame-displacement",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if any active carton moves farther than this distance between sampled frames. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-carried-payload-frame-displacement",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if any carried pallet payload part moves farther than this distance between sampled frames. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-safety-fence-part-count",
@@ -1567,6 +1592,51 @@ class InfeedFeedCartonMotionController:
                 self.initial_positions[part_name] = body_position.copy()
             travel = float(np.linalg.norm(body_position - self.initial_positions[part_name]))
             self.max_carton_observed_travel = max(self.max_carton_observed_travel, travel)
+
+
+class MotionContinuityTracker:
+    def __init__(self):
+        self.previous_positions = {}
+        self.max_displacement_by_group = {}
+        self.max_detail_by_group = {}
+        self.sample_count_by_group = {}
+        self.tracked_keys = set()
+
+    def sample(self, group, item_id, position):
+        group = str(group)
+        item_id = str(item_id)
+        key = (group, item_id)
+        position = np.array(position, dtype=float)
+        self.tracked_keys.add(key)
+        self.max_displacement_by_group.setdefault(group, 0.0)
+        if key in self.previous_positions:
+            previous_position = self.previous_positions[key]
+            displacement = float(np.linalg.norm(position - self.previous_positions[key]))
+            if displacement > self.max_displacement_by_group[group]:
+                self.max_displacement_by_group[group] = displacement
+                self.max_detail_by_group[group] = {
+                    "item_id": item_id,
+                    "previous_position": previous_position.copy(),
+                    "position": position.copy(),
+                    "displacement": displacement,
+                }
+            self.sample_count_by_group[group] = int(self.sample_count_by_group.get(group, 0)) + 1
+        self.previous_positions[key] = position.copy()
+
+    def max_displacement(self, group):
+        return float(self.max_displacement_by_group.get(str(group), 0.0))
+
+    def sample_count(self, group):
+        return int(self.sample_count_by_group.get(str(group), 0))
+
+    def max_detail(self, group):
+        return self.max_detail_by_group.get(str(group))
+
+    def tracked_item_count(self, group=None):
+        if group is None:
+            return len(self.tracked_keys)
+        group = str(group)
+        return len([key for key in self.tracked_keys if key[0] == group])
 
 
 def make_safety_fence_specs(pickup_y=DEFAULT_PICKUP_Y):
@@ -3898,6 +3968,29 @@ def main():
         context.active_bin = None
         return False
 
+    def set_attached_active_bin_pose(context, active_bin, target_position, target_orientation):
+        target_position = np.array(target_position, dtype=float)
+        try:
+            current_position, current_orientation = active_bin.bin_obj.get_world_pose()
+        except Exception:
+            active_bin.bin_obj.set_world_pose(position=target_position, orientation=target_orientation)
+            return
+
+        current_position = np.array(current_position, dtype=float)
+        displacement = float(np.linalg.norm(target_position - current_position))
+        if displacement > ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP:
+            t = ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP / max(displacement, 1e-6)
+            position = lerp(current_position, target_position, t)
+            orientation = quat_lerp(current_orientation, target_orientation, t)
+            context.demo_max_attached_bin_sync_gap = max(
+                float(getattr(context, "demo_max_attached_bin_sync_gap", 0.0)),
+                float(np.linalg.norm(target_position - position)),
+            )
+        else:
+            position = target_position
+            orientation = target_orientation
+        active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
+
     def hold_active_bin_for_pick(context):
         active_bin = get_demo_pre_grip_bin(context) or getattr(context, "active_bin", None)
         if active_bin is None:
@@ -4440,7 +4533,7 @@ def main():
         context.active_bin = active_bin
         bin_T = context.robot.arm.get_fk_T().dot(attach_T)
         position, orientation = cortex_math_util.T2pq(bin_T)
-        active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
+        set_attached_active_bin_pose(context, active_bin, position, orientation)
         stop_dynamic_prim(active_bin.bin_obj)
         active_bin.is_attached = True
 
@@ -5366,6 +5459,7 @@ def main():
         frame_stride=args.gif_frame_stride,
         max_frames=args.gif_max_frames,
     )
+    motion_continuity = MotionContinuityTracker()
     demo_frame_index = 0
     review_gif_path = None
 
@@ -5384,6 +5478,34 @@ def main():
                 np.array(item.get_world_pose()[0], dtype=float) for item in self_test_payload
             ]
 
+    def sample_motion_continuity():
+        motion_continuity.sample("amr", "iw_hub", orchestrator.get_amr_position())
+
+        context = decider_network.context
+        active_bin = (
+            getattr(context, "demo_infeed_active_bin", None)
+            or getattr(context, "demo_pre_grip_bin", None)
+            or getattr(context, "demo_carried_bin", None)
+            or getattr(context, "demo_released_bin", None)
+            or getattr(context, "active_bin", None)
+        )
+        if active_bin is not None and active_bin not in getattr(context, "stacked_bins", []):
+            bin_obj = getattr(active_bin, "bin_obj", None)
+            if bin_obj is not None:
+                try:
+                    position, _orientation = bin_obj.get_world_pose()
+                    motion_continuity.sample("active_bin", getattr(bin_obj, "name", "active_bin"), position)
+                except Exception:
+                    pass
+
+        if getattr(orchestrator, "carrying", False):
+            for item in getattr(orchestrator, "attached_items", []):
+                try:
+                    position, _orientation = item.get_world_pose()
+                    motion_continuity.sample("carried_payload", getattr(item, "name", str(id(item))), position)
+                except Exception:
+                    pass
+
     def step_demo_frame():
         nonlocal demo_frame_index
         physics_dt = world.get_physics_dt()
@@ -5396,6 +5518,7 @@ def main():
         hold_demo_released_bin_at_target(decider_network.context)
         force_self_test_stack_complete()
         orchestrator.step(physics_dt)
+        sample_motion_continuity()
         gif_recorder.maybe_capture(demo_frame_index, orchestrator, decider_network.context, args)
         demo_frame_index += 1
 
@@ -5750,6 +5873,61 @@ def main():
                 if active_bin_conveyor_belt_support_gap < -0.005:
                     self_test_failures.append(
                         f"active bin conveyor overlapped belt {-active_bin_conveyor_belt_support_gap:.4f} m exceeded 0.0050 m"
+                    )
+            motion_continuity_sample_count = motion_continuity.sample_count("amr")
+            motion_continuity_tracked_item_count = motion_continuity.tracked_item_count()
+            active_bin_motion_sample_count = motion_continuity.sample_count("active_bin")
+            carried_payload_motion_sample_count = motion_continuity.sample_count("carried_payload")
+            max_amr_frame_displacement = motion_continuity.max_displacement("amr")
+            max_active_bin_frame_displacement = motion_continuity.max_displacement("active_bin")
+            max_carried_payload_frame_displacement = motion_continuity.max_displacement("carried_payload")
+            amr_motion_detail = motion_continuity.max_detail("amr")
+            active_bin_motion_detail = motion_continuity.max_detail("active_bin")
+            carried_payload_motion_detail = motion_continuity.max_detail("carried_payload")
+
+            def format_motion_detail(detail):
+                if not detail:
+                    return ""
+                previous_position = np.array(detail["previous_position"], dtype=float)
+                position = np.array(detail["position"], dtype=float)
+                previous_text = np.array2string(previous_position, precision=3, separator=", ")
+                position_text = np.array2string(position, precision=3, separator=", ")
+                return f" ({detail['item_id']}: {previous_text} -> {position_text})"
+
+            if (
+                args.self_test_min_motion_continuity_sample_count > 0
+                and motion_continuity_sample_count < args.self_test_min_motion_continuity_sample_count
+            ):
+                self_test_failures.append(
+                    f"motion continuity sample count {motion_continuity_sample_count} was below "
+                    f"{args.self_test_min_motion_continuity_sample_count}"
+                )
+            if (
+                args.self_test_max_amr_frame_displacement > 0
+                and max_amr_frame_displacement > args.self_test_max_amr_frame_displacement
+            ):
+                self_test_failures.append(
+                    f"AMR frame displacement {max_amr_frame_displacement:.4f} m exceeded "
+                    f"{args.self_test_max_amr_frame_displacement:.4f} m"
+                    f"{format_motion_detail(amr_motion_detail)}"
+                )
+            if args.self_test_max_active_bin_frame_displacement > 0:
+                if active_bin_motion_sample_count <= 0:
+                    self_test_failures.append("active bin motion continuity was not sampled")
+                elif max_active_bin_frame_displacement > args.self_test_max_active_bin_frame_displacement:
+                    self_test_failures.append(
+                        f"active bin frame displacement {max_active_bin_frame_displacement:.4f} m exceeded "
+                        f"{args.self_test_max_active_bin_frame_displacement:.4f} m"
+                        f"{format_motion_detail(active_bin_motion_detail)}"
+                    )
+            if args.self_test_max_carried_payload_frame_displacement > 0:
+                if carried_payload_motion_sample_count <= 0:
+                    self_test_failures.append("carried payload motion continuity was not sampled")
+                elif max_carried_payload_frame_displacement > args.self_test_max_carried_payload_frame_displacement:
+                    self_test_failures.append(
+                        f"carried payload frame displacement {max_carried_payload_frame_displacement:.4f} m exceeded "
+                        f"{args.self_test_max_carried_payload_frame_displacement:.4f} m"
+                        f"{format_motion_detail(carried_payload_motion_detail)}"
                     )
             safety_fence_metrics = compute_safety_fence_metrics(args.pickup_y)
             safety_fence_part_count = safety_fence_metrics["safety_fence_part_count"]
@@ -6604,6 +6782,13 @@ def main():
                     f"active_bin_conveyor_final_error={active_bin_conveyor_final_error:.4f}; "
                     f"active_bin_conveyor_lateral_error={active_bin_conveyor_lateral_error:.4f}; "
                     f"active_bin_conveyor_belt_support_gap={active_bin_conveyor_belt_support_gap:.4f}; "
+                    f"motion_continuity_sample_count={motion_continuity_sample_count}; "
+                    f"motion_continuity_tracked_item_count={motion_continuity_tracked_item_count}; "
+                    f"active_bin_motion_sample_count={active_bin_motion_sample_count}; "
+                    f"carried_payload_motion_sample_count={carried_payload_motion_sample_count}; "
+                    f"max_amr_frame_displacement={max_amr_frame_displacement:.4f}; "
+                    f"max_active_bin_frame_displacement={max_active_bin_frame_displacement:.4f}; "
+                    f"max_carried_payload_frame_displacement={max_carried_payload_frame_displacement:.4f}; "
                     f"safety_fence_part_count={safety_fence_part_count}; "
                     f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "
                     f"amr_cell_gate_clearance={amr_cell_gate_clearance:.4f}; "

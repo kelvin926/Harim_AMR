@@ -1,5 +1,17 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Motion Continuity Gate 및 Active Box 순간이동 보정
+
+- AMR, 팔레타이징 중인 active box, AMR에 실려 이동하는 carried payload를 `MotionContinuityTracker`로 매 프레임 샘플링합니다.
+- strict self-test에 motion continuity gate를 추가했습니다: AMR 샘플 수, AMR 최대 프레임 이동량, active box 최대 프레임 이동량, carried payload 최대 프레임 이동량.
+- 이전 strict 실행에서 active box가 로봇팔 FK를 따라가던 중 한 프레임에 `0.8360 m` 이동하는 순간이동이 검출되어, attached active box pose를 `ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP = 0.05` 기준으로 프레임별 보간하도록 수정했습니다.
+- strict wrapper의 active box 기준은 `SelfTestMaxActiveBinFrameDisplacement = 0.08`로 설정했습니다.
+- 검증 로그: `isaacsim_logs/harim_motion_continuity_strict_008_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_050858_34036.gif`
+- 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+- GIF 크기: `960x540`, `151` frames
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `motion_continuity_sample_count=11999`, `active_bin_motion_sample_count=5250`, `carried_payload_motion_sample_count=9512`, `max_amr_frame_displacement=0.0163`, `max_active_bin_frame_displacement=0.0619`, `max_carried_payload_frame_displacement=0.0163`
+
 ## 2026-05-30 Active Bin Conveyor Approach 보강
 
 - 로봇팔이 실제로 집는 active bin이 spawn 위치에서 pick station으로 순간 이동해 보이지 않도록 scripted conveyor approach를 추가했습니다.
