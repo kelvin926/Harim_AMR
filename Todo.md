@@ -1,5 +1,24 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 AMR 이동 통로 guard/bollard 보강
+
+- [x] AMR 장거리 이동 구간이 열린 바닥을 그냥 지나가는 것처럼 보이지 않도록 통로 양쪽에 guard rail과 bollard visual을 추가했다.
+  - 각 side마다 bollard 6개
+  - 각 side마다 guard rail 1개
+  - 전체 14개 visual part
+- [x] 물리 충돌은 추가하지 않고 `VisualCuboid`만 사용해 기존 AMR 이동/팔레트 이송 경로는 그대로 유지한다.
+- [x] self-test gate를 추가해 경로 guard part 수, X-span, loaded pallet side clearance, bollard height를 검증한다.
+  - Python: `--self-test-min-amr-route-guard-part-count`
+  - Python: `--self-test-min-amr-route-guard-span`
+  - Python: `--self-test-min-amr-route-guard-clearance`
+  - Python: `--self-test-min-amr-route-bollard-height`
+  - PowerShell wrapper도 동일 gate를 노출한다.
+- [x] 검증 완료
+  - unittest 54개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_amr_route_guard_strict_full_e2e_12000.log`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `amr_route_guard_part_count=14`, `amr_route_guard_span=8.4800`, `amr_route_guard_clearance=0.3700`, `amr_route_bollard_height=0.7200`
+
 ## 2026-05-30 창고 조명/노출 보강
 
 - [x] 카메라 컷에서 팔레타이저, AMR 이동 경로, 하역 작업대가 어둡게 보이지 않도록 high-bay warehouse lighting을 추가했다.

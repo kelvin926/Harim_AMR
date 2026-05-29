@@ -219,6 +219,14 @@ WAREHOUSE_LIGHT_FIXTURE_COLOR = np.array([0.82, 0.84, 0.80], dtype=float)
 WAREHOUSE_LIGHT_EMISSIVE_COLOR = np.array([1.0, 0.93, 0.80], dtype=float)
 WAREHOUSE_LIGHT_MIN_HEIGHT_ABOVE_FLOOR = 3.2
 WAREHOUSE_LIGHT_MIN_ROUTE_SPAN = 8.0
+AMR_ROUTE_GUARD_Y_OFFSET = 0.95
+AMR_ROUTE_GUARD_X_MARGIN_START = 1.45
+AMR_ROUTE_GUARD_X_MARGIN_END = 0.75
+AMR_ROUTE_GUARD_BOLLARD_COUNT_PER_SIDE = 6
+AMR_ROUTE_GUARD_BOLLARD_SCALE = np.array([0.08, 0.08, 0.72], dtype=float)
+AMR_ROUTE_GUARD_RAIL_SCALE_YZ = np.array([0.035, 0.050], dtype=float)
+AMR_ROUTE_GUARD_BOLLARD_COLOR = np.array([0.94, 0.74, 0.10], dtype=float)
+AMR_ROUTE_GUARD_RAIL_COLOR = np.array([0.08, 0.09, 0.10], dtype=float)
 
 
 def parse_args():
@@ -585,6 +593,30 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if any warehouse high-bay light intensity is below this value. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-route-guard-part-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many AMR route guard parts are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-route-guard-span",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR route guard visuals cover less X span than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-route-guard-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR route guard visuals leave less loaded-pallet side clearance than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-route-bollard-height",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR route bollards are shorter than this height above the floor. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -1252,6 +1284,93 @@ def compute_warehouse_lighting_metrics(
         "warehouse_light_min_height": min(heights) if heights else 0.0,
         "warehouse_light_route_span": (max(x_positions) - min(x_positions)) if x_positions else 0.0,
         "warehouse_light_min_intensity": min(intensities) if intensities else 0.0,
+    }
+
+
+def make_amr_route_guard_specs(
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+    drop_x=DEFAULT_DROP_X,
+    drop_y=DEFAULT_DROP_Y,
+):
+    route_min_x = min(float(pickup_x), float(drop_x))
+    route_max_x = max(float(pickup_x), float(drop_x))
+    guard_start_x = route_min_x + AMR_ROUTE_GUARD_X_MARGIN_START
+    guard_end_x = route_max_x - AMR_ROUTE_GUARD_X_MARGIN_END
+    if guard_end_x <= guard_start_x:
+        guard_start_x = route_min_x
+        guard_end_x = route_max_x
+    path_center_y = (float(pickup_y) + float(drop_y)) * 0.5
+    bollard_center_z = WORLD_FLOOR_Z + AMR_ROUTE_GUARD_BOLLARD_SCALE[2] * 0.5
+    rail_center_z = WORLD_FLOOR_Z + 0.58
+    x_positions = np.linspace(
+        guard_start_x,
+        guard_end_x,
+        max(2, AMR_ROUTE_GUARD_BOLLARD_COUNT_PER_SIDE),
+    )
+    specs = []
+    for side_name, side_sign in (("Left", -1.0), ("Right", 1.0)):
+        guard_y = path_center_y + side_sign * AMR_ROUTE_GUARD_Y_OFFSET
+        for bollard_idx, x_position in enumerate(x_positions):
+            specs.append(
+                (
+                    f"AmrRoute{side_name}Bollard_{bollard_idx}",
+                    "bollard",
+                    np.array([x_position, guard_y, bollard_center_z], dtype=float),
+                    AMR_ROUTE_GUARD_BOLLARD_SCALE.copy(),
+                    AMR_ROUTE_GUARD_BOLLARD_COLOR,
+                )
+            )
+        specs.append(
+            (
+                f"AmrRoute{side_name}GuardRail",
+                "rail",
+                np.array([(guard_start_x + guard_end_x) * 0.5, guard_y, rail_center_z], dtype=float),
+                np.array(
+                    [
+                        guard_end_x - guard_start_x,
+                        AMR_ROUTE_GUARD_RAIL_SCALE_YZ[0],
+                        AMR_ROUTE_GUARD_RAIL_SCALE_YZ[1],
+                    ],
+                    dtype=float,
+                ),
+                AMR_ROUTE_GUARD_RAIL_COLOR,
+            )
+        )
+    return specs
+
+
+def compute_amr_route_guard_metrics(
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+    drop_x=DEFAULT_DROP_X,
+    drop_y=DEFAULT_DROP_Y,
+):
+    specs = make_amr_route_guard_specs(pickup_x, pickup_y, drop_x, drop_y)
+    if not specs:
+        return {
+            "amr_route_guard_part_count": 0,
+            "amr_route_guard_span": 0.0,
+            "amr_route_guard_clearance": 0.0,
+            "amr_route_bollard_height": 0.0,
+        }
+    min_x = min(float(position[0] - scale[0] * 0.5) for _name, _role, position, scale, _color in specs)
+    max_x = max(float(position[0] + scale[0] * 0.5) for _name, _role, position, scale, _color in specs)
+    path_center_y = (float(pickup_y) + float(drop_y)) * 0.5
+    side_clearances = [
+        abs(float(position[1]) - path_center_y) - float(scale[1]) * 0.5 - PALLET_DECK_SCALE[1] * 0.5
+        for _name, _role, position, scale, _color in specs
+    ]
+    bollard_heights = [
+        float(position[2] + scale[2] * 0.5 - WORLD_FLOOR_Z)
+        for _name, role, position, scale, _color in specs
+        if role == "bollard"
+    ]
+    return {
+        "amr_route_guard_part_count": len(specs),
+        "amr_route_guard_span": float(max_x - min_x),
+        "amr_route_guard_clearance": float(min(side_clearances)) if side_clearances else 0.0,
+        "amr_route_bollard_height": float(min(bollard_heights)) if bollard_heights else 0.0,
     }
 
 
@@ -3194,6 +3313,29 @@ def main():
 
     create_floor_markings()
 
+    def create_amr_route_guard_visuals():
+        route_guard_parts = []
+        for part_name, _role, position, scale, color in make_amr_route_guard_specs(
+            args.pickup_x,
+            args.pickup_y,
+            args.drop_x,
+            args.drop_y,
+        ):
+            route_guard_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/{part_name}",
+                        name=f"harim_{part_name.lower()}",
+                        position=np.array(position, dtype=float),
+                        scale=np.array(scale, dtype=float),
+                        color=np.array(color, dtype=float),
+                    )
+                )
+            )
+        return route_guard_parts
+
+    create_amr_route_guard_visuals()
+
     def create_safety_fence_visual():
         fence_parts = []
         for part_idx, (part_name, position, scale, color) in enumerate(make_safety_fence_specs(args.pickup_y)):
@@ -4122,6 +4264,48 @@ def main():
                     f"warehouse light intensity {warehouse_light_min_intensity:.4f} was below "
                     f"{args.self_test_min_warehouse_light_intensity:.4f}"
                 )
+            route_guard_metrics = compute_amr_route_guard_metrics(
+                args.pickup_x,
+                args.pickup_y,
+                args.drop_x,
+                args.drop_y,
+            )
+            amr_route_guard_part_count = route_guard_metrics["amr_route_guard_part_count"]
+            amr_route_guard_span = route_guard_metrics["amr_route_guard_span"]
+            amr_route_guard_clearance = route_guard_metrics["amr_route_guard_clearance"]
+            amr_route_bollard_height = route_guard_metrics["amr_route_bollard_height"]
+            if (
+                args.self_test_min_amr_route_guard_part_count > 0
+                and amr_route_guard_part_count < args.self_test_min_amr_route_guard_part_count
+            ):
+                self_test_failures.append(
+                    f"AMR route guard part count {amr_route_guard_part_count} was below "
+                    f"{args.self_test_min_amr_route_guard_part_count}"
+                )
+            if (
+                args.self_test_min_amr_route_guard_span > 0
+                and amr_route_guard_span < args.self_test_min_amr_route_guard_span
+            ):
+                self_test_failures.append(
+                    f"AMR route guard span {amr_route_guard_span:.4f} m was below "
+                    f"{args.self_test_min_amr_route_guard_span:.4f} m"
+                )
+            if (
+                args.self_test_min_amr_route_guard_clearance > 0
+                and amr_route_guard_clearance < args.self_test_min_amr_route_guard_clearance
+            ):
+                self_test_failures.append(
+                    f"AMR route guard clearance {amr_route_guard_clearance:.4f} m was below "
+                    f"{args.self_test_min_amr_route_guard_clearance:.4f} m"
+                )
+            if (
+                args.self_test_min_amr_route_bollard_height > 0
+                and amr_route_bollard_height < args.self_test_min_amr_route_bollard_height
+            ):
+                self_test_failures.append(
+                    f"AMR route bollard height {amr_route_bollard_height:.4f} m was below "
+                    f"{args.self_test_min_amr_route_bollard_height:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -4196,7 +4380,11 @@ def main():
                     f"warehouse_light_role_count={warehouse_light_role_count}; "
                     f"warehouse_light_min_height={warehouse_light_min_height:.4f}; "
                     f"warehouse_light_route_span={warehouse_light_route_span:.4f}; "
-                    f"warehouse_light_min_intensity={warehouse_light_min_intensity:.4f}",
+                    f"warehouse_light_min_intensity={warehouse_light_min_intensity:.4f}; "
+                    f"amr_route_guard_part_count={amr_route_guard_part_count}; "
+                    f"amr_route_guard_span={amr_route_guard_span:.4f}; "
+                    f"amr_route_guard_clearance={amr_route_guard_clearance:.4f}; "
+                    f"amr_route_bollard_height={amr_route_bollard_height:.4f}",
                     flush=True,
                 )
         else:

@@ -74,6 +74,10 @@ $RunnerArgs = @{
     SelfTestMinWarehouseLightHeight = 3.20
     SelfTestMinWarehouseLightRouteSpan = 8.00
     SelfTestMinWarehouseLightIntensity = 3000.0
+    SelfTestMinAmrRouteGuardPartCount = 14
+    SelfTestMinAmrRouteGuardSpan = 8.00
+    SelfTestMinAmrRouteGuardClearance = 0.30
+    SelfTestMinAmrRouteBollardHeight = 0.65
 }
 
 if (-not $ShowGui) {

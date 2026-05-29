@@ -1,5 +1,12 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 AMR 이동 통로 Guard 보강
+
+- AMR 장거리 이동 구간 양쪽에 guard rail과 bollard visual을 추가했습니다. 열린 바닥 위를 지나가는 느낌을 줄이고, 물류센터의 지정 AMR 통로처럼 보이게 하기 위한 요소입니다.
+- strict self-test에 AMR route guard part/span/clearance/bollard-height gate를 추가했습니다.
+- 최신 검증 로그: `isaacsim_logs/harim_amr_route_guard_strict_full_e2e_12000.log`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `amr_route_guard_part_count=14`, `amr_route_guard_clearance=0.3700`
+
 ## 2026-05-30 창고 조명 보강
 
 - 팔레타이저 셀, AMR 이동 경로, 하역 작업대 위에 high-bay `RectLight` 4개와 fixture/glow panel visual을 추가했습니다.
