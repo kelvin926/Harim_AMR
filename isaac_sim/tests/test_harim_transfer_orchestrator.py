@@ -150,6 +150,13 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def test_default_drop_distance_is_over_ten_meters(self):
         self.assertGreaterEqual(self.demo.DEFAULT_DROP_X - self.demo.DEFAULT_PICKUP_X, 10.0)
 
+    def test_amr_starts_far_from_table_side_and_approaches_from_drop_side(self):
+        orchestrator, _context, _world, _items = self.build_orchestrator(Args())
+
+        self.assertGreater(orchestrator.start_pose[0], Args.pickup_x + 3.0)
+        self.assertGreater(orchestrator.approach_pose[0], Args.pickup_x)
+        self.assertLess(orchestrator.pickup_pose[0], orchestrator.approach_pose[0])
+
     def test_spawned_bins_are_upside_down_to_skip_flip_station(self):
         for _ in range(10):
             _position, orientation = self.demo.random_bin_spawn_transform()
@@ -162,9 +169,18 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertIn("class NoFlipDispatch", source)
         self.assertIn("make_no_flip_decider_network", source)
-        self.assertIn("hide_stage_prims_containing", source)
+        self.assertIn("deactivate_stage_prims_containing", source)
+        self.assertIn('"pallet_holder"', source)
         self.assertNotIn('add_child("flip_bin"', source)
         self.assertNotIn("behavior.make_decider_network", source)
+
+    def test_drop_slide_workstation_is_created(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("create_drop_slide_workstation", source)
+        self.assertIn("DropSlideRail", source)
+        self.assertIn("DropSlideRoller", source)
+        self.assertIn("DropSlideLeg", source)
 
     def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
         block_offsets = self.demo.PALLET_BLOCK_OFFSETS
@@ -208,7 +224,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertFalse(orchestrator.carrying)
 
     def test_actual_iw_hub_lift_prim_tracks_lift_offset(self):
-        start_pose = np.array([Args.pickup_x - 1.20, Args.pickup_y, Args.amr_z])
+        start_pose = np.array([Args.pickup_x + self.demo.AMR_START_STANDOFF, Args.pickup_y, Args.amr_z])
         lift_prim = FakePosePrim("asset_lift", start_pose + np.array([0.0, 0.0, 0.25]))
         initial_lift_z = lift_prim.get_world_pose()[0][2]
         orchestrator, context, _world, _items = self.build_orchestrator(Args(), amr_lift_prim=lift_prim)

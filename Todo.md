@@ -1053,3 +1053,61 @@ headless transfer self-test 로그 확인:
 - [x] `[HarimDemo] state -> SLIDE_OUT_FROM_PALLET`
 - [x] `[HarimDemo] completed transfer cycle 1`
 - [x] `[HarimDemo] self-test completed after 260 frames`
+
+---
+
+## 2026-05-29 AMR 경로/팔레트 중복/드롭 작업대 수정 메모
+
+사용자 추가 요구사항:
+
+- [x] `pallet_holder`는 제거해도 됨
+- [x] AMR이 로봇팔 밑 테이블을 뚫고 이동하는 문제 해결
+- [x] AMR이 차라리 멀리서 다가오도록 경로 변경
+- [x] 기본 UR10 예제에 포함된 팔레트와 새로 만든 팔레트가 겹치는 문제 해결
+- [x] 목표 위치에 팔레트를 슬라이드로 올려놓는 작업대 추가
+
+구현 내용:
+
+- [x] AMR 시작 위치를 pickup 기준 `-X` 테이블 쪽이 아니라 `+X` 방향 먼 위치로 변경
+  - 시작 위치: `pickup_x + AMR_START_STANDOFF`
+  - 접근 위치: `pickup_x + AMR_APPROACH_STANDOFF`
+  - pickup 직전에는 목표 팔레트 위치로만 짧게 진입
+  - 의도: 로봇팔 테이블/컨베이어 아래를 통과하는 것처럼 보이는 경로를 피하고, 드롭 존 쪽 넓은 공간에서 접근하게 함
+- [x] 기본 UR10 palletizing scene 안의 중복 프림을 비활성화
+  - 대상 패턴: `flip`, `pallet`, `pallet_holder`
+  - 처리 방식: visibility만 끄는 것이 아니라 `prim.SetActive(False)`로 비활성화
+  - 의도: 기본 예제 팔레트/holder의 visual 및 collision이 새 팔레트와 겹치지 않게 함
+- [x] 목표 위치에 슬라이드형 팔레트 작업대 visual 추가
+  - `DropSlideRail_*`: 양쪽 가이드 레일
+  - `DropSlideRoller_*`: 롤러/슬라이드 면
+  - `DropSlideLeg_*`: 지지 다리
+  - 위치는 `drop_x/drop_y` 기준으로 생성
+  - 의도: AMR이 팔레트를 내려놓고 앞으로 빠져나갈 때, 팔레트가 목표 작업대 위에 남아 있는 장면을 명확히 보이게 함
+- [x] AMR lift plate 초기 위치도 변경된 시작 위치와 맞춤
+
+검증 내용:
+
+- [x] AMR이 pickup보다 큰 X 좌표에서 시작하고 접근하는지 unittest 추가
+- [x] 기본 예제의 `pallet_holder` 제거 의도가 코드에 남아 있는지 unittest 추가
+- [x] drop slide workstation 생성 코드가 존재하는지 unittest 추가
+- [x] lift prim 추적 테스트의 시작 위치를 새 AMR 시작 위치에 맞춤
+- [x] custom orchestrator unittest 16개 통과
+- [x] Python compile 통과
+- [x] Isaac Sim 5.1.0 headless transfer self-test 통과
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
+```
+
+headless transfer self-test 확인 로그:
+
+- [x] `[HarimDemo] state -> MOVE_TO_DROP`
+- [x] `[HarimDemo] slide-released pallet assembly at drop pose`
+- [x] `[HarimDemo] state -> SLIDE_OUT_FROM_PALLET`
+- [x] `[HarimDemo] completed transfer cycle 1`
+- [x] `[HarimDemo] self-test completed after 260 frames`

@@ -98,3 +98,10 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 ```
 
 2026-05-29 기준 위 검증은 통과했습니다. headless 로그에서 `MOVE_TO_DROP`, `slide-released pallet assembly at drop pose`, `SLIDE_OUT_FROM_PALLET`, `completed transfer cycle 1`을 확인했습니다.
+
+## 2026-05-29 경로/드롭 작업대 변경
+
+- AMR은 이제 로봇팔 테이블 쪽에서 출발하지 않고 pickup 위치 기준 `+X` 방향의 먼 위치에서 접근합니다. 테이블 아래를 뚫고 지나가는 것처럼 보이는 경로를 피하기 위한 변경입니다.
+- UR10 기본 예제에 포함된 `flip`, `pallet`, `pallet_holder` 계열 프림은 stage 로드 직후 비활성화합니다. 새로 만든 visual pallet만 남도록 하여 팔레트 겹침을 줄였습니다.
+- 목표 위치에는 슬라이드형 팔레트 작업대를 추가했습니다. `DropSlideRail`, `DropSlideRoller`, `DropSlideLeg` 프림으로 구성되며, AMR이 팔레트를 내려놓고 앞으로 빠져나갈 때 팔레트가 작업대 위에 남는 장면을 보여줍니다.
+- 현재 검증 범위는 unittest 16개, Python compile, 260-frame headless transfer self-test입니다.

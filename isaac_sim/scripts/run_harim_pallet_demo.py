@@ -17,8 +17,11 @@ DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
 DEFAULT_AMR_Z = -1.05
 DEFAULT_LIFT_HEIGHT = 0.11
 DEFAULT_MOVE_SPEED = 0.65
+AMR_START_STANDOFF = 3.2
+AMR_APPROACH_STANDOFF = 1.05
 SLIDE_EXIT_DISTANCE = 1.8
 PALLET_TUNNEL_HALF_WIDTH = 0.42
+DROP_WORKSTATION_Z = -0.73
 UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
 PALLET_DECK_OFFSETS = (
     np.array([0.0, -0.44, 0.0], dtype=float),
@@ -84,8 +87,8 @@ def wait_for_stage_loading(simulation_app, usd_context, label, max_updates=600):
     raise RuntimeError(f"Timed out waiting for USD assets to load: {label}; status={status}")
 
 
-def hide_stage_prims_containing(stage, root_path, patterns):
-    from pxr import Usd, UsdGeom
+def deactivate_stage_prims_containing(stage, root_path, patterns):
+    from pxr import Usd
 
     root = stage.GetPrimAtPath(root_path)
     if not root.IsValid():
@@ -94,9 +97,7 @@ def hide_stage_prims_containing(stage, root_path, patterns):
     for prim in Usd.PrimRange(root):
         name = prim.GetName().lower()
         if any(pattern in name for pattern in lower_patterns):
-            imageable = UsdGeom.Imageable(prim)
-            if imageable and imageable.GetPrim().IsValid():
-                imageable.MakeInvisible()
+            prim.SetActive(False)
 
 
 class TransferState(Enum):
@@ -212,8 +213,8 @@ class HarimTransferOrchestrator:
         self.amr_lift_orientation = None
         self.move_target = None
 
-        self.start_pose = np.array([args.pickup_x - 1.20, args.pickup_y, args.amr_z], dtype=float)
-        self.approach_pose = np.array([args.pickup_x - 0.55, args.pickup_y, args.amr_z], dtype=float)
+        self.start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
+        self.approach_pose = np.array([args.pickup_x + AMR_APPROACH_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         self.pickup_pose = np.array([args.pickup_x, args.pickup_y, args.amr_z], dtype=float)
         self.drop_pose = np.array([args.drop_x, args.drop_y, args.amr_z], dtype=float)
         self.exit_pose = np.array([args.drop_x + SLIDE_EXIT_DISTANCE, args.drop_y, args.amr_z], dtype=float)
@@ -627,7 +628,7 @@ def main():
     add_reference_to_stage(ur10_assets.ur10_table_usd, "/World/Ur10Table")
     add_reference_to_stage(ur10_assets.background_usd, "/World/Background")
     wait_for_stage_loading(simulation_app, usd_context, "UR10 palletizing scene")
-    hide_stage_prims_containing(usd_context.get_stage(), "/World/Ur10Table", ("flip",))
+    deactivate_stage_prims_containing(usd_context.get_stage(), "/World/Ur10Table", ("flip", "pallet", "pallet_holder"))
     SingleXFormPrim("/World/Background", position=[10.00, 2.00, -1.18180], orientation=[0.7071, 0, 0, 0.7071])
 
     robot = world.add_robot(CortexUr10(name="robot", prim_path="/World/Ur10Table/ur10"))
@@ -715,11 +716,63 @@ def main():
     else:
         print(f"[HarimDemo] xformable iw_hub lift prim not found, using visual lift plate only: {amr_lift_path}")
 
+    def create_drop_slide_workstation():
+        workstation_parts = []
+        rail_color = np.array([0.18, 0.20, 0.21])
+        roller_color = np.array([0.62, 0.66, 0.68])
+        leg_color = np.array([0.12, 0.13, 0.14])
+
+        for side_idx, y_offset in enumerate((-0.58, 0.58)):
+            workstation_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/DropSlideRail_{side_idx}",
+                        name=f"harim_drop_slide_rail_{side_idx}",
+                        position=np.array([args.drop_x, args.drop_y + y_offset, DROP_WORKSTATION_Z], dtype=float),
+                        scale=np.array([1.80, 0.10, 0.09]),
+                        color=rail_color,
+                    )
+                )
+            )
+            for roller_idx, x_offset in enumerate((-0.62, -0.22, 0.22, 0.62)):
+                workstation_parts.append(
+                    world.scene.add(
+                        VisualCuboid(
+                            f"{harim_root}/DropSlideRoller_{side_idx}_{roller_idx}",
+                            name=f"harim_drop_slide_roller_{side_idx}_{roller_idx}",
+                            position=np.array(
+                                [args.drop_x + x_offset, args.drop_y + y_offset, DROP_WORKSTATION_Z + 0.07],
+                                dtype=float,
+                            ),
+                            scale=np.array([0.12, 0.24, 0.035]),
+                            color=roller_color,
+                        )
+                    )
+                )
+            for leg_idx, x_offset in enumerate((-0.78, 0.78)):
+                workstation_parts.append(
+                    world.scene.add(
+                        VisualCuboid(
+                            f"{harim_root}/DropSlideLeg_{side_idx}_{leg_idx}",
+                            name=f"harim_drop_slide_leg_{side_idx}_{leg_idx}",
+                            position=np.array(
+                                [args.drop_x + x_offset, args.drop_y + y_offset, DROP_WORKSTATION_Z - 0.18],
+                                dtype=float,
+                            ),
+                            scale=np.array([0.10, 0.10, 0.36]),
+                            color=leg_color,
+                        )
+                    )
+                )
+        return workstation_parts
+
+    create_drop_slide_workstation()
+
     lift_plate = world.scene.add(
         VisualCuboid(
             f"{harim_root}/IwHubLiftPlate",
             name="harim_iw_hub_lift_plate",
-            position=np.array([args.pickup_x - 1.20, args.pickup_y, args.amr_z + 0.33]),
+            position=np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z + 0.33]),
             scale=np.array([1.10, 0.72, 0.035]),
             color=np.array([0.10, 0.12, 0.13]),
         )
