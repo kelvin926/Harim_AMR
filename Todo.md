@@ -1,5 +1,20 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Dropped Pallet Part 연결성 검증
+
+- [x] 하역 후 팔레트 deck/runner/block/top support 및 load-restraint part가 deck 기준 offset을 유지하는지 `max_dropped_pallet_part_pose_error`로 기록하도록 했다.
+- [x] 팔레트 조각이 누락되거나 분리되는 문제를 잡기 위해 `dropped_pallet_part_count`를 self-test metric으로 추가했다.
+- [x] strict self-test gate를 추가했다.
+  - Python: `--self-test-min-dropped-pallet-part-count`
+  - Python: `--self-test-max-dropped-pallet-part-pose-error`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - unittest 70개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_dropped_pallet_parts_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_025514_39668.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `dropped_pallet_part_count=18`, `max_dropped_pallet_part_pose_error=0.0000`
+
 ## 2026-05-30 Dropped Stack 실제 Pose/지지 검증
 
 - [x] 팔레트를 하역한 직후 실제 dropped carton들이 목표 drop pallet-relative pose에 남아 있는지 `max_dropped_stack_pose_error`로 기록하도록 했다.

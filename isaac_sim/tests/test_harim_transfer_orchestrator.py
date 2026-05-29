@@ -577,6 +577,22 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(orchestrator.min_dropped_stack_pallet_margin, 0.08)
         self.assertAlmostEqual(orchestrator.max_dropped_stack_pallet_overhang, 0.0)
 
+    def test_dropped_pallet_geometry_records_connected_part_offsets(self):
+        orchestrator, context, _world, _items = self.build_orchestrator(Args())
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.SLIDE_OUT_FROM_PALLET)
+
+        self.assertEqual(orchestrator.dropped_pallet_part_count, len(self.demo.PALLET_PART_OFFSETS))
+        self.assertAlmostEqual(orchestrator.max_dropped_pallet_part_pose_error, 0.0)
+
+        orchestrator.pallet_parts[-1].set_world_pose(
+            position=orchestrator.pallet_parts[-1].get_world_pose()[0] + np.array([0.03, 0.0, 0.0])
+        )
+        orchestrator._record_dropped_pallet_geometry()
+
+        self.assertGreater(orchestrator.max_dropped_pallet_part_pose_error, 0.029)
+
     def test_drop_dock_stops_and_locator_posts_leave_clearance(self):
         metrics = self.demo.compute_drop_dock_metrics()
 
@@ -1029,6 +1045,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-dropped-stack-pose-error", source)
         self.assertIn("--self-test-max-dropped-stack-support-gap", source)
         self.assertIn("--self-test-min-dropped-stack-pallet-margin", source)
+        self.assertIn("--self-test-min-dropped-pallet-part-count", source)
+        self.assertIn("--self-test-max-dropped-pallet-part-pose-error", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
@@ -1119,6 +1137,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("dropped stack pose error", source)
         self.assertIn("dropped stack support gap", source)
         self.assertIn("dropped stack pallet margin", source)
+        self.assertIn("dropped pallet part count", source)
+        self.assertIn("dropped pallet part pose error", source)
         self.assertIn("AMR exit clearance", source)
         self.assertIn("max lift contact gap", source)
         self.assertIn("pallet tunnel clearance", source)
@@ -1223,6 +1243,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("min_dropped_stack_support_gap=", source)
         self.assertIn("min_dropped_stack_pallet_margin=", source)
         self.assertIn("max_dropped_stack_pallet_overhang=", source)
+        self.assertIn("dropped_pallet_part_count=", source)
+        self.assertIn("max_dropped_pallet_part_pose_error=", source)
         self.assertIn("amr_exit_clearance=", source)
         self.assertIn("max_lift_contact_gap=", source)
         self.assertIn("pallet_tunnel_clearance=", source)
@@ -1335,6 +1357,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxDroppedStackPoseError", source)
         self.assertIn("$SelfTestMaxDroppedStackSupportGap", source)
         self.assertIn("$SelfTestMinDroppedStackPalletMargin", source)
+        self.assertIn("$SelfTestMinDroppedPalletPartCount", source)
+        self.assertIn("$SelfTestMaxDroppedPalletPartPoseError", source)
         self.assertIn("$SelfTestMinAmrExitClearance", source)
         self.assertIn("$SelfTestMaxLiftContactGap", source)
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
@@ -1414,6 +1438,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-dropped-stack-pose-error", source)
         self.assertIn("--self-test-max-dropped-stack-support-gap", source)
         self.assertIn("--self-test-min-dropped-stack-pallet-margin", source)
+        self.assertIn("--self-test-min-dropped-pallet-part-count", source)
+        self.assertIn("--self-test-max-dropped-pallet-part-pose-error", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
@@ -1537,6 +1563,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxDroppedStackPoseError", source)
         self.assertIn("SelfTestMaxDroppedStackSupportGap", source)
         self.assertIn("SelfTestMinDroppedStackPalletMargin", source)
+        self.assertIn("SelfTestMinDroppedPalletPartCount", source)
+        self.assertIn("SelfTestMaxDroppedPalletPartPoseError", source)
         self.assertIn("SelfTestMinAmrExitClearance", source)
         self.assertIn("0.60", source)
         self.assertIn("SelfTestMaxLiftContactGap", source)

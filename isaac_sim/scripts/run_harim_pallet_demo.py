@@ -608,6 +608,18 @@ def parse_args():
         help="Fail the fixed-frame self-test if dropped cartons have less pallet footprint margin than this distance. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-min-dropped-pallet-part-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless this many pallet/load-restraint parts are recorded after detach. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-dropped-pallet-part-pose-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if dropped pallet parts drift from their deck-relative offsets by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-amr-exit-clearance",
         type=float,
         default=0.0,
@@ -2338,6 +2350,8 @@ class HarimTransferOrchestrator:
         self.min_dropped_stack_support_gap = 0.0
         self.min_dropped_stack_pallet_margin = 0.0
         self.max_dropped_stack_pallet_overhang = 0.0
+        self.dropped_pallet_part_count = 0
+        self.max_dropped_pallet_part_pose_error = 0.0
         self.drop_handoff_xy_error = 0.0
         self.drop_handoff_support_gap = compute_drop_workstation_support_gap()
         self.drop_handoff_support_penetration = 0.0
@@ -2947,6 +2961,30 @@ class HarimTransferOrchestrator:
         self.max_dropped_stack_support_gap = float(max(support_gaps)) if support_gaps else 0.0
         self.min_dropped_stack_support_gap = float(min(support_gaps)) if support_gaps else 0.0
 
+    def _record_dropped_pallet_geometry(self):
+        if not self.pallet_parts:
+            return
+        try:
+            deck_pos, _deck_orient = self.pallet_parts[0].get_world_pose()
+        except Exception:
+            return
+        pallet_center = np.array(deck_pos, dtype=float) - PALLET_DECK_OFFSETS[0]
+        part_count = 0
+        max_pose_error = 0.0
+        for part, offset in zip(self.pallet_parts, self.pallet_part_offsets):
+            try:
+                pos, _orient = part.get_world_pose()
+            except Exception:
+                continue
+            expected_pos = pallet_center + np.array(offset, dtype=float)
+            part_count += 1
+            max_pose_error = max(
+                max_pose_error,
+                float(np.linalg.norm(np.array(pos, dtype=float) - expected_pos)),
+            )
+        self.dropped_pallet_part_count = int(part_count)
+        self.max_dropped_pallet_part_pose_error = float(max_pose_error)
+
     def _hold_dropped_assembly(self):
         for item, pos, orient in self.dropped_item_poses.values():
             try:
@@ -2978,6 +3016,7 @@ class HarimTransferOrchestrator:
         self._record_dropped_assembly()
         self._record_drop_handoff_geometry()
         self._record_dropped_stack_geometry()
+        self._record_dropped_pallet_geometry()
         self.carrying = False
         self.attached_items = []
         self.item_offsets = {}
@@ -5284,6 +5323,10 @@ def main():
             max_dropped_stack_pallet_overhang = float(
                 getattr(orchestrator, "max_dropped_stack_pallet_overhang", 0.0)
             )
+            dropped_pallet_part_count = int(getattr(orchestrator, "dropped_pallet_part_count", 0))
+            max_dropped_pallet_part_pose_error = float(
+                getattr(orchestrator, "max_dropped_pallet_part_pose_error", 0.0)
+            )
             if (
                 args.self_test_min_dropped_stack_item_count > 0
                 and dropped_stack_item_count < args.self_test_min_dropped_stack_item_count
@@ -5320,6 +5363,24 @@ def main():
                     f"dropped stack pallet margin {min_dropped_stack_pallet_margin:.4f} m was below "
                     f"{args.self_test_min_dropped_stack_pallet_margin:.4f} m"
                 )
+            if (
+                args.self_test_min_dropped_pallet_part_count > 0
+                and dropped_pallet_part_count < args.self_test_min_dropped_pallet_part_count
+            ):
+                self_test_failures.append(
+                    f"dropped pallet part count {dropped_pallet_part_count} was below "
+                    f"{args.self_test_min_dropped_pallet_part_count}"
+                )
+            if args.self_test_max_dropped_pallet_part_pose_error > 0:
+                if transfer_cycles <= 0:
+                    self_test_failures.append(
+                        "dropped pallet part pose error was not available before a completed transfer"
+                    )
+                elif max_dropped_pallet_part_pose_error > args.self_test_max_dropped_pallet_part_pose_error:
+                    self_test_failures.append(
+                        f"dropped pallet part pose error {max_dropped_pallet_part_pose_error:.4f} m exceeded "
+                        f"{args.self_test_max_dropped_pallet_part_pose_error:.4f} m"
+                    )
             amr_exit_clearance = compute_amr_exit_clearance(orchestrator.get_amr_position()[0], args.drop_x)
             if args.self_test_min_amr_exit_clearance > 0:
                 if transfer_cycles <= 0:
@@ -5847,6 +5908,8 @@ def main():
                     f"min_dropped_stack_support_gap={min_dropped_stack_support_gap:.4f}; "
                     f"min_dropped_stack_pallet_margin={min_dropped_stack_pallet_margin:.4f}; "
                     f"max_dropped_stack_pallet_overhang={max_dropped_stack_pallet_overhang:.4f}; "
+                    f"dropped_pallet_part_count={dropped_pallet_part_count}; "
+                    f"max_dropped_pallet_part_pose_error={max_dropped_pallet_part_pose_error:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "
                     f"max_lift_contact_gap={max_lift_contact_gap:.4f}; "
                     f"min_lift_contact_gap={min_lift_contact_gap:.4f}; "
