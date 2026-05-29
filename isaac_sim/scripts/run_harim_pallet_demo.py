@@ -848,6 +848,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if carried pallet visuals drift from their AMR-relative offsets by more than this distance. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-carried-payload-pose-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if carried stacked payload items drift from their AMR-relative offsets by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-drop-approach-standoff",
         type=float,
         default=0.0,
@@ -2280,6 +2286,7 @@ class HarimTransferOrchestrator:
             args.drop_y,
         )
         self.max_carried_pallet_pose_error = 0.0
+        self.max_carried_payload_pose_error = 0.0
         self.drop_handoff_xy_error = 0.0
         self.drop_handoff_support_gap = compute_drop_workstation_support_gap()
         self.drop_handoff_support_penetration = 0.0
@@ -2768,6 +2775,20 @@ class HarimTransferOrchestrator:
                 expected_pos = amr_pos + offset
                 self.max_carried_pallet_pose_error = max(
                     self.max_carried_pallet_pose_error,
+                    float(np.linalg.norm(np.array(current_pos, dtype=float) - expected_pos)),
+                )
+            except Exception:
+                pass
+        for item in self.attached_items:
+            data = self.item_offsets.get(item.name)
+            if data is None:
+                continue
+            offset, _orient = data
+            try:
+                current_pos, _ = item.get_world_pose()
+                expected_pos = amr_pos + offset
+                self.max_carried_payload_pose_error = max(
+                    self.max_carried_payload_pose_error,
                     float(np.linalg.norm(np.array(current_pos, dtype=float) - expected_pos)),
                 )
             except Exception:
@@ -5528,6 +5549,7 @@ def main():
                 getattr(orchestrator, "min_loaded_route_guard_clearance", 0.0)
             )
             max_carried_pallet_pose_error = float(getattr(orchestrator, "max_carried_pallet_pose_error", 0.0))
+            max_carried_payload_pose_error = float(getattr(orchestrator, "max_carried_payload_pose_error", 0.0))
             if (
                 args.self_test_max_loaded_route_y_error > 0
                 and max_loaded_route_y_error > args.self_test_max_loaded_route_y_error
@@ -5551,6 +5573,14 @@ def main():
                 self_test_failures.append(
                     f"carried pallet pose error {max_carried_pallet_pose_error:.4f} m exceeded "
                     f"{args.self_test_max_carried_pallet_pose_error:.4f} m"
+                )
+            if (
+                args.self_test_max_carried_payload_pose_error > 0
+                and max_carried_payload_pose_error > args.self_test_max_carried_payload_pose_error
+            ):
+                self_test_failures.append(
+                    f"carried payload pose error {max_carried_payload_pose_error:.4f} m exceeded "
+                    f"{args.self_test_max_carried_payload_pose_error:.4f} m"
                 )
             drop_docking_metrics = compute_drop_docking_metrics(args.pickup_x, args.drop_x)
             drop_approach_standoff = drop_docking_metrics["drop_approach_standoff"]
@@ -5693,6 +5723,7 @@ def main():
                     f"max_loaded_route_y_error={max_loaded_route_y_error:.4f}; "
                     f"min_loaded_route_guard_clearance={min_loaded_route_guard_clearance:.4f}; "
                     f"max_carried_pallet_pose_error={max_carried_pallet_pose_error:.4f}; "
+                    f"max_carried_payload_pose_error={max_carried_payload_pose_error:.4f}; "
                     f"drop_approach_standoff={drop_approach_standoff:.4f}; "
                     f"dock_move_speed_scale={dock_move_speed_scale:.4f}; "
                     f"drop_dock_arrival_count={drop_dock_arrival_count}; "

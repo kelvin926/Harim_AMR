@@ -102,6 +102,7 @@ $RunnerArgs = @{
     SelfTestMaxLoadedRouteYError = 0.03
     SelfTestMinLoadedRouteGuardClearance = 0.30
     SelfTestMaxCarriedPalletPoseError = 0.005
+    SelfTestMaxCarriedPayloadPoseError = 0.005
     SelfTestMinDropApproachStandoff = 0.90
     SelfTestMinDropDockArrivalCount = 1
     SelfTestMaxDropDockFinalError = 0.03

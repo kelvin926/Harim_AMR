@@ -1,5 +1,14 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Carried Payload 동적 Pose 검증
+
+- AMR이 팔레트와 박스를 싣고 이동하는 동안 pallet visual뿐 아니라 stacked payload item도 AMR-relative offset에서 드리프트하지 않는지 기록합니다.
+- `max_carried_payload_pose_error`로 운반 중 박스가 팔레트에서 미끄러지거나 좌표가 밀리는 문제를 self-test에서 잡을 수 있게 했습니다.
+- strict self-test에 carried payload pose error gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_carried_payload_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_021955_4936.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_carried_pallet_pose_error=0.0000`, `max_carried_payload_pose_error=0.0000`
+
 ## 2026-05-30 Slide-Out Clearance 동적 검증
 
 - 하역 후 AMR이 팔레트 밑에서 빠져나가는 동안 `SLIDE_OUT_FROM_PALLET` 구간의 lateral drift와 lift fork 높이를 매 frame 기록합니다.

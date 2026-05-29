@@ -665,7 +665,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         np.testing.assert_allclose(orchestrator.move_target, orchestrator.drop_pose)
         self.assertAlmostEqual(orchestrator.drop_approach_final_error, 0.0)
 
-    def test_loaded_route_metrics_track_y_error_and_carried_pallet_pose(self):
+    def test_loaded_route_metrics_track_y_error_and_carried_payload_pose(self):
         orchestrator, _context, _world, _items = self.build_orchestrator(Args())
 
         orchestrator._attach_assembly()
@@ -679,6 +679,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             self.demo.compute_loaded_route_guard_clearance(Args.pickup_y + 0.02, Args.pickup_y, Args.drop_y),
         )
         self.assertAlmostEqual(orchestrator.max_carried_pallet_pose_error, 0.0)
+        self.assertAlmostEqual(orchestrator.max_carried_payload_pose_error, 0.0)
 
     def test_amr_lift_uses_eased_motion_and_settles_before_attach(self):
         orchestrator, context, _world, _items = self.build_orchestrator(Args())
@@ -1013,6 +1014,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-loaded-route-y-error", source)
         self.assertIn("--self-test-min-loaded-route-guard-clearance", source)
         self.assertIn("--self-test-max-carried-pallet-pose-error", source)
+        self.assertIn("--self-test-max-carried-payload-pose-error", source)
         self.assertIn("--self-test-min-drop-approach-standoff", source)
         self.assertIn("--self-test-min-drop-dock-arrival-count", source)
         self.assertIn("--self-test-max-drop-dock-final-error", source)
@@ -1100,6 +1102,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("loaded route Y error", source)
         self.assertIn("loaded route guard clearance", source)
         self.assertIn("carried pallet pose error", source)
+        self.assertIn("carried payload pose error", source)
         self.assertIn("drop approach standoff", source)
         self.assertIn("drop dock arrival count", source)
         self.assertIn("drop dock final error", source)
@@ -1198,6 +1201,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_loaded_route_y_error=", source)
         self.assertIn("min_loaded_route_guard_clearance=", source)
         self.assertIn("max_carried_pallet_pose_error=", source)
+        self.assertIn("max_carried_payload_pose_error=", source)
         self.assertIn("drop_approach_standoff=", source)
         self.assertIn("dock_move_speed_scale=", source)
         self.assertIn("drop_dock_arrival_count=", source)
@@ -1302,6 +1306,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxLoadedRouteYError", source)
         self.assertIn("$SelfTestMinLoadedRouteGuardClearance", source)
         self.assertIn("$SelfTestMaxCarriedPalletPoseError", source)
+        self.assertIn("$SelfTestMaxCarriedPayloadPoseError", source)
         self.assertIn("$SelfTestMinDropApproachStandoff", source)
         self.assertIn("$SelfTestMinDropDockArrivalCount", source)
         self.assertIn("$SelfTestMaxDropDockFinalError", source)
@@ -1371,6 +1376,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-loaded-route-y-error", source)
         self.assertIn("--self-test-min-loaded-route-guard-clearance", source)
         self.assertIn("--self-test-max-carried-pallet-pose-error", source)
+        self.assertIn("--self-test-max-carried-payload-pose-error", source)
         self.assertIn("--self-test-min-drop-approach-standoff", source)
         self.assertIn("--self-test-min-drop-dock-arrival-count", source)
         self.assertIn("--self-test-max-drop-dock-final-error", source)
@@ -1501,6 +1507,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxLoadedRouteYError", source)
         self.assertIn("SelfTestMinLoadedRouteGuardClearance", source)
         self.assertIn("SelfTestMaxCarriedPalletPoseError", source)
+        self.assertIn("SelfTestMaxCarriedPayloadPoseError", source)
         self.assertIn("SelfTestMinDropApproachStandoff", source)
         self.assertIn("SelfTestMinDropDockArrivalCount", source)
         self.assertIn("SelfTestMaxDropDockFinalError", source)
