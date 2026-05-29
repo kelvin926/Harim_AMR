@@ -2,6 +2,7 @@ import argparse
 import math
 import os
 import random
+import time
 from enum import Enum, auto
 from pathlib import Path
 
@@ -80,6 +81,12 @@ def parse_args():
         "--self-test-force-stack-complete",
         action="store_true",
         help="Force stack_complete during self-test so the AMR transfer sequence can be verified quickly.",
+    )
+    parser.add_argument(
+        "--self-test-min-placed-bins",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many bins are placed by the UR10.",
     )
     return parser.parse_args()
 
@@ -608,11 +615,21 @@ def main():
     import isaacsim.cortex.framework.math_util as cortex_math_util
     from isaacsim.cortex.framework.cortex_world import CortexWorld
     from isaacsim.cortex.framework.cortex_rigid_prim import CortexRigidPrim
-    from isaacsim.cortex.framework.df import DfDecider, DfDecision, DfNetwork, DfStateMachineDecider
+    from isaacsim.cortex.framework.df import (
+        DfDecider,
+        DfDecision,
+        DfNetwork,
+        DfSetLockState,
+        DfState,
+        DfStateMachineDecider,
+        DfStateSequence,
+        DfWaitState,
+    )
     from isaacsim.cortex.framework.dfb import make_go_home
+    from isaacsim.cortex.framework.motion_commander import MotionCommand
     from isaacsim.cortex.framework.robot import CortexUr10
     from isaacsim.cortex.behaviors.ur10 import bin_stacking_behavior as behavior
-    from pxr import UsdGeom
+    from pxr import UsdGeom, UsdPhysics
 
     assets_root = get_assets_root_path()
     if assets_root is None:
@@ -668,11 +685,186 @@ def main():
             self.bins = []
             self.on_conveyor = None
 
+    def stop_dynamic_prim(obj):
+        for method_name in ("set_linear_velocity", "set_angular_velocity"):
+            method = getattr(obj, method_name, None)
+            if method is not None:
+                try:
+                    method(np.array([0.0, 0.0, 0.0], dtype=float))
+                except TypeError:
+                    method([0.0, 0.0, 0.0])
+
+    def set_kinematic_for_demo(obj, enabled=True):
+        prim = getattr(obj, "prim", None)
+        prim_path = getattr(obj, "prim_path", None)
+        if prim is None and prim_path is not None:
+            prim = get_prim_at_path(prim_path)
+        if prim is None or not prim.IsValid() or not prim.HasAPI(UsdPhysics.RigidBodyAPI):
+            return
+        rigid_body = UsdPhysics.RigidBodyAPI(prim)
+        attr = rigid_body.GetKinematicEnabledAttr()
+        if not attr.IsValid():
+            attr = rigid_body.CreateKinematicEnabledAttr()
+        attr.Set(bool(enabled))
+
+    def get_demo_carried_bin(context):
+        return getattr(context, "demo_carried_bin", None)
+
+    class DemoAttachBin(DfState):
+        def enter(self):
+            print("<close gripper>", flush=True)
+            try:
+                self.context.robot.suction_gripper.close()
+            except Exception as exc:
+                print(f"[HarimDemo] suction close fallback: {exc}", flush=True)
+
+            active_bin = self.context.active_bin
+            if active_bin is None:
+                return
+
+            eff_T = self.context.robot.arm.get_fk_T()
+            bin_T = cortex_math_util.pq2T(*active_bin.bin_obj.get_world_pose())
+            active_bin.demo_attached = True
+            active_bin.demo_attach_T = cortex_math_util.invert_T(eff_T).dot(bin_T)
+            active_bin.is_attached = True
+            self.context.demo_carried_bin = active_bin
+            stop_dynamic_prim(active_bin.bin_obj)
+            set_kinematic_for_demo(active_bin.bin_obj, True)
+            print(f"[HarimDemo] demo-attached {active_bin.bin_obj.name}", flush=True)
+
+        def step(self):
+            return None
+
+    class DemoReleaseBin(DfState):
+        def enter(self):
+            print("<open gripper>", flush=True)
+            try:
+                self.context.robot.suction_gripper.open()
+            except Exception as exc:
+                print(f"[HarimDemo] suction open fallback: {exc}", flush=True)
+
+            active_bin = self.context.active_bin
+            active_bin = get_demo_carried_bin(self.context) or active_bin
+            if active_bin is None:
+                return
+
+            target_index = len(self.context.stacked_bins)
+            target_p = np.array(self.context.stack_coordinates[target_index], dtype=float)
+            active_bin.bin_obj.set_world_pose(position=target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
+            active_bin.demo_attached = False
+            active_bin.demo_attach_T = None
+            active_bin.is_attached = False
+            self.context.active_bin = active_bin
+            stop_dynamic_prim(active_bin.bin_obj)
+            set_kinematic_for_demo(active_bin.bin_obj, True)
+            print(f"[HarimDemo] demo-placed {active_bin.bin_obj.name} at {target_p.tolist()}", flush=True)
+
+        def step(self):
+            return None
+
+    class DemoTimedArmLift(DfState):
+        def __init__(self, height, duration):
+            self.height = height
+            self.duration = duration
+            self.entry_time = None
+            self.target_pq = None
+
+        def enter(self):
+            self.entry_time = time.time()
+            self.target_pq = self.context.robot.arm.get_fk_pq()
+            self.target_pq.p[2] += self.height
+
+        def step(self):
+            self.context.robot.arm.send(MotionCommand(self.target_pq))
+            if time.time() - self.entry_time < self.duration:
+                return self
+            return None
+
+        def exit(self):
+            self.entry_time = None
+            self.target_pq = None
+
+    class DemoTimedState(DfState):
+        def __init__(self, state, max_duration, label):
+            self.state = state
+            self.max_duration = max_duration
+            self.label = label
+            self.entry_time = None
+
+        def bind(self, context, params):
+            self.context = context
+            self.params = params
+            if hasattr(self.state, "bind"):
+                self.state.bind(context, params)
+
+        def enter(self):
+            self.entry_time = time.time()
+            print(f"[HarimDemo] {self.label} start", flush=True)
+            self.state.enter()
+
+        def step(self):
+            next_state = self.state.step()
+            if next_state is None:
+                return None
+            if time.time() - self.entry_time >= self.max_duration:
+                print(f"[HarimDemo] {self.label} timed release", flush=True)
+                return None
+            return self
+
+        def exit(self):
+            self.state.exit()
+            self.entry_time = None
+
+    class DemoMarkCarriedBinComplete(DfState):
+        def enter(self):
+            active_bin = get_demo_carried_bin(self.context) or self.context.active_bin
+            if active_bin is not None and active_bin not in self.context.stacked_bins:
+                self.context.stacked_bins.append(active_bin)
+            self.context.active_bin = None
+            self.context.demo_carried_bin = None
+
+    class DemoPickAndPlaceBin(DfStateMachineDecider):
+        def __init__(self):
+            super().__init__(
+                DfStateSequence(
+                    [
+                        behavior.ReachToPick(),
+                        DfWaitState(wait_time=0.35),
+                        DfSetLockState(set_locked_to=True, decider=self),
+                        DemoAttachBin(),
+                        DemoTimedArmLift(height=0.24, duration=0.60),
+                        DemoTimedState(behavior.ReachToPlace(), max_duration=3.00, label="reach_place"),
+                        DfWaitState(wait_time=0.15),
+                        DemoReleaseBin(),
+                        DemoTimedArmLift(height=0.10, duration=0.40),
+                        DemoMarkCarriedBinComplete(),
+                        DfSetLockState(set_locked_to=False, decider=self),
+                    ]
+                )
+            )
+
+    def sync_demo_attached_bin(context):
+        active_bin = get_demo_carried_bin(context)
+        if active_bin is None:
+            if not context.has_active_bin:
+                return
+            active_bin = context.active_bin
+        if not getattr(active_bin, "demo_attached", False):
+            return
+        attach_T = getattr(active_bin, "demo_attach_T", None)
+        if attach_T is None:
+            return
+        context.active_bin = active_bin
+        bin_T = context.robot.arm.get_fk_T().dot(attach_T)
+        position, orientation = cortex_math_util.T2pq(bin_T)
+        active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
+        stop_dynamic_prim(active_bin.bin_obj)
+        active_bin.is_attached = True
+
     class NoFlipDispatch(DfDecider):
         def __init__(self):
             super().__init__()
-            self.add_child("pick_bin", behavior.PickBin())
-            self.add_child("place_bin", behavior.PlaceBin())
+            self.add_child("pick_place_bin", DemoPickAndPlaceBin())
             self.add_child("go_home", make_go_home())
             self.add_child("do_nothing", DfStateMachineDecider(behavior.DoNothing()))
 
@@ -680,9 +872,7 @@ def main():
             if self.context.stack_complete:
                 return DfDecision("go_home")
             if self.context.has_active_bin:
-                if not self.context.active_bin.is_attached:
-                    return DfDecision("pick_bin")
-                return DfDecision("place_bin")
+                return DfDecision("pick_place_bin")
             return DfDecision("go_home")
 
     def make_no_flip_decider_network(robot, monitor_fn):
@@ -968,6 +1158,7 @@ def main():
 
     def step_demo_frame():
         world.step(render=not args.headless)
+        sync_demo_attached_bin(decider_network.context)
         force_self_test_stack_complete()
         orchestrator.step(world.get_physics_dt())
 
@@ -975,6 +1166,11 @@ def main():
         if args.self_test_frames > 0:
             for _frame_count in range(args.self_test_frames):
                 step_demo_frame()
+            placed_count = len(getattr(decider_network.context, "stacked_bins", []))
+            if args.self_test_min_placed_bins > 0 and placed_count < args.self_test_min_placed_bins:
+                raise RuntimeError(
+                    f"UR10 placed {placed_count} bins, expected at least {args.self_test_min_placed_bins}"
+                )
             print(f"[HarimDemo] self-test completed after {args.self_test_frames} frames", flush=True)
         else:
             while simulation_app.is_running():

@@ -1056,6 +1056,69 @@ headless transfer self-test 로그 확인:
 
 ---
 
+## 2026-05-29 UR10 흡착 해제 보강 메모
+
+GUI 확인 중 발견된 문제:
+
+- [x] UR10이 박스를 흡착한 뒤 팔레트 위치에서 놓지 않고 계속 들고 있는 문제
+
+원인 판단:
+
+- 공식 `CloseSuctionGripper` 상태는 `suction_gripper.is_closed()`가 true가 될 때까지 대기한다.
+- 현재 데모는 bin을 처음부터 upside-down 상태로 스폰하고 flip station을 제거했기 때문에, 공식 suction close 판정이 데모 의도대로 안정적으로 true가 되지 않는 경우가 있었다.
+- pick 상태가 종료되지 않거나 place 상태의 도달 대기가 길어지면 `<open gripper>`가 호출되지 않아 GUI에서는 로봇팔이 박스를 놓지 않는 것처럼 보였다.
+- 또한 이동 중 `active_bin`이 새 bin으로 바뀌면 집은 박스와 놓는 박스 참조가 어긋날 수 있어, 들고 있는 박스를 별도 `demo_carried_bin`으로 고정했다.
+
+수정 내용:
+
+- [x] `DemoAttachBin` / `DemoReleaseBin` 추가
+  - suction close/open API는 호출하되, 공식 `is_closed()` 무한 대기에 의존하지 않음
+  - attach 시점에 박스 transform을 end-effector 기준 offset으로 저장
+  - 이동 중 `sync_demo_attached_bin()`으로 박스가 gripper를 따라가도록 보정
+  - release 시점에는 목표 stack coordinate에 박스를 snap하고 kinematic 상태로 안정화
+- [x] `DemoPickAndPlaceBin` 추가
+  - `ReachToPick`
+  - 데모용 attach
+  - timed lift
+  - timed reach-to-place
+  - 데모용 release
+  - completion marking
+  - 위 순서를 하나의 locked state sequence로 묶어 pick 후 place decision 전환에서 멈추지 않게 함
+- [x] `demo_carried_bin`으로 실제로 집은 bin 참조를 고정
+  - 로그에서 `demo-attached bin_0` 이후 `demo-placed bin_0`처럼 동일 박스가 놓이는지 확인
+- [x] `--self-test-min-placed-bins` 옵션 추가
+  - headless 검증에서 지정 개수 이상 placed bin이 없으면 실패하도록 확인용 옵션 제공
+- [x] PowerShell wrapper에서 Python unbuffered 실행 적용
+  - `<close gripper>`, `<open gripper>`, `demo-placed` 로그가 즉시 보이도록 `PYTHONUNBUFFERED=1`, `python -u` 적용
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 1800 -SelfTestMinPlacedBins 1 -Cycles 1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
+```
+
+검증 결과:
+
+- [x] unittest 21개 통과
+- [x] Python compile 통과
+- [x] UR10 normal headless place probe 통과
+- [x] 로그 확인: `<close gripper>`
+- [x] 로그 확인: `[HarimDemo] demo-attached bin_0`
+- [x] 로그 확인: `[HarimDemo] reach_place timed release`
+- [x] 로그 확인: `<open gripper>`
+- [x] 로그 확인: `[HarimDemo] demo-placed bin_0 at [1.05, -0.62, -0.51]`
+- [x] 로그 확인: `[HarimDemo] self-test completed after 1800 frames`
+- [x] AMR force-stack transfer self-test 통과
+- [x] 로그 확인: `[HarimDemo] attached 4 stacked items and 12 pallet parts`
+- [x] 로그 확인: `[HarimDemo] slide-released pallet assembly at drop pose`
+- [x] 로그 확인: `[HarimDemo] completed transfer cycle 1`
+
+---
+
 ## 2026-05-29 현실감 보강 수정 메모
 
 GUI 확인 중 발견된 문제:

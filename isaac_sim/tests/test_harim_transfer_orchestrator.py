@@ -173,10 +173,22 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertIn("class NoFlipDispatch", source)
         self.assertIn("make_no_flip_decider_network", source)
+        self.assertIn("class DemoAttachBin", source)
+        self.assertIn("class DemoReleaseBin", source)
+        self.assertIn("class DemoPickAndPlaceBin", source)
+        self.assertIn("sync_demo_attached_bin", source)
+        self.assertIn("demo_carried_bin", source)
         self.assertIn("deactivate_stage_prims_containing", source)
         self.assertIn('"pallet_holder"', source)
         self.assertNotIn('add_child("flip_bin"', source)
         self.assertNotIn("behavior.make_decider_network", source)
+
+    def test_normal_arm_self_test_can_require_placed_bins(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("--self-test-min-placed-bins", source)
+        self.assertIn("UR10 placed", source)
+        self.assertIn("expected at least", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")

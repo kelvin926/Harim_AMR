@@ -114,3 +114,26 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 - 실제 `iw_hub/chassis/lift` prim이 존재하면 보조 visual lift plate는 숨깁니다. 리프트가 실제 asset과 따로 공중에 떠 보이는 문제를 줄이기 위한 처리입니다.
 - 드롭 작업대도 레일/다리/상단 지지면에 고정 충돌체를 추가했습니다.
 - 현재 검증 범위는 unittest 20개, Python compile, 260-frame headless realism self-test입니다.
+
+## 2026-05-29 UR10 흡착 해제 보강
+
+- 공식 suction close 판정에 무한 대기하지 않도록 데모용 `DemoAttachBin` / `DemoReleaseBin`을 추가했습니다.
+- pick과 place를 별도 decision 전환에 맡기지 않고 `DemoPickAndPlaceBin` 하나의 locked sequence로 묶었습니다. 집기, 들어올리기, place 방향 이동, open gripper, 완료 표시가 한 흐름으로 진행됩니다.
+- 이동 중 active bin이 새 박스로 바뀌지 않도록 실제로 집은 박스를 `demo_carried_bin`으로 고정합니다.
+- headless 확인용 `-SelfTestMinPlacedBins` 옵션을 추가했습니다.
+
+UR10이 실제로 놓는지 확인:
+
+```powershell
+cd E:\Harim_AMR
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 1800 -SelfTestMinPlacedBins 1 -Cycles 1
+```
+
+확인된 로그:
+
+- `<close gripper>`
+- `[HarimDemo] demo-attached bin_0`
+- `[HarimDemo] reach_place timed release`
+- `<open gripper>`
+- `[HarimDemo] demo-placed bin_0 at [1.05, -0.62, -0.51]`
+- `[HarimDemo] self-test completed after 1800 frames`

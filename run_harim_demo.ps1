@@ -7,6 +7,7 @@ param(
     [int]$StackLayers = 2,
     [int]$SelfTestFrames = 0,
     [switch]$SelfTestForceStackComplete,
+    [int]$SelfTestMinPlacedBins = 0,
     [double]$MoveSpeed = 0.65,
     [double]$PickupX = 0.82,
     [double]$PickupY = -0.31,
@@ -32,6 +33,8 @@ if ($AcceptEula) {
     $env:OMNI_KIT_ACCEPT_EULA = "YES"
 }
 
+$env:PYTHONUNBUFFERED = "1"
+
 $ArgsList = @(
     $DemoScript,
     "--cycles", $Cycles,
@@ -39,6 +42,7 @@ $ArgsList = @(
     "--stack-rows", $StackRows,
     "--stack-layers", $StackLayers,
     "--self-test-frames", $SelfTestFrames,
+    "--self-test-min-placed-bins", $SelfTestMinPlacedBins,
     "--move-speed", $MoveSpeed,
     "--pickup-x", $PickupX,
     "--pickup-y", $PickupY,
@@ -54,4 +58,4 @@ if ($SelfTestForceStackComplete) {
     $ArgsList += "--self-test-force-stack-complete"
 }
 
-& $PythonExe @ArgsList
+& $PythonExe -u @ArgsList
