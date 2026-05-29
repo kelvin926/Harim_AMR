@@ -1,5 +1,24 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 AMR Lift Guide Visual 및 연결성 검증
+
+- [x] AMR lift fork가 본체와 분리되어 공중에 떠 보이는 문제를 줄이기 위해 AMR 본체에 붙어 이동하는 lift guide rail visual 4개를 추가했다.
+- [x] guide rail은 lowered fork부터 raised fork travel 범위까지 덮도록 높이를 계산하고, AMR pose와 함께 동기화한다.
+- [x] strict self-test gate를 추가했다.
+  - Python: `--self-test-min-amr-lift-guide-count`
+  - Python: `--self-test-max-amr-lift-guide-bottom-gap`
+  - Python: `--self-test-min-amr-lift-guide-travel-cover`
+  - Python: `--self-test-max-amr-lift-guide-pose-error`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 76개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_amr_lift_guide_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_034223_21500.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `amr_lift_guide_count=4`, `amr_lift_guide_bottom_gap=0.0800`, `amr_lift_guide_travel_cover=0.0400`, `max_amr_lift_guide_pose_error=0.0000`
+
 ## 2026-05-30 Review GIF 최신본 고정 경로 추가
 
 - [x] 매 실행마다 timestamp가 들어간 review GIF는 그대로 보존하고, 같은 내용을 `isaacsim_outputs/latest_review.gif`로 복사해 사용자가 항상 같은 경로로 최신 결과를 열 수 있게 했다.

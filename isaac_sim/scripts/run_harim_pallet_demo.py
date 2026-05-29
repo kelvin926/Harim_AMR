@@ -98,6 +98,12 @@ AMR_LIFT_PLATE_OFFSET_Z = (
     - WORLD_FLOOR_Z
     - LIFT_FORK_SCALE[2] * 0.5
 )
+AMR_LIFT_GUIDE_BOTTOM_CLEARANCE = 0.08
+AMR_LIFT_GUIDE_MAX_FORK_BOTTOM_Z = AMR_LIFT_PLATE_OFFSET_Z + DEFAULT_LIFT_HEIGHT - LIFT_FORK_SCALE[2] * 0.5
+AMR_LIFT_GUIDE_TOP_Z = AMR_LIFT_GUIDE_MAX_FORK_BOTTOM_Z + 0.04
+AMR_LIFT_GUIDE_HEIGHT = AMR_LIFT_GUIDE_TOP_Z - AMR_LIFT_GUIDE_BOTTOM_CLEARANCE
+AMR_LIFT_GUIDE_CENTER_Z = AMR_LIFT_GUIDE_BOTTOM_CLEARANCE + AMR_LIFT_GUIDE_HEIGHT * 0.5
+AMR_LIFT_GUIDE_SCALE = np.array([0.07, 0.07, AMR_LIFT_GUIDE_HEIGHT], dtype=float)
 DROP_SLIDE_LANE_Y_OFFSETS = (-0.38, 0.38)
 DROP_SLIDE_ROLLER_X_OFFSETS = (-0.62, -0.22, 0.22, 0.62)
 DROP_SLIDE_LEG_X_OFFSETS = (-0.78, 0.78)
@@ -273,6 +279,16 @@ AMR_DRIVE_VISUAL_SPECS = (
         np.array([0.12, 0.22, 0.11], dtype=float),
         np.array([0.050, 0.055, 0.060], dtype=float),
     ),
+)
+AMR_LIFT_GUIDE_VISUAL_SPECS = tuple(
+    (
+        f"AmrLiftGuide_{x_idx}_{y_idx}",
+        np.array([x_offset, y_offset, AMR_LIFT_GUIDE_CENTER_Z], dtype=float),
+        AMR_LIFT_GUIDE_SCALE.copy(),
+        np.array([0.09, 0.11, 0.13], dtype=float),
+    )
+    for x_idx, x_offset in enumerate((-0.48, 0.48))
+    for y_idx, y_offset in enumerate((-0.34, 0.34))
 )
 CAMERA_RIG_REQUIRED_ROLES = ("overview", "palletizer", "amr_route", "drop_dock")
 CAMERA_MIN_HEIGHT_ABOVE_FLOOR = 1.25
@@ -578,6 +594,30 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the AMR wheel visuals penetrate below the floor by more than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-lift-guide-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many AMR lift guide visuals are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-lift-guide-bottom-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR lift guide visuals float above the AMR base by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-lift-guide-travel-cover",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR lift guide visuals do not cover the raised fork travel by at least this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-lift-guide-pose-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR lift guide visuals drift from the AMR pose by more than this distance. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -1566,6 +1606,35 @@ def compute_amr_drive_visual_metrics():
     }
 
 
+def make_amr_lift_guide_visual_specs():
+    return [
+        (
+            name,
+            np.array(offset, dtype=float),
+            np.array(scale, dtype=float),
+            np.array(color, dtype=float),
+        )
+        for name, offset, scale, color in AMR_LIFT_GUIDE_VISUAL_SPECS
+    ]
+
+
+def compute_amr_lift_guide_visual_metrics():
+    specs = make_amr_lift_guide_visual_specs()
+    bottoms = [float(offset[2] - scale[2] * 0.5) for _name, offset, scale, _color in specs]
+    tops = [float(offset[2] + scale[2] * 0.5) for _name, offset, scale, _color in specs]
+    heights = [float(scale[2]) for _name, _offset, scale, _color in specs]
+    min_bottom = min(bottoms) if bottoms else 0.0
+    max_bottom = max(bottoms) if bottoms else 0.0
+    min_top = min(tops) if tops else 0.0
+    return {
+        "amr_lift_guide_count": len(specs),
+        "amr_lift_guide_bottom_gap": max(0.0, max_bottom),
+        "amr_lift_guide_bottom_penetration": max(0.0, -min_bottom),
+        "amr_lift_guide_travel_cover": float(min_top - AMR_LIFT_GUIDE_MAX_FORK_BOTTOM_Z) if tops else 0.0,
+        "amr_lift_guide_min_height": min(heights) if heights else 0.0,
+    }
+
+
 def make_camera_rig_specs(
     pickup_x=DEFAULT_PICKUP_X,
     pickup_y=DEFAULT_PICKUP_Y,
@@ -2323,6 +2392,8 @@ class HarimTransferOrchestrator:
         amr_safety_roles=None,
         amr_drive_parts=None,
         amr_drive_offsets=None,
+        amr_lift_guide_parts=None,
+        amr_lift_guide_offsets=None,
         completion_signal=None,
         camera_director=None,
     ):
@@ -2344,6 +2415,12 @@ class HarimTransferOrchestrator:
         self.amr_drive_offsets = (
             tuple(np.array(offset, dtype=float) for offset in amr_drive_offsets)
             if amr_drive_offsets is not None
+            else tuple()
+        )
+        self.amr_lift_guide_parts = list(amr_lift_guide_parts) if amr_lift_guide_parts is not None else []
+        self.amr_lift_guide_offsets = (
+            tuple(np.array(offset, dtype=float) for offset in amr_lift_guide_offsets)
+            if amr_lift_guide_offsets is not None
             else tuple()
         )
         self.pallet_parts = pallet_parts
@@ -2380,6 +2457,7 @@ class HarimTransferOrchestrator:
         self.min_lift_contact_gap_observed = initial_lift_contact_gap
         self.max_amr_safety_pose_error = 0.0
         self.max_amr_drive_pose_error = 0.0
+        self.max_amr_lift_guide_pose_error = 0.0
         self.min_amr_cell_gate_clearance = compute_amr_cell_gate_clearance(args.pickup_y, args.pickup_y)
         self.max_loaded_route_y_error = 0.0
         self.min_loaded_route_guard_clearance = compute_loaded_route_guard_clearance(
@@ -2526,6 +2604,7 @@ class HarimTransferOrchestrator:
         self.amr.set_world_pose(position=np.array(position, dtype=float), orientation=yaw_to_quat(self.amr_yaw))
         self._set_amr_safety_visual_pose()
         self._set_amr_drive_visual_pose()
+        self._set_amr_lift_guide_visual_pose()
         self._record_amr_cell_gate_clearance()
 
     def get_amr_position(self):
@@ -2592,6 +2671,26 @@ class HarimTransferOrchestrator:
                 current, _ = part.get_world_pose()
                 self.max_amr_drive_pose_error = max(
                     self.max_amr_drive_pose_error,
+                    float(np.linalg.norm(np.array(current, dtype=float) - expected)),
+                )
+            except Exception:
+                pass
+
+    def _set_amr_lift_guide_visual_pose(self):
+        if not self.amr_lift_guide_parts:
+            return
+        amr_pos = self.get_amr_position()
+        if len(self.amr_lift_guide_offsets) == len(self.amr_lift_guide_parts):
+            offsets = self.amr_lift_guide_offsets
+        else:
+            offsets = tuple(np.array([0.0, 0.0, 0.0], dtype=float) for _ in self.amr_lift_guide_parts)
+        for part, offset in zip(self.amr_lift_guide_parts, offsets):
+            expected = amr_pos + np.array(offset, dtype=float)
+            part.set_world_pose(position=expected, orientation=yaw_to_quat(self.amr_yaw))
+            try:
+                current, _ = part.get_world_pose()
+                self.max_amr_lift_guide_pose_error = max(
+                    self.max_amr_lift_guide_pose_error,
                     float(np.linalg.norm(np.array(current, dtype=float) - expected)),
                 )
             except Exception:
@@ -4682,6 +4781,27 @@ def main():
 
     amr_drive_parts, amr_drive_offsets = create_amr_drive_visuals()
 
+    def create_amr_lift_guide_visuals():
+        guide_parts = []
+        guide_offsets = []
+        start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
+        for guide_idx, (part_name, offset, scale, color) in enumerate(make_amr_lift_guide_visual_specs()):
+            guide_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/{part_name}",
+                        name=f"harim_amr_lift_guide_{guide_idx}",
+                        position=start_pose + offset,
+                        scale=scale,
+                        color=color,
+                    )
+                )
+            )
+            guide_offsets.append(offset)
+        return guide_parts, guide_offsets
+
+    amr_lift_guide_parts, amr_lift_guide_offsets = create_amr_lift_guide_visuals()
+
     def create_drop_slide_workstation():
         workstation_parts = []
         rail_color = np.array([0.18, 0.20, 0.21])
@@ -4944,6 +5064,8 @@ def main():
         amr_safety_roles=amr_safety_roles,
         amr_drive_parts=amr_drive_parts,
         amr_drive_offsets=amr_drive_offsets,
+        amr_lift_guide_parts=amr_lift_guide_parts,
+        amr_lift_guide_offsets=amr_lift_guide_offsets,
         lift_plate=lift_plate,
         lift_plate_parts=lift_plate_parts,
         pallet_parts=pallet_parts,
@@ -5410,6 +5532,49 @@ def main():
                 self_test_failures.append(
                     f"AMR wheel floor penetration {amr_wheel_floor_penetration:.4f} m exceeded "
                     f"{args.self_test_max_amr_wheel_floor_penetration:.4f} m"
+                )
+            amr_lift_guide_metrics = compute_amr_lift_guide_visual_metrics()
+            amr_lift_guide_count = amr_lift_guide_metrics["amr_lift_guide_count"]
+            amr_lift_guide_bottom_gap = amr_lift_guide_metrics["amr_lift_guide_bottom_gap"]
+            amr_lift_guide_bottom_penetration = amr_lift_guide_metrics["amr_lift_guide_bottom_penetration"]
+            amr_lift_guide_travel_cover = amr_lift_guide_metrics["amr_lift_guide_travel_cover"]
+            amr_lift_guide_min_height = amr_lift_guide_metrics["amr_lift_guide_min_height"]
+            max_amr_lift_guide_pose_error = float(getattr(orchestrator, "max_amr_lift_guide_pose_error", 0.0))
+            if (
+                args.self_test_min_amr_lift_guide_count > 0
+                and amr_lift_guide_count < args.self_test_min_amr_lift_guide_count
+            ):
+                self_test_failures.append(
+                    f"AMR lift guide count {amr_lift_guide_count} was below "
+                    f"{args.self_test_min_amr_lift_guide_count}"
+                )
+            if (
+                args.self_test_max_amr_lift_guide_bottom_gap > 0
+                and amr_lift_guide_bottom_gap > args.self_test_max_amr_lift_guide_bottom_gap
+            ):
+                self_test_failures.append(
+                    f"AMR lift guide bottom gap {amr_lift_guide_bottom_gap:.4f} m exceeded "
+                    f"{args.self_test_max_amr_lift_guide_bottom_gap:.4f} m"
+                )
+            if amr_lift_guide_bottom_penetration > 0.005:
+                self_test_failures.append(
+                    f"AMR lift guide floor penetration {amr_lift_guide_bottom_penetration:.4f} m exceeded 0.0050 m"
+                )
+            if (
+                args.self_test_min_amr_lift_guide_travel_cover > 0
+                and amr_lift_guide_travel_cover < args.self_test_min_amr_lift_guide_travel_cover
+            ):
+                self_test_failures.append(
+                    f"AMR lift guide travel cover {amr_lift_guide_travel_cover:.4f} m was below "
+                    f"{args.self_test_min_amr_lift_guide_travel_cover:.4f} m"
+                )
+            if (
+                args.self_test_max_amr_lift_guide_pose_error > 0
+                and max_amr_lift_guide_pose_error > args.self_test_max_amr_lift_guide_pose_error
+            ):
+                self_test_failures.append(
+                    f"AMR lift guide pose error {max_amr_lift_guide_pose_error:.4f} m exceeded "
+                    f"{args.self_test_max_amr_lift_guide_pose_error:.4f} m"
                 )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
@@ -6053,6 +6218,12 @@ def main():
                     f"amr_drive_wheelbase={amr_drive_wheelbase:.4f}; "
                     f"amr_drive_track_width={amr_drive_track_width:.4f}; "
                     f"max_amr_drive_pose_error={max_amr_drive_pose_error:.4f}; "
+                    f"amr_lift_guide_count={amr_lift_guide_count}; "
+                    f"amr_lift_guide_bottom_gap={amr_lift_guide_bottom_gap:.4f}; "
+                    f"amr_lift_guide_bottom_penetration={amr_lift_guide_bottom_penetration:.4f}; "
+                    f"amr_lift_guide_travel_cover={amr_lift_guide_travel_cover:.4f}; "
+                    f"amr_lift_guide_min_height={amr_lift_guide_min_height:.4f}; "
+                    f"max_amr_lift_guide_pose_error={max_amr_lift_guide_pose_error:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"dropped_stack_item_count={dropped_stack_item_count}; "

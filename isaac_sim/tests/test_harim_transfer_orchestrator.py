@@ -149,6 +149,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         amr_safety_roles=None,
         amr_drive_parts=None,
         amr_drive_offsets=None,
+        amr_lift_guide_parts=None,
+        amr_lift_guide_offsets=None,
         camera_director=None,
     ):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
@@ -168,6 +170,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             amr_safety_roles=amr_safety_roles,
             amr_drive_parts=amr_drive_parts,
             amr_drive_offsets=amr_drive_offsets,
+            amr_lift_guide_parts=amr_lift_guide_parts,
+            amr_lift_guide_offsets=amr_lift_guide_offsets,
             pallet_parts=pallet_parts,
             pallet_part_offsets=pallet_part_offsets,
             load_restraint_parts=load_restraint_parts,
@@ -452,6 +456,34 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertLessEqual(metrics["amr_wheel_floor_penetration"], 0.005)
         self.assertGreaterEqual(metrics["amr_drive_wheelbase"], 1.0)
         self.assertGreaterEqual(metrics["amr_drive_track_width"], 0.90)
+
+    def test_amr_lift_guides_connect_forks_to_chassis_travel(self):
+        metrics = self.demo.compute_amr_lift_guide_visual_metrics()
+        specs = self.demo.make_amr_lift_guide_visual_specs()
+
+        self.assertEqual(metrics["amr_lift_guide_count"], len(specs))
+        self.assertGreaterEqual(metrics["amr_lift_guide_count"], 4)
+        self.assertLessEqual(metrics["amr_lift_guide_bottom_gap"], 0.10)
+        self.assertLessEqual(metrics["amr_lift_guide_bottom_penetration"], 0.005)
+        self.assertGreaterEqual(metrics["amr_lift_guide_travel_cover"], 0.02)
+        self.assertGreaterEqual(metrics["amr_lift_guide_min_height"], 0.50)
+
+    def test_amr_lift_guides_follow_amr_pose(self):
+        specs = self.demo.make_amr_lift_guide_visual_specs()
+        parts = [FakePosePrim(name) for name, _offset, _scale, _color in specs]
+        offsets = [offset for _name, offset, _scale, _color in specs]
+        orchestrator, _context, _world, _items = self.build_orchestrator(
+            Args(),
+            amr_lift_guide_parts=parts,
+            amr_lift_guide_offsets=offsets,
+        )
+
+        target = np.array([Args.pickup_x + 0.5, Args.pickup_y + 0.02, Args.amr_z], dtype=float)
+        orchestrator.set_amr_pose(target)
+
+        self.assertAlmostEqual(orchestrator.max_amr_lift_guide_pose_error, 0.0)
+        for part, offset in zip(parts, offsets):
+            np.testing.assert_allclose(part.position, target + offset)
 
     def test_camera_rig_has_required_story_cuts(self):
         metrics = self.demo.compute_camera_rig_metrics()
@@ -1101,6 +1133,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-amr-warning-observed", source)
         self.assertIn("--self-test-min-amr-idle-observed", source)
         self.assertIn("--self-test-max-amr-indicator-visibility-mismatches", source)
+        self.assertIn("--self-test-min-amr-lift-guide-count", source)
+        self.assertIn("--self-test-max-amr-lift-guide-bottom-gap", source)
+        self.assertIn("--self-test-min-amr-lift-guide-travel-cover", source)
+        self.assertIn("--self-test-max-amr-lift-guide-pose-error", source)
         self.assertIn("--self-test-min-payload-lift", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("--self-test-min-dropped-stack-item-count", source)
@@ -1198,6 +1234,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("AMR warning indicator observed", source)
         self.assertIn("AMR idle indicator observed", source)
         self.assertIn("AMR indicator visibility mismatches", source)
+        self.assertIn("AMR lift guide count", source)
+        self.assertIn("AMR lift guide bottom gap", source)
+        self.assertIn("AMR lift guide travel cover", source)
+        self.assertIn("AMR lift guide pose error", source)
         self.assertIn("payload lift", source)
         self.assertIn("max dropped payload drift", source)
         self.assertIn("dropped stack item count", source)
@@ -1303,6 +1343,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("amr_drive_wheelbase=", source)
         self.assertIn("amr_drive_track_width=", source)
         self.assertIn("max_amr_drive_pose_error=", source)
+        self.assertIn("amr_lift_guide_count=", source)
+        self.assertIn("amr_lift_guide_bottom_gap=", source)
+        self.assertIn("amr_lift_guide_bottom_penetration=", source)
+        self.assertIn("amr_lift_guide_travel_cover=", source)
+        self.assertIn("amr_lift_guide_min_height=", source)
+        self.assertIn("max_amr_lift_guide_pose_error=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("dropped_stack_item_count=", source)
@@ -1432,6 +1478,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxAmrDrivePoseError", source)
         self.assertIn("$SelfTestMaxAmrWheelFloorGap", source)
         self.assertIn("$SelfTestMaxAmrWheelFloorPenetration", source)
+        self.assertIn("$SelfTestMinAmrLiftGuideCount", source)
+        self.assertIn("$SelfTestMaxAmrLiftGuideBottomGap", source)
+        self.assertIn("$SelfTestMinAmrLiftGuideTravelCover", source)
+        self.assertIn("$SelfTestMaxAmrLiftGuidePoseError", source)
         self.assertIn("$SelfTestMinDroppedStackItemCount", source)
         self.assertIn("$SelfTestMaxDroppedStackPoseError", source)
         self.assertIn("$SelfTestMaxDroppedStackSupportGap", source)
@@ -1518,6 +1568,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-amr-drive-pose-error", source)
         self.assertIn("--self-test-max-amr-wheel-floor-gap", source)
         self.assertIn("--self-test-max-amr-wheel-floor-penetration", source)
+        self.assertIn("--self-test-min-amr-lift-guide-count", source)
+        self.assertIn("--self-test-max-amr-lift-guide-bottom-gap", source)
+        self.assertIn("--self-test-min-amr-lift-guide-travel-cover", source)
+        self.assertIn("--self-test-max-amr-lift-guide-pose-error", source)
         self.assertIn("--self-test-min-dropped-stack-item-count", source)
         self.assertIn("--self-test-max-dropped-stack-pose-error", source)
         self.assertIn("--self-test-max-dropped-stack-support-gap", source)
@@ -1645,6 +1699,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxAmrDrivePoseError", source)
         self.assertIn("SelfTestMaxAmrWheelFloorGap", source)
         self.assertIn("SelfTestMaxAmrWheelFloorPenetration", source)
+        self.assertIn("SelfTestMinAmrLiftGuideCount", source)
+        self.assertIn("SelfTestMaxAmrLiftGuideBottomGap", source)
+        self.assertIn("SelfTestMinAmrLiftGuideTravelCover", source)
+        self.assertIn("SelfTestMaxAmrLiftGuidePoseError", source)
         self.assertIn("SelfTestMinPayloadLift", source)
         self.assertIn("0.10", source)
         self.assertIn("SelfTestMaxDroppedPayloadDrift", source)
