@@ -892,3 +892,20 @@ cd E:\Harim_AMR
 - [x] PowerShell wrapper syntax 통과
 
 아직 실제 Isaac Sim stage 초기화와 물리 실행은 NVIDIA Omniverse Kit EULA 확인 이후에만 가능하다.
+
+---
+
+## 2026-05-29 lift prim 보강 메모
+
+`iw_hub` asset 내부에 lift prim이 존재하는 경우 visual plate뿐 아니라 실제 asset lift prim도 함께 움직이도록 보강했다.
+
+- [x] `/World/HarimDemo/iw_hub/chassis/lift` prim 존재 여부 확인 로직 추가
+- [x] lift prim이 있으면 `SingleXFormPrim(..., reset_xform_properties=False)`로 wrapping
+- [x] lift prim이 없으면 기존 visual lift plate만 사용하도록 fallback
+- [x] LiftUp/LiftDown 중 실제 lift prim world pose도 `lift_offset`에 맞춰 갱신
+- [x] 실제 lift prim 연동 unittest 추가
+
+검증 결과:
+
+- [x] custom orchestrator unittest 3개 통과
+- [x] Python compile 통과

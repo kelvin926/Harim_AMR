@@ -104,11 +104,13 @@ class HarimTransferOrchestrator:
         pallet_parts,
         stack_coordinates,
         args,
+        amr_lift_prim=None,
     ):
         self.world = world
         self.context = context
         self.task = task
         self.amr = amr_prim
+        self.amr_lift = amr_lift_prim
         self.lift_plate = lift_plate
         self.pallet_parts = pallet_parts
         self.stack_coordinates = stack_coordinates
@@ -125,6 +127,8 @@ class HarimTransferOrchestrator:
         self.stack_center = self._compute_stack_center()
         self.amr_yaw = 0.0
         self.lift_offset = 0.0
+        self.amr_lift_base_offset = None
+        self.amr_lift_orientation = None
         self.move_target = None
 
         self.start_pose = np.array([args.pickup_x - 1.20, args.pickup_y, args.amr_z], dtype=float)
@@ -177,6 +181,18 @@ class HarimTransferOrchestrator:
 
     def _set_lift_plate_pose(self):
         self.lift_plate.set_world_pose(position=self._lift_plate_position(), orientation=yaw_to_quat(self.amr_yaw))
+        self._set_actual_lift_pose()
+
+    def _set_actual_lift_pose(self):
+        if self.amr_lift is None:
+            return
+        amr_pos = self.get_amr_position()
+        if self.amr_lift_base_offset is None:
+            lift_pos, lift_orient = self.amr_lift.get_world_pose()
+            self.amr_lift_base_offset = np.array(lift_pos, dtype=float) - amr_pos
+            self.amr_lift_orientation = lift_orient
+        target = amr_pos + self.amr_lift_base_offset + np.array([0.0, 0.0, self.lift_offset], dtype=float)
+        self.amr_lift.set_world_pose(position=target, orientation=self.amr_lift_orientation)
 
     def _reset_pallet_pose(self):
         center = np.array([self.args.pickup_x, self.args.pickup_y, -0.60 + self.lift_offset], dtype=float)
@@ -403,6 +419,7 @@ def main():
     from isaacsim.core.prims import SingleXFormPrim
     from isaacsim.core.utils.extensions import enable_extension
     from isaacsim.core.utils import math as math_util
+    from isaacsim.core.utils.prims import is_prim_path_valid
     from isaacsim.core.utils.stage import add_reference_to_stage
     from isaacsim.core.utils.nucleus import get_assets_root_path
     from isaacsim.cortex.framework.cortex_world import CortexWorld
@@ -493,6 +510,13 @@ def main():
     iw_hub_usd = assets_root + "/Isaac/Samples/AnimRobot/iw_hub.usd"
     add_reference_to_stage(iw_hub_usd, f"{harim_root}/iw_hub")
     amr = SingleXFormPrim(f"{harim_root}/iw_hub", name="harim_iw_hub")
+    amr_lift_path = f"{harim_root}/iw_hub/chassis/lift"
+    amr_lift = None
+    if is_prim_path_valid(amr_lift_path):
+        amr_lift = SingleXFormPrim(amr_lift_path, name="harim_iw_hub_asset_lift", reset_xform_properties=False)
+        print(f"[HarimDemo] using iw_hub lift prim: {amr_lift_path}")
+    else:
+        print(f"[HarimDemo] iw_hub lift prim not found, using visual lift plate only: {amr_lift_path}")
 
     lift_plate = world.scene.add(
         VisualCuboid(
@@ -535,6 +559,7 @@ def main():
         context=decider_network.context,
         task=task,
         amr_prim=amr,
+        amr_lift_prim=amr_lift,
         lift_plate=lift_plate,
         pallet_parts=pallet_parts,
         stack_coordinates=stack_coordinates,

@@ -83,7 +83,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.demo = load_demo_module()
 
-    def build_orchestrator(self, args):
+    def build_orchestrator(self, args, amr_lift_prim=None):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
         context = FakeContext(items)
         world = FakeWorld()
@@ -92,6 +92,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             context=context,
             task=None,
             amr_prim=FakePosePrim("iw_hub"),
+            amr_lift_prim=amr_lift_prim,
             lift_plate=FakePosePrim("lift_plate"),
             pallet_parts=[FakePosePrim(f"pallet_{idx}") for idx in range(9)],
             stack_coordinates=self.demo.make_stack_coordinates(2, 2, 1),
@@ -133,6 +134,18 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertEqual(world.reset_count, 1)
         self.assertEqual(world.play_count, 1)
         self.assertFalse(orchestrator.carrying)
+
+    def test_actual_iw_hub_lift_prim_tracks_lift_offset(self):
+        start_pose = np.array([Args.pickup_x - 1.20, Args.pickup_y, Args.amr_z])
+        lift_prim = FakePosePrim("asset_lift", start_pose + np.array([0.0, 0.0, 0.25]))
+        initial_lift_z = lift_prim.get_world_pose()[0][2]
+        orchestrator, context, _world, _items = self.build_orchestrator(Args(), amr_lift_prim=lift_prim)
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.MOVE_TO_DROP)
+
+        lifted_z = lift_prim.get_world_pose()[0][2]
+        self.assertAlmostEqual(lifted_z, initial_lift_z + Args.lift_height, places=6)
 
 
 if __name__ == "__main__":
