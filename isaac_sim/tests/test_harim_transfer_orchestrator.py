@@ -245,7 +245,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         lift_top_z = (
             self.demo.DEFAULT_AMR_Z
             + self.demo.AMR_LIFT_PLATE_OFFSET_Z
-            + self.demo.LIFT_PLATE_SCALE[2] * 0.5
+            + self.demo.LIFT_FORK_SCALE[2] * 0.5
         )
 
         self.assertGreaterEqual(contact_gap, 0.0)
@@ -255,8 +255,13 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def test_lift_plate_fits_inside_pallet_center_tunnel(self):
         clearance = self.demo.compute_pallet_tunnel_clearance()
 
-        self.assertGreaterEqual(clearance, 0.04)
-        self.assertLess(self.demo.LIFT_PLATE_SCALE[1] * 0.5, self.demo.PALLET_TUNNEL_HALF_WIDTH)
+        self.assertGreaterEqual(clearance, 0.10)
+        self.assertLess(self.demo.compute_lift_fork_outer_half_width(), self.demo.PALLET_TUNNEL_HALF_WIDTH)
+
+    def test_lift_visual_uses_two_separated_forks(self):
+        self.assertEqual(len(self.demo.LIFT_FORK_OFFSETS), 2)
+        self.assertLess(self.demo.LIFT_FORK_SCALE[1], 0.20)
+        self.assertGreaterEqual(self.demo.compute_lift_fork_inner_gap(), 0.30)
 
     def test_amr_starts_far_from_table_side_and_approaches_from_drop_side(self):
         orchestrator, _context, _world, _items = self.build_orchestrator(Args())
@@ -425,6 +430,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
+        self.assertIn("--self-test-min-lift-fork-inner-gap", source)
         self.assertIn("UR10 placed", source)
         self.assertIn("AMR completed", source)
         self.assertIn("max pre-grip offset", source)
@@ -439,6 +445,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max dropped payload drift", source)
         self.assertIn("max lift contact gap", source)
         self.assertIn("pallet tunnel clearance", source)
+        self.assertIn("lift fork inner gap", source)
         self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("max_return_ready_error=", source)
         self.assertIn("max_release_drift=", source)
@@ -451,6 +458,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("max_lift_contact_gap=", source)
         self.assertIn("pallet_tunnel_clearance=", source)
+        self.assertIn("lift_fork_inner_gap=", source)
         self.assertIn("demo_max_return_ready_error", source)
         self.assertIn("demo_max_release_drift", source)
         self.assertIn("preserving failure exit", source)
@@ -468,10 +476,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxStackSupportGap", source)
         self.assertIn("$SelfTestMaxLiftContactGap", source)
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
+        self.assertIn("$SelfTestMinLiftForkInnerGap", source)
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
+        self.assertIn("--self-test-min-lift-fork-inner-gap", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
@@ -495,8 +505,26 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         source = DEMO_PATH.read_text(encoding="utf-8")
 
         self.assertIn("AMR_LIFT_PLATE_OFFSET_Z", source)
-        self.assertIn("LIFT_PLATE_SCALE", source)
+        self.assertIn("LIFT_FORK_SCALE", source)
+        self.assertIn("LIFT_FORK_OFFSETS", source)
+        self.assertIn("IwHubLiftFork", source)
         self.assertIn("visible=True", source)
+
+    def test_lift_fork_parts_move_with_amr(self):
+        lift_parts = [FakePosePrim("fork_0"), FakePosePrim("fork_1")]
+        orchestrator, _context, _world, _items = self.build_orchestrator(
+            Args(),
+            completion_signal=None,
+        )
+        orchestrator.lift_plate_parts = lift_parts
+
+        orchestrator.set_amr_pose(np.array([1.0, -0.3, Args.amr_z]))
+        orchestrator._set_lift_plate_pose()
+
+        for fork, offset in zip(lift_parts, self.demo.LIFT_FORK_OFFSETS):
+            expected = np.array([1.0, -0.3, Args.amr_z]) + offset
+            expected[2] += self.demo.AMR_LIFT_PLATE_OFFSET_Z
+            np.testing.assert_allclose(fork.get_world_pose()[0], expected)
 
     def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
         block_offsets = self.demo.PALLET_BLOCK_OFFSETS

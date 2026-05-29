@@ -1821,6 +1821,57 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 ---
 
+## 2026-05-29 AMR 리프트를 두 줄 fork/rail 형상으로 변경
+
+리프트 접촉 간격은 맞췄지만, 단일 넓은 판은 실제 팔레트 AMR보다 임시 지지판처럼 보일 수 있었다. 이번 보강에서는 GUI에서 보이는 리프트 지지부를 좌우 두 줄 fork/rail 형상으로 바꿔 팔레트 터널 안으로 들어가는 구조가 더 명확하게 보이도록 했다.
+
+수정 내용:
+
+- [x] 단일 `IwHubLiftPlate` visual 제거
+- [x] `IwHubLiftFork_0`, `IwHubLiftFork_1` 두 개의 얇은 fork rail 생성
+  - 각 fork scale: `LIFT_FORK_SCALE = [1.10, 0.12, 0.035]`
+  - fork Y offset: `-0.24`, `+0.24`
+  - fork 사이 내부 간격: 0.36 m
+- [x] orchestrator가 두 fork visual을 AMR pose와 lift offset에 맞춰 함께 이동하도록 수정
+- [x] 팔레트 터널 clearance 계산을 단일 판 half-width가 아니라 두 fork의 outer half-width 기준으로 변경
+- [x] self-test gate 추가
+  - Python 옵션: `--self-test-min-lift-fork-inner-gap`
+  - PowerShell 옵션: `-SelfTestMinLiftForkInnerGap`
+- [x] 완료 로그에 `lift_fork_inner_gap` 추가
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestRequireGripperOpenAfterRelease -SelfTestMaxStackLateralGap 0.03 -SelfTestMaxStackSupportGap 0.02 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestMaxLiftContactGap 0.01 -SelfTestMinPalletTunnelClearance 0.10 -SelfTestMinLiftForkInnerGap 0.30 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] Python compile 통과
+- [x] unittest 37개 통과
+- [x] 12000-frame full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_lift_fork_gate_full_e2e_12000.log`
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0398`
+  - `max_release_drift=0.0000`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `max_stack_lateral_gap=0.0200`
+  - `max_stack_support_gap=0.0100`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`
+  - `max_lift_contact_gap=0.0050`
+  - `min_lift_contact_gap=0.0050`
+  - `pallet_tunnel_clearance=0.1200`
+  - `lift_fork_inner_gap=0.3600`
+
+---
+
 ## 2026-05-29 GUI release 강제 해제 추가 보강
 
 GUI 확인에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 증상이 다시 관찰되어, release 순간에 scripted attach 상태와 실제 surface gripper 상태를 더 강하게 분리했다. 핵심은 “시각적으로 박스가 그리퍼를 따라가는 경로”를 줄이는 것이다.

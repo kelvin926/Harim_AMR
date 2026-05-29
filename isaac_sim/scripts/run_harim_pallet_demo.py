@@ -43,7 +43,11 @@ PALLET_BLOCK_SCALE = np.array([0.18, 0.16, 0.12], dtype=float)
 PALLET_GROOVE_SCALE = np.array([1.22, 0.028, 0.012], dtype=float)
 PALLET_TOP_SUPPORT_OFFSET = np.array([0.0, 0.0, 0.02], dtype=float)
 PALLET_TOP_SUPPORT_SCALE = np.array([1.20, 1.08, 0.035], dtype=float)
-LIFT_PLATE_SCALE = np.array([1.10, 0.72, 0.035], dtype=float)
+LIFT_FORK_SCALE = np.array([1.10, 0.12, 0.035], dtype=float)
+LIFT_FORK_OFFSETS = (
+    np.array([0.0, -0.24, 0.0], dtype=float),
+    np.array([0.0, 0.24, 0.0], dtype=float),
+)
 LIFT_TO_PALLET_CONTACT_GAP = 0.005
 UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
 PALLET_DECK_OFFSETS = (
@@ -78,7 +82,7 @@ AMR_LIFT_PLATE_OFFSET_Z = (
     PALLET_DECK_UNDERSIDE_Z
     - LIFT_TO_PALLET_CONTACT_GAP
     - WORLD_FLOOR_Z
-    - LIFT_PLATE_SCALE[2] * 0.5
+    - LIFT_FORK_SCALE[2] * 0.5
 )
 CARTON_BODY_SCALE = np.array([0.20, 0.29, 0.14], dtype=float)
 CARTON_TAPE_TOP_SCALE = np.array([0.205, 0.030, 0.008], dtype=float)
@@ -186,6 +190,12 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the lift plate has less lateral clearance inside the pallet tunnel than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-lift-fork-inner-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the visual lift forks are not separated by at least this distance in meters. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -363,12 +373,23 @@ def compute_stack_geometry_metrics(stack_coordinates, cols, rows, layers):
 
 def compute_lift_contact_gap(amr_z=DEFAULT_AMR_Z, lift_offset=0.0):
     pallet_underside_z = PALLET_DECK_UNDERSIDE_Z + float(lift_offset)
-    lift_plate_top_z = float(amr_z) + AMR_LIFT_PLATE_OFFSET_Z + float(lift_offset) + LIFT_PLATE_SCALE[2] * 0.5
+    lift_plate_top_z = float(amr_z) + AMR_LIFT_PLATE_OFFSET_Z + float(lift_offset) + LIFT_FORK_SCALE[2] * 0.5
     return float(pallet_underside_z - lift_plate_top_z)
 
 
+def compute_lift_fork_outer_half_width():
+    return float(max(abs(offset[1]) + LIFT_FORK_SCALE[1] * 0.5 for offset in LIFT_FORK_OFFSETS))
+
+
+def compute_lift_fork_inner_gap():
+    y_offsets = sorted(float(offset[1]) for offset in LIFT_FORK_OFFSETS)
+    if len(y_offsets) < 2:
+        return 0.0
+    return float(min(y_offsets[index + 1] - y_offsets[index] for index in range(len(y_offsets) - 1)) - LIFT_FORK_SCALE[1])
+
+
 def compute_pallet_tunnel_clearance():
-    return float(PALLET_TUNNEL_HALF_WIDTH - LIFT_PLATE_SCALE[1] * 0.5)
+    return float(PALLET_TUNNEL_HALF_WIDTH - compute_lift_fork_outer_half_width())
 
 
 def clone_stack_coordinates(stack_coordinates):
@@ -396,6 +417,7 @@ class HarimTransferOrchestrator:
         pallet_parts,
         stack_coordinates,
         args,
+        lift_plate_parts=None,
         amr_lift_prim=None,
         completion_signal=None,
     ):
@@ -405,6 +427,7 @@ class HarimTransferOrchestrator:
         self.amr = amr_prim
         self.amr_lift = amr_lift_prim
         self.lift_plate = lift_plate
+        self.lift_plate_parts = list(lift_plate_parts) if lift_plate_parts is not None else [lift_plate]
         self.pallet_parts = pallet_parts
         self.stack_coordinates = stack_coordinates
         self.args = args
@@ -431,6 +454,7 @@ class HarimTransferOrchestrator:
         self.max_lift_contact_gap_observed = initial_lift_contact_gap
         self.min_lift_contact_gap_observed = initial_lift_contact_gap
         self.pallet_tunnel_clearance = compute_pallet_tunnel_clearance()
+        self.lift_fork_inner_gap = compute_lift_fork_inner_gap()
         self.amr_lift_base_offset = None
         self.amr_lift_orientation = None
         self.move_target = None
@@ -494,12 +518,18 @@ class HarimTransferOrchestrator:
         position, _orientation = self.amr.get_world_pose()
         return np.array(position, dtype=float)
 
-    def _lift_plate_position(self):
+    def _lift_plate_position(self, fork_offset=None):
         amr_pos = self.get_amr_position()
-        return amr_pos + np.array([0.0, 0.0, AMR_LIFT_PLATE_OFFSET_Z + self.lift_offset], dtype=float)
+        offset = np.array([0.0, 0.0, 0.0], dtype=float) if fork_offset is None else np.array(fork_offset, dtype=float)
+        return amr_pos + offset + np.array([0.0, 0.0, AMR_LIFT_PLATE_OFFSET_Z + self.lift_offset], dtype=float)
 
     def _set_lift_plate_pose(self):
-        self.lift_plate.set_world_pose(position=self._lift_plate_position(), orientation=yaw_to_quat(self.amr_yaw))
+        if len(self.lift_plate_parts) == len(LIFT_FORK_OFFSETS):
+            fork_offsets = LIFT_FORK_OFFSETS
+        else:
+            fork_offsets = tuple(np.array([0.0, 0.0, 0.0], dtype=float) for _ in self.lift_plate_parts)
+        for part, fork_offset in zip(self.lift_plate_parts, fork_offsets):
+            part.set_world_pose(position=self._lift_plate_position(fork_offset), orientation=yaw_to_quat(self.amr_yaw))
         self._set_actual_lift_pose()
         self._record_lift_geometry()
 
@@ -1756,18 +1786,27 @@ def main():
 
     create_drop_slide_workstation()
 
-    lift_plate = world.scene.add(
-        VisualCuboid(
-            f"{harim_root}/IwHubLiftPlate",
-            name="harim_iw_hub_lift_plate",
-            position=np.array(
-                [args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z + AMR_LIFT_PLATE_OFFSET_Z]
-            ),
-            scale=LIFT_PLATE_SCALE,
-            visible=True,
-            color=np.array([0.10, 0.12, 0.13]),
+    lift_plate_parts = []
+    for fork_idx, fork_offset in enumerate(LIFT_FORK_OFFSETS):
+        lift_plate_parts.append(
+            world.scene.add(
+                VisualCuboid(
+                    f"{harim_root}/IwHubLiftFork_{fork_idx}",
+                    name=f"harim_iw_hub_lift_fork_{fork_idx}",
+                    position=np.array(
+                        [
+                            args.pickup_x + AMR_START_STANDOFF + fork_offset[0],
+                            args.pickup_y + fork_offset[1],
+                            args.amr_z + AMR_LIFT_PLATE_OFFSET_Z + fork_offset[2],
+                        ]
+                    ),
+                    scale=LIFT_FORK_SCALE,
+                    visible=True,
+                    color=np.array([0.10, 0.12, 0.13]),
+                )
+            )
         )
-    )
+    lift_plate = lift_plate_parts[0]
 
     pallet_parts = []
     plank_color = np.array([0.62, 0.44, 0.23])
@@ -1854,6 +1893,7 @@ def main():
         amr_prim=amr,
         amr_lift_prim=amr_lift,
         lift_plate=lift_plate,
+        lift_plate_parts=lift_plate_parts,
         pallet_parts=pallet_parts,
         stack_coordinates=stack_coordinates,
         args=args,
@@ -2024,6 +2064,15 @@ def main():
                     f"pallet tunnel clearance {pallet_tunnel_clearance:.4f} m was below "
                     f"{args.self_test_min_pallet_tunnel_clearance:.4f} m"
                 )
+            lift_fork_inner_gap = float(getattr(orchestrator, "lift_fork_inner_gap", 0.0))
+            if (
+                args.self_test_min_lift_fork_inner_gap > 0
+                and lift_fork_inner_gap < args.self_test_min_lift_fork_inner_gap
+            ):
+                self_test_failures.append(
+                    f"lift fork inner gap {lift_fork_inner_gap:.4f} m was below "
+                    f"{args.self_test_min_lift_fork_inner_gap:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -2049,7 +2098,8 @@ def main():
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"max_lift_contact_gap={max_lift_contact_gap:.4f}; "
                     f"min_lift_contact_gap={min_lift_contact_gap:.4f}; "
-                    f"pallet_tunnel_clearance={pallet_tunnel_clearance:.4f}",
+                    f"pallet_tunnel_clearance={pallet_tunnel_clearance:.4f}; "
+                    f"lift_fork_inner_gap={lift_fork_inner_gap:.4f}",
                     flush=True,
                 )
         else:
