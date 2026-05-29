@@ -1,5 +1,25 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 창고 조명/노출 보강
+
+- [x] 카메라 컷에서 팔레타이저, AMR 이동 경로, 하역 작업대가 어둡게 보이지 않도록 high-bay warehouse lighting을 추가했다.
+  - `PalletizerHighBayLight`: 로봇팔 pick/place 셀 조명
+  - `RouteHighBayLightA`, `RouteHighBayLightB`: AMR 장거리 이동 경로 조명
+  - `DropDockHighBayLight`: 목표 하역 작업대 조명
+- [x] 실제 `RectLight` prim과 눈에 보이는 fixture/glow panel visual을 함께 생성한다.
+- [x] self-test gate를 추가해 조명 수, 역할 수, 바닥 대비 높이, AMR 경로 X-span, 최소 intensity를 검증한다.
+  - Python: `--self-test-min-warehouse-light-count`
+  - Python: `--self-test-min-warehouse-light-role-count`
+  - Python: `--self-test-min-warehouse-light-height`
+  - Python: `--self-test-min-warehouse-light-route-span`
+  - Python: `--self-test-min-warehouse-light-intensity`
+  - PowerShell wrapper도 동일 gate를 노출한다.
+- [x] 검증 완료
+  - unittest 53개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_warehouse_lighting_strict_full_e2e_12000.log`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `warehouse_light_count=4`, `warehouse_light_role_count=3`, `warehouse_light_min_height=4.3500`, `warehouse_light_route_span=10.6000`, `warehouse_light_min_intensity=3600.0000`
+
 ## 2026-05-29 상태 기반 카메라 컷 전환 보강
 
 - [x] AMR/팔레타이저 상태에 맞춰 GUI active viewport가 자동 전환되도록 camera director를 추가했다.

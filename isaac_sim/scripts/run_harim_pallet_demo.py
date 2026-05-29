@@ -214,6 +214,11 @@ CAMERA_RIG_REQUIRED_ROLES = ("overview", "palletizer", "amr_route", "drop_dock")
 CAMERA_MIN_HEIGHT_ABOVE_FLOOR = 1.25
 CAMERA_MIN_TARGET_DISTANCE = 1.0
 CAMERA_DEFAULT_FOCAL_LENGTH = 30.0
+WAREHOUSE_LIGHT_REQUIRED_ROLES = ("palletizer_key", "route_fill", "drop_key")
+WAREHOUSE_LIGHT_FIXTURE_COLOR = np.array([0.82, 0.84, 0.80], dtype=float)
+WAREHOUSE_LIGHT_EMISSIVE_COLOR = np.array([1.0, 0.93, 0.80], dtype=float)
+WAREHOUSE_LIGHT_MIN_HEIGHT_ABOVE_FLOOR = 3.2
+WAREHOUSE_LIGHT_MIN_ROUTE_SPAN = 8.0
 
 
 def parse_args():
@@ -550,6 +555,36 @@ def parse_args():
         type=int,
         default=0,
         help="Fail the fixed-frame self-test unless the story camera director visits at least this many roles. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-warehouse-light-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many warehouse high-bay lights are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-warehouse-light-role-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many warehouse light roles are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-warehouse-light-height",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if any warehouse high-bay light is lower than this height above the floor. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-warehouse-light-route-span",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if warehouse lights cover less X span than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-warehouse-light-intensity",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if any warehouse high-bay light intensity is below this value. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -1151,6 +1186,72 @@ def compute_camera_rig_metrics(
         "camera_required_role_count": len(roles.intersection(CAMERA_RIG_REQUIRED_ROLES)),
         "camera_min_height": min(heights) if heights else 0.0,
         "camera_min_target_distance": min(target_distances) if target_distances else 0.0,
+    }
+
+
+def make_warehouse_light_specs(
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+    drop_x=DEFAULT_DROP_X,
+    drop_y=DEFAULT_DROP_Y,
+):
+    pickup_x = float(pickup_x)
+    pickup_y = float(pickup_y)
+    drop_x = float(drop_x)
+    drop_y = float(drop_y)
+    route_y = (pickup_y + drop_y) * 0.5 - 0.72
+    light_z = WORLD_FLOOR_Z + 4.35
+    route_a_x = pickup_x + (drop_x - pickup_x) * 0.33
+    route_b_x = pickup_x + (drop_x - pickup_x) * 0.66
+    return [
+        (
+            "PalletizerHighBayLight",
+            "palletizer_key",
+            np.array([pickup_x, pickup_y - 0.82, light_z], dtype=float),
+            np.array([1.20, 0.18, 0.055], dtype=float),
+            4200.0,
+        ),
+        (
+            "RouteHighBayLightA",
+            "route_fill",
+            np.array([route_a_x, route_y, light_z], dtype=float),
+            np.array([1.35, 0.18, 0.055], dtype=float),
+            3600.0,
+        ),
+        (
+            "RouteHighBayLightB",
+            "route_fill",
+            np.array([route_b_x, route_y, light_z], dtype=float),
+            np.array([1.35, 0.18, 0.055], dtype=float),
+            3600.0,
+        ),
+        (
+            "DropDockHighBayLight",
+            "drop_key",
+            np.array([drop_x, drop_y - 0.82, light_z], dtype=float),
+            np.array([1.20, 0.18, 0.055], dtype=float),
+            4200.0,
+        ),
+    ]
+
+
+def compute_warehouse_lighting_metrics(
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+    drop_x=DEFAULT_DROP_X,
+    drop_y=DEFAULT_DROP_Y,
+):
+    specs = make_warehouse_light_specs(pickup_x, pickup_y, drop_x, drop_y)
+    roles = {role for _name, role, _position, _fixture_scale, _intensity in specs}
+    x_positions = [float(position[0]) for _name, _role, position, _fixture_scale, _intensity in specs]
+    heights = [float(position[2] - WORLD_FLOOR_Z) for _name, _role, position, _fixture_scale, _intensity in specs]
+    intensities = [float(intensity) for _name, _role, _position, _fixture_scale, intensity in specs]
+    return {
+        "warehouse_light_count": len(specs),
+        "warehouse_light_role_count": len(roles.intersection(WAREHOUSE_LIGHT_REQUIRED_ROLES)),
+        "warehouse_light_min_height": min(heights) if heights else 0.0,
+        "warehouse_light_route_span": (max(x_positions) - min(x_positions)) if x_positions else 0.0,
+        "warehouse_light_min_intensity": min(intensities) if intensities else 0.0,
     }
 
 
@@ -1858,7 +1959,7 @@ def main():
     from isaacsim.cortex.framework.motion_commander import MotionCommand
     from isaacsim.cortex.framework.robot import CortexUr10
     from isaacsim.cortex.behaviors.ur10 import bin_stacking_behavior as behavior
-    from pxr import Sdf, UsdGeom, UsdPhysics
+    from pxr import Gf, Sdf, UsdGeom, UsdPhysics
 
     assets_root = get_assets_root_path()
     if assets_root is None:
@@ -2828,6 +2929,58 @@ def main():
             return
         set_active_viewport_camera(camera_path)
         print(f"[HarimDemo] camera director -> {role} ({camera_path})", flush=True)
+
+    def create_warehouse_lighting():
+        lighting_root = f"{harim_root}/Lighting"
+        omni.kit.commands.execute("CreatePrim", prim_path=lighting_root, prim_type="Xform")
+        created_light_paths = []
+        stage = usd_context.get_stage()
+
+        def set_light_attribute(prim, attr_name, value):
+            attr = prim.GetAttribute(attr_name)
+            if attr and attr.IsValid():
+                attr.Set(value)
+
+        for light_name, light_role, light_position, fixture_scale, intensity in make_warehouse_light_specs(
+            args.pickup_x,
+            args.pickup_y,
+            args.drop_x,
+            args.drop_y,
+        ):
+            light_path = f"{lighting_root}/{light_name}"
+            omni.kit.commands.execute("CreatePrim", prim_path=light_path, prim_type="RectLight")
+            light_prim = stage.GetPrimAtPath(light_path)
+            if light_prim and light_prim.IsValid():
+                UsdGeom.XformCommonAPI(light_prim).SetTranslate(tuple(float(value) for value in light_position))
+                set_light_attribute(light_prim, "inputs:intensity", float(intensity))
+                set_light_attribute(light_prim, "inputs:width", float(fixture_scale[0]))
+                set_light_attribute(light_prim, "inputs:height", float(max(fixture_scale[1], 0.1)))
+                set_light_attribute(light_prim, "inputs:color", Gf.Vec3f(*WAREHOUSE_LIGHT_EMISSIVE_COLOR.tolist()))
+                light_prim.CreateAttribute("harim:lightRole", Sdf.ValueTypeNames.String).Set(light_role)
+            world.scene.add(
+                VisualCuboid(
+                    f"{lighting_root}/{light_name}Fixture",
+                    name=f"harim_{light_name.lower()}_fixture",
+                    position=np.array(light_position, dtype=float) + np.array([0.0, 0.0, 0.045], dtype=float),
+                    scale=np.array(fixture_scale, dtype=float),
+                    color=WAREHOUSE_LIGHT_FIXTURE_COLOR,
+                )
+            )
+            world.scene.add(
+                VisualCuboid(
+                    f"{lighting_root}/{light_name}GlowPanel",
+                    name=f"harim_{light_name.lower()}_glow_panel",
+                    position=np.array(light_position, dtype=float) + np.array([0.0, 0.0, -0.002], dtype=float),
+                    scale=np.array([fixture_scale[0] * 0.92, fixture_scale[1] * 0.72, 0.012], dtype=float),
+                    color=WAREHOUSE_LIGHT_EMISSIVE_COLOR,
+                )
+            )
+            created_light_paths.append(light_path)
+
+        print(f"[HarimDemo] warehouse lighting ready: {len(created_light_paths)} high-bay lights", flush=True)
+        return created_light_paths
+
+    create_warehouse_lighting()
 
     def create_infeed_conveyor_visual():
         visual_parts = []
@@ -3923,6 +4076,52 @@ def main():
                     f"camera director role count {camera_director_role_count} was below "
                     f"{args.self_test_min_camera_director_role_count}"
                 )
+            lighting_metrics = compute_warehouse_lighting_metrics(args.pickup_x, args.pickup_y, args.drop_x, args.drop_y)
+            warehouse_light_count = lighting_metrics["warehouse_light_count"]
+            warehouse_light_role_count = lighting_metrics["warehouse_light_role_count"]
+            warehouse_light_min_height = lighting_metrics["warehouse_light_min_height"]
+            warehouse_light_route_span = lighting_metrics["warehouse_light_route_span"]
+            warehouse_light_min_intensity = lighting_metrics["warehouse_light_min_intensity"]
+            if (
+                args.self_test_min_warehouse_light_count > 0
+                and warehouse_light_count < args.self_test_min_warehouse_light_count
+            ):
+                self_test_failures.append(
+                    f"warehouse light count {warehouse_light_count} was below "
+                    f"{args.self_test_min_warehouse_light_count}"
+                )
+            if (
+                args.self_test_min_warehouse_light_role_count > 0
+                and warehouse_light_role_count < args.self_test_min_warehouse_light_role_count
+            ):
+                self_test_failures.append(
+                    f"warehouse light role count {warehouse_light_role_count} was below "
+                    f"{args.self_test_min_warehouse_light_role_count}"
+                )
+            if (
+                args.self_test_min_warehouse_light_height > 0
+                and warehouse_light_min_height < args.self_test_min_warehouse_light_height
+            ):
+                self_test_failures.append(
+                    f"warehouse light height {warehouse_light_min_height:.4f} m was below "
+                    f"{args.self_test_min_warehouse_light_height:.4f} m"
+                )
+            if (
+                args.self_test_min_warehouse_light_route_span > 0
+                and warehouse_light_route_span < args.self_test_min_warehouse_light_route_span
+            ):
+                self_test_failures.append(
+                    f"warehouse light route span {warehouse_light_route_span:.4f} m was below "
+                    f"{args.self_test_min_warehouse_light_route_span:.4f} m"
+                )
+            if (
+                args.self_test_min_warehouse_light_intensity > 0
+                and warehouse_light_min_intensity < args.self_test_min_warehouse_light_intensity
+            ):
+                self_test_failures.append(
+                    f"warehouse light intensity {warehouse_light_min_intensity:.4f} was below "
+                    f"{args.self_test_min_warehouse_light_intensity:.4f}"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -3992,7 +4191,12 @@ def main():
                     f"camera_min_height={camera_min_height:.4f}; "
                     f"camera_min_target_distance={camera_min_target_distance:.4f}; "
                     f"camera_director_switch_count={camera_director_switch_count}; "
-                    f"camera_director_role_count={camera_director_role_count}",
+                    f"camera_director_role_count={camera_director_role_count}; "
+                    f"warehouse_light_count={warehouse_light_count}; "
+                    f"warehouse_light_role_count={warehouse_light_role_count}; "
+                    f"warehouse_light_min_height={warehouse_light_min_height:.4f}; "
+                    f"warehouse_light_route_span={warehouse_light_route_span:.4f}; "
+                    f"warehouse_light_min_intensity={warehouse_light_min_intensity:.4f}",
                     flush=True,
                 )
         else:

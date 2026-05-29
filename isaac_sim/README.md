@@ -1,5 +1,12 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 창고 조명 보강
+
+- 팔레타이저 셀, AMR 이동 경로, 하역 작업대 위에 high-bay `RectLight` 4개와 fixture/glow panel visual을 추가했습니다.
+- strict self-test에 warehouse light count/role/height/route-span/intensity gate를 추가했습니다.
+- 최신 검증 로그: `isaacsim_logs/harim_warehouse_lighting_strict_full_e2e_12000.log`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `warehouse_light_count=4`, `warehouse_light_route_span=10.6000`
+
 ## 2026-05-29 상태 기반 카메라 컷 전환
 
 - GUI active viewport가 공정 상태에 맞춰 자동 전환됩니다.

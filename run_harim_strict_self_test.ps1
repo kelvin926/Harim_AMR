@@ -69,6 +69,11 @@ $RunnerArgs = @{
     SelfTestMinCameraTargetDistance = 1.0
     SelfTestMinCameraDirectorSwitchCount = 4
     SelfTestMinCameraDirectorRoleCount = 4
+    SelfTestMinWarehouseLightCount = 4
+    SelfTestMinWarehouseLightRoleCount = 3
+    SelfTestMinWarehouseLightHeight = 3.20
+    SelfTestMinWarehouseLightRouteSpan = 8.00
+    SelfTestMinWarehouseLightIntensity = 3000.0
 }
 
 if (-not $ShowGui) {
