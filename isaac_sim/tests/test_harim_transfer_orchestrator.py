@@ -217,6 +217,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(self.demo.RELEASE_RETREAT_DURATION, 0.80)
         self.assertGreaterEqual(self.demo.SCRIPTED_PLACE_DURATION, 0.60)
         self.assertGreaterEqual(self.demo.SCRIPTED_PLACE_EE_HOVER, 0.25)
+        self.assertGreaterEqual(self.demo.ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP, 0.05)
+        self.assertLessEqual(self.demo.ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP, 0.08)
 
     def test_completion_signal_controller_toggles_red_green(self):
         red = FakeLight()
@@ -572,6 +574,29 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertAlmostEqual(orchestrator.max_amr_lift_guide_pose_error, 0.0)
         for part, offset in zip(parts, offsets):
             np.testing.assert_allclose(part.position, target + offset)
+
+    def test_amr_and_lift_orientation_metrics_track_rotation_drift(self):
+        actual_lift = FakePosePrim("actual_lift")
+        orchestrator, _context, _world, _items = self.build_orchestrator(
+            Args(),
+            amr_lift_prim=actual_lift,
+        )
+
+        orchestrator.set_amr_pose(np.array([Args.pickup_x + 0.5, Args.pickup_y, Args.amr_z], dtype=float))
+        orchestrator._set_lift_plate_pose()
+
+        self.assertAlmostEqual(orchestrator.max_amr_orientation_error, 0.0)
+        self.assertAlmostEqual(orchestrator.max_amr_lift_orientation_error, 0.0)
+
+        orchestrator.amr.set_world_pose(orientation=self.demo.yaw_to_quat(0.11))
+        orchestrator._record_amr_orientation()
+        orchestrator.lift_plate.set_world_pose(orientation=self.demo.yaw_to_quat(0.12))
+        orchestrator._record_lift_orientation()
+        actual_lift.set_world_pose(orientation=self.demo.yaw_to_quat(0.13))
+        orchestrator._record_lift_orientation()
+
+        self.assertGreater(orchestrator.max_amr_orientation_error, 0.10)
+        self.assertGreater(orchestrator.max_amr_lift_orientation_error, 0.12)
 
     def test_camera_rig_has_required_story_cuts(self):
         metrics = self.demo.compute_camera_rig_metrics()
@@ -1442,6 +1467,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("AMR safety beacon height", source)
         self.assertIn("AMR safety scanner clearance", source)
         self.assertIn("AMR safety pose error", source)
+        self.assertIn("AMR orientation error", source)
         self.assertIn("AMR warning indicator count", source)
         self.assertIn("AMR idle indicator count", source)
         self.assertIn("AMR warning indicator observed", source)
@@ -1451,6 +1477,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("AMR lift guide bottom gap", source)
         self.assertIn("AMR lift guide travel cover", source)
         self.assertIn("AMR lift guide pose error", source)
+        self.assertIn("AMR lift orientation error", source)
         self.assertIn("payload lift", source)
         self.assertIn("AMR lift offset frame step", source)
         self.assertIn("max dropped payload drift", source)
@@ -1584,6 +1611,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("amr_safety_beacon_height=", source)
         self.assertIn("amr_safety_scanner_clearance=", source)
         self.assertIn("max_amr_safety_pose_error=", source)
+        self.assertIn("max_amr_orientation_error=", source)
         self.assertIn("amr_warning_indicator_count=", source)
         self.assertIn("amr_idle_indicator_count=", source)
         self.assertIn("amr_warning_indicator_observed=", source)
@@ -1602,6 +1630,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("amr_lift_guide_travel_cover=", source)
         self.assertIn("amr_lift_guide_min_height=", source)
         self.assertIn("max_amr_lift_guide_pose_error=", source)
+        self.assertIn("max_amr_lift_orientation_error=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("lift_offset_motion_sample_count=", source)
         self.assertIn("max_lift_offset_frame_step=", source)
@@ -1761,6 +1790,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinAmrSafetyBeaconHeight", source)
         self.assertIn("$SelfTestMinAmrSafetyScannerClearance", source)
         self.assertIn("$SelfTestMaxAmrSafetyPoseError", source)
+        self.assertIn("$SelfTestMaxAmrOrientationError", source)
+        self.assertIn("--self-test-max-amr-orientation-error", source)
         self.assertIn("$SelfTestMinAmrWarningIndicatorCount", source)
         self.assertIn("$SelfTestMinAmrIdleIndicatorCount", source)
         self.assertIn("$SelfTestMinAmrWarningObserved", source)
@@ -1774,6 +1805,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxAmrLiftGuideBottomGap", source)
         self.assertIn("$SelfTestMinAmrLiftGuideTravelCover", source)
         self.assertIn("$SelfTestMaxAmrLiftGuidePoseError", source)
+        self.assertIn("$SelfTestMaxAmrLiftOrientationError", source)
+        self.assertIn("--self-test-max-amr-lift-orientation-error", source)
         self.assertIn("$SelfTestMinPayloadLift", source)
         self.assertIn("$SelfTestMaxLiftOffsetFrameStep", source)
         self.assertIn("--self-test-max-lift-offset-frame-step", source)
@@ -2038,6 +2071,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("0.60", source)
         self.assertIn("SelfTestMinAmrSafetyScannerClearance", source)
         self.assertIn("SelfTestMaxAmrSafetyPoseError", source)
+        self.assertIn("SelfTestMaxAmrOrientationError", source)
         self.assertIn("SelfTestMinAmrWarningIndicatorCount", source)
         self.assertIn("SelfTestMinAmrIdleIndicatorCount", source)
         self.assertIn("SelfTestMinAmrWarningObserved", source)
@@ -2051,6 +2085,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxAmrLiftGuideBottomGap", source)
         self.assertIn("SelfTestMinAmrLiftGuideTravelCover", source)
         self.assertIn("SelfTestMaxAmrLiftGuidePoseError", source)
+        self.assertIn("SelfTestMaxAmrLiftOrientationError", source)
         self.assertIn("SelfTestMinPayloadLift", source)
         self.assertIn("SelfTestMaxLiftOffsetFrameStep", source)
         self.assertIn("0.004", source)

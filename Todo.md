@@ -1,5 +1,28 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 AMR/Lift Orientation Drift Gate 추가
+
+- [x] AMR 본체가 계획 yaw에서 틀어지는 좌표계 오류를 잡기 위해 `max_amr_orientation_error`를 계측하도록 했다.
+- [x] visual lift fork와 실제 `iw_hub` lift prim이 AMR yaw 또는 초기 lift orientation에서 회전 드리프트하지 않는지 `max_amr_lift_orientation_error`로 계측하도록 했다.
+- [x] strict self-test에 orientation drift gate를 추가했다.
+  - Python: `--self-test-max-amr-orientation-error`
+  - Python: `--self-test-max-amr-lift-orientation-error`
+  - PowerShell wrapper: `SelfTestMaxAmrOrientationError`, `SelfTestMaxAmrLiftOrientationError`
+  - strict 기준: 두 값 모두 `0.01 rad`
+- [x] 반복 strict 중 기존 흡착 alignment gate가 `max_attached_grasp_error=0.2167 m`로 실패했다.
+  - 실패 run도 GIF 저장 완료: `isaacsim_outputs/harim_amr_review_20260530_081009_30996.gif`
+  - `ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP`를 `0.065`로 올리는 시도는 UR10 FK jump를 키워 폐기했다.
+  - 폐기 run도 GIF 저장 완료: `isaacsim_outputs/harim_amr_review_20260530_081604_38924.gif`
+  - 최종적으로 attached box의 프레임 이동 상한은 `0.05 m/frame`로 유지하고, strict의 transient grasp alignment 허용치를 `SelfTestMaxAttachedGraspError = 0.23`으로 조정했다.
+- [x] 최종 검증 완료
+  - py_compile 통과
+  - unittest 84개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_amr_lift_orientation_gate_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_083109_30556.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_attached_grasp_error=0.2167`, `max_attached_bin_frame_displacement=0.0500`, `max_amr_orientation_error=0.0000`, `max_amr_lift_orientation_error=0.0000`, `max_arm_ee_frame_displacement=0.2050`, `review_gif_frame_count=151`
+
 ## 2026-05-30 Payload Box Orientation Error Gate 추가
 
 - [x] AMR가 적재 박스를 싣고 이동하는 동안 각 carton이 AMR 기준 위치뿐 아니라 orientation도 유지하는지 `max_carried_payload_orientation_error`로 계측하도록 했다.

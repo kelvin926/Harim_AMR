@@ -697,6 +697,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if AMR beacon/scanner visuals drift from the AMR pose by more than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-amr-orientation-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR body rotates away from the planned yaw by more than this angle in radians. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-amr-warning-indicator-count",
         type=int,
         default=0,
@@ -773,6 +779,12 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if AMR lift guide visuals drift from the AMR pose by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-lift-orientation-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR lift/fork visuals rotate away from the AMR yaw or lift baseline by more than this angle in radians. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -2792,8 +2804,10 @@ class HarimTransferOrchestrator:
         self.max_lift_contact_gap_observed = initial_lift_contact_gap
         self.min_lift_contact_gap_observed = initial_lift_contact_gap
         self.max_amr_safety_pose_error = 0.0
+        self.max_amr_orientation_error = 0.0
         self.max_amr_drive_pose_error = 0.0
         self.max_amr_lift_guide_pose_error = 0.0
+        self.max_amr_lift_orientation_error = 0.0
         self.min_amr_cell_gate_clearance = compute_amr_cell_gate_clearance(args.pickup_y, args.pickup_y)
         self.max_loaded_route_y_error = 0.0
         self.min_loaded_route_guard_clearance = compute_loaded_route_guard_clearance(
@@ -2943,6 +2957,7 @@ class HarimTransferOrchestrator:
 
     def set_amr_pose(self, position):
         self.amr.set_world_pose(position=np.array(position, dtype=float), orientation=yaw_to_quat(self.amr_yaw))
+        self._record_amr_orientation()
         self._set_amr_safety_visual_pose()
         self._set_amr_drive_visual_pose()
         self._set_amr_lift_guide_visual_pose()
@@ -2962,6 +2977,16 @@ class HarimTransferOrchestrator:
             compute_amr_cell_gate_clearance(amr_pos[1], self.args.pickup_y),
         )
 
+    def _record_amr_orientation(self):
+        try:
+            _position, orientation = self.amr.get_world_pose()
+        except Exception:
+            return
+        self.max_amr_orientation_error = max(
+            self.max_amr_orientation_error,
+            quat_angular_error(orientation, yaw_to_quat(self.amr_yaw)),
+        )
+
     def _lift_plate_position(self, fork_offset=None):
         amr_pos = self.get_amr_position()
         offset = np.array([0.0, 0.0, 0.0], dtype=float) if fork_offset is None else np.array(fork_offset, dtype=float)
@@ -2975,7 +3000,30 @@ class HarimTransferOrchestrator:
         for part, fork_offset in zip(self.lift_plate_parts, fork_offsets):
             part.set_world_pose(position=self._lift_plate_position(fork_offset), orientation=yaw_to_quat(self.amr_yaw))
         self._set_actual_lift_pose()
+        self._record_lift_orientation()
         self._record_lift_geometry()
+
+    def _record_lift_orientation(self):
+        expected_fork_orientation = yaw_to_quat(self.amr_yaw)
+        for part in self.lift_plate_parts:
+            try:
+                _position, orientation = part.get_world_pose()
+            except Exception:
+                continue
+            self.max_amr_lift_orientation_error = max(
+                self.max_amr_lift_orientation_error,
+                quat_angular_error(orientation, expected_fork_orientation),
+            )
+        if self.amr_lift is None or self.amr_lift_orientation is None:
+            return
+        try:
+            _position, orientation = self.amr_lift.get_world_pose()
+        except Exception:
+            return
+        self.max_amr_lift_orientation_error = max(
+            self.max_amr_lift_orientation_error,
+            quat_angular_error(orientation, self.amr_lift_orientation),
+        )
 
     def _set_amr_safety_visual_pose(self):
         if not self.amr_safety_parts:
@@ -6252,6 +6300,7 @@ def main():
             amr_warning_indicator_count = amr_safety_metrics["amr_warning_indicator_count"]
             amr_idle_indicator_count = amr_safety_metrics["amr_idle_indicator_count"]
             max_amr_safety_pose_error = float(getattr(orchestrator, "max_amr_safety_pose_error", 0.0))
+            max_amr_orientation_error = float(getattr(orchestrator, "max_amr_orientation_error", 0.0))
             amr_warning_indicator_observed = int(getattr(orchestrator, "amr_warning_indicator_on_observed", 0))
             amr_idle_indicator_observed = int(getattr(orchestrator, "amr_idle_indicator_on_observed", 0))
             amr_indicator_visibility_mismatches = int(
@@ -6288,6 +6337,14 @@ def main():
                 self_test_failures.append(
                     f"AMR safety pose error {max_amr_safety_pose_error:.4f} m exceeded "
                     f"{args.self_test_max_amr_safety_pose_error:.4f} m"
+                )
+            if (
+                args.self_test_max_amr_orientation_error > 0
+                and max_amr_orientation_error > args.self_test_max_amr_orientation_error
+            ):
+                self_test_failures.append(
+                    f"AMR orientation error {max_amr_orientation_error:.4f} rad exceeded "
+                    f"{args.self_test_max_amr_orientation_error:.4f} rad"
                 )
             if (
                 args.self_test_min_amr_warning_indicator_count > 0
@@ -6376,6 +6433,9 @@ def main():
             amr_lift_guide_travel_cover = amr_lift_guide_metrics["amr_lift_guide_travel_cover"]
             amr_lift_guide_min_height = amr_lift_guide_metrics["amr_lift_guide_min_height"]
             max_amr_lift_guide_pose_error = float(getattr(orchestrator, "max_amr_lift_guide_pose_error", 0.0))
+            max_amr_lift_orientation_error = float(
+                getattr(orchestrator, "max_amr_lift_orientation_error", 0.0)
+            )
             if (
                 args.self_test_min_amr_lift_guide_count > 0
                 and amr_lift_guide_count < args.self_test_min_amr_lift_guide_count
@@ -6411,6 +6471,14 @@ def main():
                 self_test_failures.append(
                     f"AMR lift guide pose error {max_amr_lift_guide_pose_error:.4f} m exceeded "
                     f"{args.self_test_max_amr_lift_guide_pose_error:.4f} m"
+                )
+            if (
+                args.self_test_max_amr_lift_orientation_error > 0
+                and max_amr_lift_orientation_error > args.self_test_max_amr_lift_orientation_error
+            ):
+                self_test_failures.append(
+                    f"AMR lift orientation error {max_amr_lift_orientation_error:.4f} rad exceeded "
+                    f"{args.self_test_max_amr_lift_orientation_error:.4f} rad"
                 )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             lift_offset_motion_sample_count = int(getattr(orchestrator, "lift_offset_motion_sample_count", 0))
@@ -7149,6 +7217,7 @@ def main():
                     f"amr_safety_beacon_height={amr_safety_beacon_height:.4f}; "
                     f"amr_safety_scanner_clearance={amr_safety_scanner_clearance:.4f}; "
                     f"max_amr_safety_pose_error={max_amr_safety_pose_error:.4f}; "
+                    f"max_amr_orientation_error={max_amr_orientation_error:.4f}; "
                     f"amr_warning_indicator_count={amr_warning_indicator_count}; "
                     f"amr_idle_indicator_count={amr_idle_indicator_count}; "
                     f"amr_warning_indicator_observed={amr_warning_indicator_observed}; "
@@ -7167,6 +7236,7 @@ def main():
                     f"amr_lift_guide_travel_cover={amr_lift_guide_travel_cover:.4f}; "
                     f"amr_lift_guide_min_height={amr_lift_guide_min_height:.4f}; "
                     f"max_amr_lift_guide_pose_error={max_amr_lift_guide_pose_error:.4f}; "
+                    f"max_amr_lift_orientation_error={max_amr_lift_orientation_error:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"lift_offset_motion_sample_count={lift_offset_motion_sample_count}; "
                     f"max_lift_offset_frame_step={max_lift_offset_frame_step:.4f}; "
