@@ -63,6 +63,25 @@ class FakeWorld:
         self.play_count += 1
 
 
+class FakeSimulationApp:
+    def __init__(self):
+        self.update_count = 0
+
+    def update(self):
+        self.update_count += 1
+
+
+class FakeUsdContext:
+    def __init__(self, statuses):
+        self.statuses = list(statuses)
+        self.status_index = 0
+
+    def get_stage_loading_status(self):
+        status = self.statuses[min(self.status_index, len(self.statuses) - 1)]
+        self.status_index += 1
+        return status
+
+
 class Args:
     pickup_x = 0.82
     pickup_y = -0.31
@@ -153,6 +172,21 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         cortex_import_index = source.index("from isaacsim.cortex.framework.robot import CortexUr10")
 
         self.assertLess(enable_index, cortex_import_index)
+
+    def test_wait_for_stage_loading_updates_until_no_pending_assets(self):
+        app = FakeSimulationApp()
+        usd_context = FakeUsdContext([(0, 0, 2), (0, 0, 1), (0, 0, 0)])
+
+        self.demo.wait_for_stage_loading(app, usd_context, "test", max_updates=5)
+
+        self.assertEqual(app.update_count, 3)
+
+    def test_wait_for_stage_loading_times_out_with_pending_assets(self):
+        app = FakeSimulationApp()
+        usd_context = FakeUsdContext([(0, 0, 1)])
+
+        with self.assertRaisesRegex(RuntimeError, "Timed out waiting for USD assets"):
+            self.demo.wait_for_stage_loading(app, usd_context, "test", max_updates=2)
 
 
 if __name__ == "__main__":

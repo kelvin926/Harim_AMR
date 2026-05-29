@@ -928,3 +928,23 @@ cd E:\Harim_AMR
 
 - [x] custom orchestrator unittest 4개 통과
 - [x] Python compile 통과
+
+---
+
+## 2026-05-29 stage loading 대기 보강 메모
+
+USD reference를 stage에 추가한 직후 child prim을 검사하거나 robot wrapper를 만들면 asset loading 타이밍에 따라 prim이 아직 준비되지 않을 수 있다.
+설치된 Isaac Sim 5.1.0 테스트 코드에서 사용하는 `omni.usd.get_context().get_stage_loading_status()[2]` 패턴을 참고해 stage loading 대기를 추가했다.
+
+- [x] `wait_for_stage_loading(simulation_app, usd_context, label)` helper 추가
+- [x] UR10 palletizing scene/background reference 후 stage loading 완료 대기
+- [x] `iw_hub` reference 후 stage loading 완료 대기
+- [x] loading timeout 시 어떤 asset에서 멈췄는지 보이도록 `RuntimeError` 메시지 구성
+- [x] loading 완료까지 update가 반복되는지 unittest 추가
+- [x] loading pending 상태가 지속되면 timeout 되는지 unittest 추가
+
+검증 결과:
+
+- [x] custom orchestrator unittest 6개 통과
+- [x] Python compile 통과
+- [x] PowerShell wrapper syntax 통과

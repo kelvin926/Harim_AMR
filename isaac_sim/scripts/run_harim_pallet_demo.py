@@ -44,6 +44,15 @@ def configure_local_runtime_dirs():
         os.environ.setdefault(key, str(path))
 
 
+def wait_for_stage_loading(simulation_app, usd_context, label, max_updates=600):
+    for _ in range(max_updates):
+        simulation_app.update()
+        status = usd_context.get_stage_loading_status()
+        if status[2] <= 0:
+            return
+    raise RuntimeError(f"Timed out waiting for USD assets to load: {label}; status={status}")
+
+
 class TransferState(Enum):
     WAIT_STACK_COMPLETE = auto()
     ARM_SETTLE = auto()
@@ -413,6 +422,7 @@ def main():
     )
 
     import omni
+    import omni.usd
     from isaacsim.core.utils.extensions import enable_extension
 
     if not enable_extension("isaacsim.robot.surface_gripper"):
@@ -439,11 +449,13 @@ def main():
     if assets_root is None:
         raise RuntimeError("Could not resolve the Isaac Sim assets root path.")
 
+    usd_context = omni.usd.get_context()
     world = CortexWorld()
 
     ur10_assets = Ur10Assets()
     add_reference_to_stage(ur10_assets.ur10_table_usd, "/World/Ur10Table")
     add_reference_to_stage(ur10_assets.background_usd, "/World/Background")
+    wait_for_stage_loading(simulation_app, usd_context, "UR10 palletizing scene")
     SingleXFormPrim("/World/Background", position=[10.00, 2.00, -1.18180], orientation=[0.7071, 0, 0, 0.7071])
 
     robot = world.add_robot(CortexUr10(name="robot", prim_path="/World/Ur10Table/ur10"))
@@ -514,6 +526,7 @@ def main():
 
     iw_hub_usd = assets_root + "/Isaac/Samples/AnimRobot/iw_hub.usd"
     add_reference_to_stage(iw_hub_usd, f"{harim_root}/iw_hub")
+    wait_for_stage_loading(simulation_app, usd_context, "iw_hub")
     amr = SingleXFormPrim(f"{harim_root}/iw_hub", name="harim_iw_hub")
     amr_lift_path = f"{harim_root}/iw_hub/chassis/lift"
     amr_lift = None
