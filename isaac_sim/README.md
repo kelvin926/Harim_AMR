@@ -1,5 +1,14 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Pickup Handoff 동적 검증
+
+- AMR이 팔레트 밑으로 들어가 lift-up을 시작하기 직전, 실제 AMR lift center와 pallet center의 XY 오차를 `max_pickup_handoff_xy_error`로 기록합니다.
+- 같은 시점의 lift fork top과 pallet deck underside 간격을 `max_pickup_handoff_lift_gap`, `max_pickup_handoff_lift_penetration`으로 기록해 리프트가 공중에 떠 보이거나 팔레트 하부를 뚫는 좌표 문제를 검증합니다.
+- strict self-test에 pickup handoff XY error, lift gap, lift penetration gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_pickup_handoff_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_020102_23868.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `pickup_handoff_count=1`, `max_pickup_handoff_xy_error=0.0000`, `max_pickup_handoff_lift_gap=0.0050`, `max_pickup_handoff_lift_penetration=0.0000`
+
 ## 2026-05-30 Drop Handoff 동적 검증 및 GIF 저장
 
 - 팔레트를 내려놓은 직후 실제 pallet center가 목표 작업대 중심에 얼마나 맞는지 `drop_handoff_xy_error`로 기록합니다.

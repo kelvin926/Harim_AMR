@@ -608,6 +608,24 @@ def parse_args():
         help="Fail the fixed-frame self-test if the visual lift forks are not separated by at least this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-pickup-handoff-xy-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR lift center is farther from the pallet center at pickup handoff than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-pickup-handoff-lift-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the lift forks are farther below the pallet underside at pickup handoff than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-pickup-handoff-lift-penetration",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the lift forks penetrate the pallet underside at pickup handoff by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-drop-support-gap",
         type=float,
         default=0.0,
@@ -2247,6 +2265,10 @@ class HarimTransferOrchestrator:
         self.drop_handoff_xy_error = 0.0
         self.drop_handoff_support_gap = compute_drop_workstation_support_gap()
         self.drop_handoff_support_penetration = 0.0
+        self.pickup_handoff_count = 0
+        self.max_pickup_handoff_xy_error = 0.0
+        self.max_pickup_handoff_lift_gap = initial_lift_contact_gap
+        self.max_pickup_handoff_lift_penetration = 0.0
         self.amr_warning_indicator_on_observed = 0
         self.amr_idle_indicator_on_observed = 0
         self.amr_indicator_visibility_mismatch_count = 0
@@ -2454,6 +2476,38 @@ class HarimTransferOrchestrator:
         lift_contact_gap = compute_lift_contact_gap(amr_pos[2], self.lift_offset)
         self.max_lift_contact_gap_observed = max(self.max_lift_contact_gap_observed, lift_contact_gap)
         self.min_lift_contact_gap_observed = min(self.min_lift_contact_gap_observed, lift_contact_gap)
+
+    def _record_pickup_handoff_geometry(self):
+        if not self.pallet_parts:
+            return
+        try:
+            deck_pos, _deck_orient = self.pallet_parts[0].get_world_pose()
+        except Exception:
+            return
+        deck_pos = np.array(deck_pos, dtype=float)
+        pallet_center = deck_pos - PALLET_DECK_OFFSETS[0]
+        amr_pos = self.get_amr_position()
+        xy_error = float(np.linalg.norm((amr_pos - pallet_center)[:2]))
+        lift_top_zs = []
+        for part in self.lift_plate_parts:
+            try:
+                lift_pos, _lift_orient = part.get_world_pose()
+                lift_top_zs.append(float(np.array(lift_pos, dtype=float)[2] + LIFT_FORK_SCALE[2] * 0.5))
+            except Exception:
+                pass
+        if lift_top_zs:
+            lift_top_z = max(lift_top_zs)
+        else:
+            lift_top_z = float(amr_pos[2] + AMR_LIFT_PLATE_OFFSET_Z + self.lift_offset + LIFT_FORK_SCALE[2] * 0.5)
+        deck_underside_z = float(deck_pos[2] - PALLET_DECK_SCALE[2] * 0.5)
+        lift_gap = deck_underside_z - lift_top_z
+        self.pickup_handoff_count += 1
+        self.max_pickup_handoff_xy_error = max(self.max_pickup_handoff_xy_error, xy_error)
+        self.max_pickup_handoff_lift_gap = max(self.max_pickup_handoff_lift_gap, float(lift_gap))
+        self.max_pickup_handoff_lift_penetration = max(
+            self.max_pickup_handoff_lift_penetration,
+            max(0.0, float(-lift_gap)),
+        )
 
     def _set_actual_lift_pose(self):
         if self.amr_lift is None:
@@ -2775,6 +2829,7 @@ class HarimTransferOrchestrator:
                 if self.state == TransferState.MOVE_TO_APPROACH:
                     self._transition(TransferState.MOVE_UNDER_PALLET)
                 elif self.state == TransferState.MOVE_UNDER_PALLET:
+                    self._record_pickup_handoff_geometry()
                     self._transition(TransferState.LIFT_UP)
                 elif self.state == TransferState.MOVE_TO_DROP_APPROACH:
                     self.drop_dock_arrival_count += 1
@@ -5060,6 +5115,36 @@ def main():
                     f"lift fork inner gap {lift_fork_inner_gap:.4f} m was below "
                     f"{args.self_test_min_lift_fork_inner_gap:.4f} m"
                 )
+            pickup_handoff_count = int(getattr(orchestrator, "pickup_handoff_count", 0))
+            max_pickup_handoff_xy_error = float(getattr(orchestrator, "max_pickup_handoff_xy_error", 0.0))
+            max_pickup_handoff_lift_gap = float(getattr(orchestrator, "max_pickup_handoff_lift_gap", 0.0))
+            max_pickup_handoff_lift_penetration = float(
+                getattr(orchestrator, "max_pickup_handoff_lift_penetration", 0.0)
+            )
+            if args.self_test_max_pickup_handoff_xy_error > 0:
+                if pickup_handoff_count <= 0:
+                    self_test_failures.append("pickup handoff geometry was not recorded before lift-up")
+                elif max_pickup_handoff_xy_error > args.self_test_max_pickup_handoff_xy_error:
+                    self_test_failures.append(
+                        f"pickup handoff XY error {max_pickup_handoff_xy_error:.4f} m exceeded "
+                        f"{args.self_test_max_pickup_handoff_xy_error:.4f} m"
+                    )
+            if args.self_test_max_pickup_handoff_lift_gap > 0:
+                if pickup_handoff_count <= 0:
+                    self_test_failures.append("pickup handoff lift gap was not recorded before lift-up")
+                elif max_pickup_handoff_lift_gap > args.self_test_max_pickup_handoff_lift_gap:
+                    self_test_failures.append(
+                        f"pickup handoff lift gap {max_pickup_handoff_lift_gap:.4f} m exceeded "
+                        f"{args.self_test_max_pickup_handoff_lift_gap:.4f} m"
+                    )
+            if (
+                args.self_test_max_pickup_handoff_lift_penetration > 0
+                and max_pickup_handoff_lift_penetration > args.self_test_max_pickup_handoff_lift_penetration
+            ):
+                self_test_failures.append(
+                    f"pickup handoff lift penetration {max_pickup_handoff_lift_penetration:.4f} m exceeded "
+                    f"{args.self_test_max_pickup_handoff_lift_penetration:.4f} m"
+                )
             drop_support_gap = compute_drop_workstation_support_gap()
             if args.self_test_max_drop_support_gap > 0:
                 if drop_support_gap > args.self_test_max_drop_support_gap:
@@ -5478,6 +5563,10 @@ def main():
                     f"min_lift_contact_gap={min_lift_contact_gap:.4f}; "
                     f"pallet_tunnel_clearance={pallet_tunnel_clearance:.4f}; "
                     f"lift_fork_inner_gap={lift_fork_inner_gap:.4f}; "
+                    f"pickup_handoff_count={pickup_handoff_count}; "
+                    f"max_pickup_handoff_xy_error={max_pickup_handoff_xy_error:.4f}; "
+                    f"max_pickup_handoff_lift_gap={max_pickup_handoff_lift_gap:.4f}; "
+                    f"max_pickup_handoff_lift_penetration={max_pickup_handoff_lift_penetration:.4f}; "
                     f"drop_support_gap={drop_support_gap:.4f}; "
                     f"drop_handoff_xy_error={drop_handoff_xy_error:.4f}; "
                     f"drop_handoff_support_gap={drop_handoff_support_gap:.4f}; "
