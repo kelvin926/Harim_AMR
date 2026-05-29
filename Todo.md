@@ -1,5 +1,21 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Loaded Route Guard 동적 검증
+
+- [x] 정적 AMR route guard clearance뿐 아니라, 팔레트를 실제로 싣고 이동하는 동안 AMR이 계획 경로 중심선에서 얼마나 벗어나는지 기록하도록 했다.
+- [x] carried pallet visual이 AMR-relative offset에서 드리프트하지 않는지 `max_carried_pallet_pose_error`로 기록하도록 했다.
+- [x] self-test gate를 추가했다.
+  - Python: `--self-test-max-loaded-route-y-error`
+  - Python: `--self-test-min-loaded-route-guard-clearance`
+  - Python: `--self-test-max-carried-pallet-pose-error`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - unittest 63개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_loaded_route_guard_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_013718_23832.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_loaded_route_y_error=0.0000`, `min_loaded_route_guard_clearance=0.3700`, `max_carried_pallet_pose_error=0.0000`
+
 ## 2026-05-30 Drop Approach/Dock-In 분리
 
 - [x] AMR이 목표 작업대의 drop pose로 바로 들어가지 않고, `MOVE_TO_DROP_APPROACH`에서 작업대 앞 1.05 m 지점에 먼저 정렬하도록 했다.

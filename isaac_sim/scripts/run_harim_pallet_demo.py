@@ -776,6 +776,24 @@ def parse_args():
         help="Fail the fixed-frame self-test if AMR route bollards are shorter than this height above the floor. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-loaded-route-y-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the loaded AMR deviates from the planned route centerline by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-loaded-route-guard-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the carried pallet leaves less side clearance to AMR route guards than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-carried-pallet-pose-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if carried pallet visuals drift from their AMR-relative offsets by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-drop-approach-standoff",
         type=float,
         default=0.0,
@@ -1630,6 +1648,34 @@ def compute_amr_route_guard_metrics(
     }
 
 
+def compute_loaded_route_y_error(
+    amr_x,
+    amr_y,
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+    drop_x=DEFAULT_DROP_X,
+    drop_y=DEFAULT_DROP_Y,
+):
+    pickup_x = float(pickup_x)
+    drop_x = float(drop_x)
+    if abs(drop_x - pickup_x) <= 1e-6:
+        planned_y = float(pickup_y)
+    else:
+        route_t = clamp((float(amr_x) - pickup_x) / (drop_x - pickup_x), 0.0, 1.0)
+        planned_y = lerp(float(pickup_y), float(drop_y), route_t)
+    return abs(float(amr_y) - planned_y)
+
+
+def compute_loaded_route_guard_clearance(amr_y, pickup_y=DEFAULT_PICKUP_Y, drop_y=DEFAULT_DROP_Y):
+    path_center_y = (float(pickup_y) + float(drop_y)) * 0.5
+    lateral_error = abs(float(amr_y) - path_center_y)
+    guard_half_width = max(
+        float(AMR_ROUTE_GUARD_BOLLARD_SCALE[1]) * 0.5,
+        float(AMR_ROUTE_GUARD_RAIL_SCALE_YZ[0]) * 0.5,
+    )
+    return float(AMR_ROUTE_GUARD_Y_OFFSET - guard_half_width - PALLET_DECK_SCALE[1] * 0.5 - lateral_error)
+
+
 def compute_drop_docking_metrics(pickup_x=DEFAULT_PICKUP_X, drop_x=DEFAULT_DROP_X):
     travel_direction = 1.0 if float(drop_x) >= float(pickup_x) else -1.0
     drop_approach_x = float(drop_x) - travel_direction * AMR_DROP_APPROACH_STANDOFF
@@ -2173,6 +2219,13 @@ class HarimTransferOrchestrator:
         self.min_lift_contact_gap_observed = initial_lift_contact_gap
         self.max_amr_safety_pose_error = 0.0
         self.max_amr_drive_pose_error = 0.0
+        self.max_loaded_route_y_error = 0.0
+        self.min_loaded_route_guard_clearance = compute_loaded_route_guard_clearance(
+            args.pickup_y,
+            args.pickup_y,
+            args.drop_y,
+        )
+        self.max_carried_pallet_pose_error = 0.0
         self.amr_warning_indicator_on_observed = 0
         self.amr_idle_indicator_on_observed = 0
         self.amr_indicator_visibility_mismatch_count = 0
@@ -2549,6 +2602,44 @@ class HarimTransferOrchestrator:
                 continue
             offset, orient = data
             part.set_world_pose(position=amr_pos + offset, orientation=orient)
+        self._record_loaded_route_geometry()
+
+    def _record_loaded_route_geometry(self):
+        if not self.carrying:
+            return
+        amr_pos = self.get_amr_position()
+        route_y_error = compute_loaded_route_y_error(
+            amr_pos[0],
+            amr_pos[1],
+            self.args.pickup_x,
+            self.args.pickup_y,
+            self.args.drop_x,
+            self.args.drop_y,
+        )
+        self.max_loaded_route_y_error = max(self.max_loaded_route_y_error, route_y_error)
+        route_guard_clearance = compute_loaded_route_guard_clearance(
+            amr_pos[1],
+            self.args.pickup_y,
+            self.args.drop_y,
+        )
+        self.min_loaded_route_guard_clearance = min(
+            self.min_loaded_route_guard_clearance,
+            route_guard_clearance,
+        )
+        for part in self.pallet_parts:
+            data = self.pallet_base_offsets.get(part.name)
+            if data is None:
+                continue
+            offset, _orient = data
+            try:
+                current_pos, _ = part.get_world_pose()
+                expected_pos = amr_pos + offset
+                self.max_carried_pallet_pose_error = max(
+                    self.max_carried_pallet_pose_error,
+                    float(np.linalg.norm(np.array(current_pos, dtype=float) - expected_pos)),
+                )
+            except Exception:
+                pass
 
     def _record_dropped_assembly(self):
         self.dropped_item_poses = {}
@@ -5191,6 +5282,35 @@ def main():
                     f"AMR route bollard height {amr_route_bollard_height:.4f} m was below "
                     f"{args.self_test_min_amr_route_bollard_height:.4f} m"
                 )
+            max_loaded_route_y_error = float(getattr(orchestrator, "max_loaded_route_y_error", 0.0))
+            min_loaded_route_guard_clearance = float(
+                getattr(orchestrator, "min_loaded_route_guard_clearance", 0.0)
+            )
+            max_carried_pallet_pose_error = float(getattr(orchestrator, "max_carried_pallet_pose_error", 0.0))
+            if (
+                args.self_test_max_loaded_route_y_error > 0
+                and max_loaded_route_y_error > args.self_test_max_loaded_route_y_error
+            ):
+                self_test_failures.append(
+                    f"loaded route Y error {max_loaded_route_y_error:.4f} m exceeded "
+                    f"{args.self_test_max_loaded_route_y_error:.4f} m"
+                )
+            if (
+                args.self_test_min_loaded_route_guard_clearance > 0
+                and min_loaded_route_guard_clearance < args.self_test_min_loaded_route_guard_clearance
+            ):
+                self_test_failures.append(
+                    f"loaded route guard clearance {min_loaded_route_guard_clearance:.4f} m was below "
+                    f"{args.self_test_min_loaded_route_guard_clearance:.4f} m"
+                )
+            if (
+                args.self_test_max_carried_pallet_pose_error > 0
+                and max_carried_pallet_pose_error > args.self_test_max_carried_pallet_pose_error
+            ):
+                self_test_failures.append(
+                    f"carried pallet pose error {max_carried_pallet_pose_error:.4f} m exceeded "
+                    f"{args.self_test_max_carried_pallet_pose_error:.4f} m"
+                )
             drop_docking_metrics = compute_drop_docking_metrics(args.pickup_x, args.drop_x)
             drop_approach_standoff = drop_docking_metrics["drop_approach_standoff"]
             dock_move_speed_scale = drop_docking_metrics["dock_move_speed_scale"]
@@ -5318,6 +5438,9 @@ def main():
                     f"amr_route_guard_span={amr_route_guard_span:.4f}; "
                     f"amr_route_guard_clearance={amr_route_guard_clearance:.4f}; "
                     f"amr_route_bollard_height={amr_route_bollard_height:.4f}; "
+                    f"max_loaded_route_y_error={max_loaded_route_y_error:.4f}; "
+                    f"min_loaded_route_guard_clearance={min_loaded_route_guard_clearance:.4f}; "
+                    f"max_carried_pallet_pose_error={max_carried_pallet_pose_error:.4f}; "
                     f"drop_approach_standoff={drop_approach_standoff:.4f}; "
                     f"dock_move_speed_scale={dock_move_speed_scale:.4f}; "
                     f"drop_dock_arrival_count={drop_dock_arrival_count}; "

@@ -1,5 +1,13 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Loaded Route Guard 동적 검증
+
+- 정적 AMR route guard clearance뿐 아니라, 팔레트를 실제로 싣고 이동하는 동안 AMR이 계획 경로 중심선을 벗어나는지와 carried pallet visual이 AMR-relative offset에서 드리프트하는지 기록하도록 했습니다.
+- strict self-test에 loaded route Y error, loaded route guard clearance, carried pallet pose error gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_loaded_route_guard_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_013718_23832.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_loaded_route_y_error=0.0000`, `min_loaded_route_guard_clearance=0.3700`, `max_carried_pallet_pose_error=0.0000`
+
 ## 2026-05-30 Drop Approach/Dock-In 분리
 
 - AMR이 적재물을 싣고 목표 작업대까지 이동할 때 바로 drop pose로 들어가지 않고, `MOVE_TO_DROP_APPROACH`에서 작업대 앞 1.05 m 지점에 먼저 정렬한 뒤 `MOVE_TO_DROP`에서 느린 dock-in으로 최종 하역 위치에 들어가도록 바꿨습니다.
