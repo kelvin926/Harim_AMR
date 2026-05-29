@@ -545,3 +545,22 @@ GUI에서 박스가 흡착 패드에 계속 붙어 보이는 문제를 줄이기
 - strict wrapper 기반 12000-frame full end-to-end self-test 통과
 - 로그 파일: `isaacsim_logs/harim_infeed_conveyor_strict_full_e2e_12000.log`
 - 완료 로그: `infeed_conveyor_length=0.9000; infeed_spawn_margin=0.4200; infeed_guide_clearance=0.4450; infeed_belt_support_gap=0.0080`
+## GUI Release Scripted-Place Update
+
+GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 구간을 줄이기 위해 `ReachToPlace` 뒤에 `DemoScriptedPlaceBin`을 추가했습니다. 박스를 목표 stack pose로 먼저 정렬하고, `DemoReleaseBin`에서 gripper open, attach 상태 해제, arm retreat를 수행합니다.
+
+새 strict gate:
+
+- `SelfTestMinScriptedPlaceCount = 8`
+- `SelfTestMaxScriptedPlaceError = 0.005`
+- `SelfTestMinReleaseSeparation = 0.20`
+- drop dock alignment gate: stop block count/gap, locator clearance, fork clearance
+
+검증 결과:
+
+- unittest 46개 통과
+- strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- 로그 파일: `isaacsim_logs/harim_scripted_place_release_strict_full_e2e_12000.log`
+- 완료 로그: `placed_bins=8; transfer_cycles=1; scripted_place_count=8; max_scripted_place_error=0.0000; max_release_separation=1.6853; release_gripper_not_open=0; release_gripped_object_max=0; drop_dock_stop_count=2`
+
+---

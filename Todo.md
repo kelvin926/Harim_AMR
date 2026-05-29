@@ -2577,3 +2577,73 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -Accep
   - `release_gripped_object_max=0`
   - `release_gripper_probe_failures=0`
   - `joint_settle_count=8`
+## 2026-05-29 GUI release scripted-place 재보강
+
+GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보인다는 피드백을 기준으로 release 직전 구간을 다시 보강했다. 기존에는 `ReachToPlace`가 목표 pose에 정확히 수렴하지 못하면 timeout 후 release로 넘어갔고, 이 구간에서 GUI상 박스가 흡착 패드에 계속 붙어 있는 것처럼 보일 수 있었다. 이제 `ReachToPlace` 뒤에 `DemoScriptedPlaceBin`을 추가해 박스를 목표 적재 좌표로 짧게 정렬한 뒤, `DemoReleaseBin`에서 gripper open, attach 상태 해제, arm retreat를 수행한다.
+
+수정 내용:
+
+- [x] `SCRIPTED_PLACE_DURATION = 0.70`
+- [x] `SCRIPTED_PLACE_EE_HOVER = 0.18`
+- [x] `DemoScriptedPlaceBin` 추가
+  - carried bin을 다음 stack coordinate로 보간 이동
+  - `demo_scripted_place_bin` 플래그로 `sync_demo_attached_bin()`의 재부착 보정을 차단
+  - suction gripper open을 반복 호출해 실제 surface gripper joint가 남아 있어도 release 쪽으로 강제
+- [x] `DemoReleaseBin`에서 release 후 TCP와 박스 사이 분리 거리 기록
+  - `demo_max_release_separation`
+  - `demo_max_release_vertical_clearance`
+- [x] self-test gate 추가
+  - Python: `--self-test-min-scripted-place-count`
+  - Python: `--self-test-max-scripted-place-error`
+  - Python: `--self-test-min-release-separation`
+  - PowerShell: `-SelfTestMinScriptedPlaceCount`
+  - PowerShell: `-SelfTestMaxScriptedPlaceError`
+  - PowerShell: `-SelfTestMinReleaseSeparation`
+- [x] strict wrapper gate 추가
+  - `SelfTestMinScriptedPlaceCount = 8`
+  - `SelfTestMaxScriptedPlaceError = 0.005`
+  - `SelfTestMinReleaseSeparation = 0.20`
+
+드롭 위치 작업대 보강:
+
+- [x] drop slide 끝단에 pallet stop block visual 추가
+- [x] locator post/cap visual 추가
+- [x] self-test gate 추가
+  - `drop_dock_stop_count`
+  - `drop_dock_stop_gap`
+  - `drop_dock_guide_clearance`
+  - `drop_dock_fork_clearance`
+  - `drop_dock_runner_clearance`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] unittest 46개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- [x] 로그 파일: `isaacsim_logs/harim_scripted_place_release_strict_full_e2e_12000.log`
+- [x] 주요 완료 metric:
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `scripted_place_count=8`
+  - `max_scripted_place_error=0.0000`
+  - `max_release_separation=1.6853`
+  - `max_release_vertical_clearance=1.0331`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `max_release_drift=0.0000`
+  - `drop_dock_stop_count=2`
+  - `drop_dock_stop_gap=0.0350`
+  - `drop_dock_guide_clearance=0.1500`
+  - `drop_dock_fork_clearance=0.0350`
+  - `drop_dock_runner_clearance=0.0650`
+
+---

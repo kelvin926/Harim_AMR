@@ -24,6 +24,8 @@ CONVEYOR_PICK_WINDOW_Y = 0.68
 PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
 POST_RELEASE_CLEARANCE_LIFT = 0.32
 RELEASE_RETREAT_DURATION = 0.55
+SCRIPTED_PLACE_DURATION = 0.70
+SCRIPTED_PLACE_EE_HOVER = 0.18
 POST_RELEASE_JOINT_SETTLE_DURATION = 0.65
 ARM_CLEAR_SETTLE_TIME = 1.8
 REACH_PICK_MAX_DURATION = 12.0
@@ -95,6 +97,15 @@ DROP_SLIDE_ROLLER_SCALE = np.array([0.12, 0.08, 0.035], dtype=float)
 DROP_SLIDE_TOP_SUPPORT_SCALE = np.array([1.95, 0.08, 0.035], dtype=float)
 DROP_SLIDE_ROLLER_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_ROLLER_SCALE[2] * 0.5
 DROP_SLIDE_TOP_SUPPORT_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_TOP_SUPPORT_SCALE[2] * 0.5
+DROP_DOCK_STOP_GAP = 0.035
+DROP_DOCK_STOP_BLOCK_SCALE = np.array([0.08, 0.09, 0.16], dtype=float)
+DROP_DOCK_STOP_Y_OFFSETS = DROP_SLIDE_LANE_Y_OFFSETS
+DROP_DOCK_STOP_X_OFFSET = PALLET_DECK_SCALE[0] * 0.5 + DROP_DOCK_STOP_GAP + DROP_DOCK_STOP_BLOCK_SCALE[0] * 0.5
+DROP_DOCK_STOP_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z + DROP_DOCK_STOP_BLOCK_SCALE[2] * 0.5
+DROP_DOCK_GUIDE_POST_SCALE = np.array([0.06, 0.06, 0.42], dtype=float)
+DROP_DOCK_GUIDE_POST_X_OFFSETS = (-0.58, 0.58)
+DROP_DOCK_GUIDE_POST_Y_OFFSETS = (-0.72, 0.72)
+DROP_DOCK_GUIDE_POST_CENTER_Z = WORLD_FLOOR_Z + DROP_DOCK_GUIDE_POST_SCALE[2] * 0.5
 FLOOR_MARKING_Z = WORLD_FLOOR_Z + 0.004
 FLOOR_MARKING_THICKNESS = 0.006
 AMR_PATH_MARKING_WIDTH = 0.10
@@ -196,6 +207,24 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test unless the arm retreats upward by at least this distance after releasing a bin. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-scripted-place-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless the final scripted place state runs at least this many times. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-scripted-place-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the final scripted place pose is farther than this distance from the stack target. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-release-separation",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test unless the released box separates from the suction TCP by at least this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-require-gripper-open-after-release",
@@ -315,6 +344,30 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the drop workstation lanes are closer to the AMR lift forks than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-drop-dock-stop-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many drop dock stop blocks are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-drop-dock-stop-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the drop dock stop blocks are farther from the pallet front than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-drop-dock-guide-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if drop dock locator posts leave less pallet side clearance than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-drop-dock-fork-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if drop dock stop blocks are closer to AMR lift forks than this distance in meters. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -712,6 +765,36 @@ def compute_drop_workstation_fork_clearance():
         for fork_offset in LIFT_FORK_OFFSETS:
             gaps.append(abs(float(lane_y) - float(fork_offset[1])) - lane_half_width - fork_half_width)
     return float(min(gaps)) if gaps else 0.0
+
+
+def compute_drop_dock_metrics():
+    stop_inner_clearances_to_forks = []
+    stop_inner_clearances_to_runners = []
+    for stop_y in DROP_DOCK_STOP_Y_OFFSETS:
+        stop_inner_half_width = abs(float(stop_y)) - DROP_DOCK_STOP_BLOCK_SCALE[1] * 0.5
+        for fork_offset in LIFT_FORK_OFFSETS:
+            fork_outer_half_width = abs(float(fork_offset[1])) + LIFT_FORK_SCALE[1] * 0.5
+            stop_inner_clearances_to_forks.append(stop_inner_half_width - fork_outer_half_width)
+        runner_inner_half_width = min(
+            abs(float(offset[1])) - PALLET_RUNNER_SCALE[1] * 0.5 for offset in PALLET_RUNNER_OFFSETS
+        )
+        stop_inner_clearances_to_runners.append(runner_inner_half_width - (abs(float(stop_y)) + DROP_DOCK_STOP_BLOCK_SCALE[1] * 0.5))
+
+    guide_side_clearances = [
+        abs(float(y_offset)) - DROP_DOCK_GUIDE_POST_SCALE[1] * 0.5 - PALLET_DECK_SCALE[1] * 0.5
+        for y_offset in DROP_DOCK_GUIDE_POST_Y_OFFSETS
+    ]
+    return {
+        "drop_dock_stop_count": len(DROP_DOCK_STOP_Y_OFFSETS),
+        "drop_dock_stop_gap": float(DROP_DOCK_STOP_GAP),
+        "drop_dock_guide_clearance": float(min(guide_side_clearances)) if guide_side_clearances else 0.0,
+        "drop_dock_fork_clearance": (
+            float(min(stop_inner_clearances_to_forks)) if stop_inner_clearances_to_forks else 0.0
+        ),
+        "drop_dock_runner_clearance": (
+            float(min(stop_inner_clearances_to_runners)) if stop_inner_clearances_to_runners else 0.0
+        ),
+    }
 
 
 def compute_amr_exit_clearance(amr_x, drop_x=DEFAULT_DROP_X):
@@ -1387,6 +1470,7 @@ def main():
         context.active_bin = None
         context.demo_carried_bin = None
         context.demo_pre_grip_bin = None
+        context.demo_scripted_place_bin = None
         context.demo_pre_grip_initial_offset = None
 
     def mark_demo_bin_released(context, bin_state, target_position, target_orientation):
@@ -1451,6 +1535,30 @@ def main():
             context.demo_release_gripper_probe_failures = (
                 int(getattr(context, "demo_release_gripper_probe_failures", 0)) + 1
             )
+
+    def record_release_visual_separation(context, released_bin):
+        if released_bin is None:
+            return
+        robot = getattr(context, "robot", None)
+        arm = getattr(robot, "arm", None)
+        if arm is None:
+            return
+        try:
+            eff_p = np.array(arm.get_fk_p(), dtype=float)
+            bin_p, _ = released_bin.bin_obj.get_world_pose()
+            bin_p = np.array(bin_p, dtype=float)
+        except Exception:
+            return
+        separation = float(np.linalg.norm(eff_p - bin_p))
+        vertical_clearance = float(eff_p[2] - bin_p[2])
+        context.demo_max_release_separation = max(
+            float(getattr(context, "demo_max_release_separation", 0.0)),
+            separation,
+        )
+        context.demo_max_release_vertical_clearance = max(
+            float(getattr(context, "demo_max_release_vertical_clearance", 0.0)),
+            vertical_clearance,
+        )
 
     def hold_demo_released_bin_at_target(context):
         released_bin = getattr(context, "demo_released_bin", None)
@@ -1641,6 +1749,81 @@ def main():
         def step(self):
             return None
 
+    class DemoScriptedPlaceBin(DfState):
+        def __init__(self, duration=SCRIPTED_PLACE_DURATION):
+            self.duration = duration
+            self.entry_time = None
+            self.active_bin = None
+            self.start_position = None
+            self.start_orientation = None
+            self.target_p = None
+            self.target_q = None
+
+        def enter(self):
+            self.entry_time = get_demo_time(self.context)
+            active_bin = get_demo_carried_bin(self.context) or getattr(self.context, "active_bin", None)
+            if active_bin is None:
+                return
+
+            self.active_bin = active_bin
+            self.start_position, self.start_orientation = active_bin.bin_obj.get_world_pose()
+            self.target_p = get_demo_stack_coordinate(self.context, len(self.context.stacked_bins))
+            self.target_q = UPSIDE_DOWN_BIN_QUAT.copy()
+            self.context.active_bin = active_bin
+            self.context.demo_scripted_place_bin = active_bin
+            self.context.demo_scripted_place_count = int(
+                getattr(self.context, "demo_scripted_place_count", 0)
+            ) + 1
+            active_bin.demo_attached = True
+            active_bin.demo_force_released = False
+            active_bin.is_attached = True
+            force_open_suction_gripper(self.context)
+            set_kinematic_for_demo(active_bin.bin_obj, True)
+            stop_dynamic_prim(active_bin.bin_obj)
+            print(f"[HarimDemo] scripted-place {active_bin.bin_obj.name} -> {self.target_p.tolist()}", flush=True)
+
+        def step(self):
+            if self.active_bin is None or self.target_p is None:
+                return None
+            force_open_suction_gripper(self.context)
+            elapsed = get_demo_time(self.context) - self.entry_time
+            t = clamp(elapsed / max(self.duration, 1e-6), 0.0, 1.0)
+            eased_t = smoothstep(t)
+            position = lerp(np.array(self.start_position, dtype=float), np.array(self.target_p, dtype=float), eased_t)
+            orientation = quat_lerp(self.start_orientation, self.target_q, eased_t)
+            self.active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
+            stop_dynamic_prim(self.active_bin.bin_obj)
+            set_kinematic_for_demo(self.active_bin.bin_obj, True)
+            hover_target = np.array(self.target_p, dtype=float) + np.array(
+                [0.0, 0.0, SCRIPTED_PLACE_EE_HOVER], dtype=float
+            )
+            self.context.robot.arm.send(
+                MotionCommand(target_position=hover_target, posture_config=self.context.robot.default_config)
+            )
+            if t < 1.0:
+                return self
+            return None
+
+        def exit(self):
+            if self.active_bin is not None and self.target_p is not None:
+                self.active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=self.target_q)
+                stop_dynamic_prim(self.active_bin.bin_obj)
+                set_kinematic_for_demo(self.active_bin.bin_obj, True)
+                place_error = float(
+                    np.linalg.norm(np.array(self.active_bin.bin_obj.get_world_pose()[0], dtype=float) - self.target_p)
+                )
+                self.context.demo_max_scripted_place_error = max(
+                    float(getattr(self.context, "demo_max_scripted_place_error", 0.0)),
+                    place_error,
+                )
+                self.context.active_bin = self.active_bin
+            self.entry_time = None
+            self.active_bin = None
+            self.start_position = None
+            self.start_orientation = None
+            self.target_p = None
+            self.target_q = None
+
     class DemoReleaseBin(DfState):
         def __init__(self, release_duration=RELEASE_RETREAT_DURATION):
             self.release_duration = release_duration
@@ -1660,6 +1843,7 @@ def main():
             if active_bin is None:
                 return
 
+            self.context.demo_scripted_place_bin = None
             target_index = len(self.context.stacked_bins)
             self.target_p = get_demo_stack_coordinate(self.context, target_index)
             self.released_bin = active_bin
@@ -1677,6 +1861,7 @@ def main():
             stop_dynamic_prim(active_bin.bin_obj)
             set_kinematic_for_demo(active_bin.bin_obj, True)
             self.context.robot.arm.send(MotionCommand(self.retreat_pq))
+            record_release_visual_separation(self.context, active_bin)
             if args.self_test_require_gripper_open_after_release:
                 record_release_gripper_state(self.context)
             print(f"[HarimDemo] demo-placed {active_bin.bin_obj.name} at {self.target_p.tolist()}", flush=True)
@@ -1689,6 +1874,7 @@ def main():
             hold_demo_released_bin_at_target(self.context)
             if self.retreat_pq is not None:
                 self.context.robot.arm.send(MotionCommand(self.retreat_pq))
+            record_release_visual_separation(self.context, self.released_bin)
             if self.release_start_arm_z is not None:
                 current_arm_z = float(self.context.robot.arm.get_fk_p()[2])
                 self.context.demo_max_release_retreat_lift = max(
@@ -1706,6 +1892,7 @@ def main():
                 force_open_suction_gripper(self.context)
                 mark_demo_bin_released(self.context, self.released_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
                 hold_demo_released_bin_at_target(self.context)
+                record_release_visual_separation(self.context, self.released_bin)
             self.entry_time = None
             self.released_bin = None
             self.target_p = None
@@ -1908,6 +2095,7 @@ def main():
                         DemoTimedArmLift(height=0.24, duration=0.35),
                         DemoTimedState(behavior.ReachToPlace(), max_duration=REACH_PLACE_MAX_DURATION, label="reach_place"),
                         DfWaitState(wait_time=0.15),
+                        DemoScriptedPlaceBin(),
                         DemoReleaseBin(),
                         DemoTimedArmJointSettle(),
                         DemoTimedArmMoveTo(
@@ -1935,6 +2123,8 @@ def main():
         if active_bin in getattr(context, "stacked_bins", []) or getattr(active_bin, "demo_force_released", False):
             if getattr(context, "active_bin", None) is active_bin:
                 context.active_bin = None
+            return
+        if getattr(context, "demo_scripted_place_bin", None) is active_bin:
             return
         if not getattr(active_bin, "demo_attached", False):
             return
@@ -2349,7 +2539,72 @@ def main():
             )
         return workstation_parts
 
+    def create_drop_dock_alignment_visual():
+        dock_parts = []
+        stop_color = np.array([0.82, 0.68, 0.20], dtype=float)
+        post_color = np.array([0.12, 0.14, 0.16], dtype=float)
+        cap_color = np.array([0.95, 0.72, 0.12], dtype=float)
+        for stop_idx, y_offset in enumerate(DROP_DOCK_STOP_Y_OFFSETS):
+            dock_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/DropDockStopBlock_{stop_idx}",
+                        name=f"harim_drop_dock_stop_block_{stop_idx}",
+                        position=np.array(
+                            [
+                                args.drop_x + DROP_DOCK_STOP_X_OFFSET,
+                                args.drop_y + y_offset,
+                                DROP_DOCK_STOP_CENTER_Z,
+                            ],
+                            dtype=float,
+                        ),
+                        scale=DROP_DOCK_STOP_BLOCK_SCALE,
+                        color=stop_color,
+                    )
+                )
+            )
+        for post_idx, x_offset in enumerate(DROP_DOCK_GUIDE_POST_X_OFFSETS):
+            for side_idx, y_offset in enumerate(DROP_DOCK_GUIDE_POST_Y_OFFSETS):
+                dock_parts.append(
+                    world.scene.add(
+                        VisualCuboid(
+                            f"{harim_root}/DropDockLocatorPost_{post_idx}_{side_idx}",
+                            name=f"harim_drop_dock_locator_post_{post_idx}_{side_idx}",
+                            position=np.array(
+                                [
+                                    args.drop_x + x_offset,
+                                    args.drop_y + y_offset,
+                                    DROP_DOCK_GUIDE_POST_CENTER_Z,
+                                ],
+                                dtype=float,
+                            ),
+                            scale=DROP_DOCK_GUIDE_POST_SCALE,
+                            color=post_color,
+                        )
+                    )
+                )
+                dock_parts.append(
+                    world.scene.add(
+                        VisualCuboid(
+                            f"{harim_root}/DropDockLocatorCap_{post_idx}_{side_idx}",
+                            name=f"harim_drop_dock_locator_cap_{post_idx}_{side_idx}",
+                            position=np.array(
+                                [
+                                    args.drop_x + x_offset,
+                                    args.drop_y + y_offset,
+                                    DROP_DOCK_GUIDE_POST_CENTER_Z + DROP_DOCK_GUIDE_POST_SCALE[2] * 0.5 + 0.025,
+                                ],
+                                dtype=float,
+                            ),
+                            scale=np.array([0.10, 0.10, 0.05], dtype=float),
+                            color=cap_color,
+                        )
+                    )
+                )
+        return dock_parts
+
     create_drop_slide_workstation()
+    create_drop_dock_alignment_visual()
 
     lift_plate_parts = []
     for fork_idx, fork_offset in enumerate(LIFT_FORK_OFFSETS):
@@ -2493,6 +2748,11 @@ def main():
     decider_network.context.demo_max_return_ready_error = 0.0
     decider_network.context.demo_max_release_drift = 0.0
     decider_network.context.demo_max_release_retreat_lift = 0.0
+    decider_network.context.demo_scripted_place_bin = None
+    decider_network.context.demo_scripted_place_count = 0
+    decider_network.context.demo_max_scripted_place_error = 0.0
+    decider_network.context.demo_max_release_separation = 0.0
+    decider_network.context.demo_max_release_vertical_clearance = 0.0
     decider_network.context.demo_release_gripper_samples = 0
     decider_network.context.demo_release_gripper_not_open_samples = 0
     decider_network.context.demo_release_gripped_object_max = 0
@@ -2565,6 +2825,30 @@ def main():
                 self_test_failures.append(
                     f"release retreat lift {max_release_retreat_lift:.4f} m was below "
                     f"{args.self_test_min_release_retreat_lift:.4f} m"
+                )
+            scripted_place_count = int(getattr(decider_network.context, "demo_scripted_place_count", 0))
+            if args.self_test_min_scripted_place_count > 0 and scripted_place_count < args.self_test_min_scripted_place_count:
+                self_test_failures.append(
+                    f"scripted place count {scripted_place_count} was below "
+                    f"{args.self_test_min_scripted_place_count}"
+                )
+            max_scripted_place_error = float(getattr(decider_network.context, "demo_max_scripted_place_error", 0.0))
+            if (
+                args.self_test_max_scripted_place_error > 0
+                and max_scripted_place_error > args.self_test_max_scripted_place_error
+            ):
+                self_test_failures.append(
+                    f"scripted place error {max_scripted_place_error:.4f} m exceeded "
+                    f"{args.self_test_max_scripted_place_error:.4f} m"
+                )
+            max_release_separation = float(getattr(decider_network.context, "demo_max_release_separation", 0.0))
+            max_release_vertical_clearance = float(
+                getattr(decider_network.context, "demo_max_release_vertical_clearance", 0.0)
+            )
+            if args.self_test_min_release_separation > 0 and max_release_separation < args.self_test_min_release_separation:
+                self_test_failures.append(
+                    f"release separation {max_release_separation:.4f} m was below "
+                    f"{args.self_test_min_release_separation:.4f} m"
                 )
             release_gripper_samples = int(getattr(decider_network.context, "demo_release_gripper_samples", 0))
             release_gripper_not_open = int(
@@ -2793,6 +3077,46 @@ def main():
                     f"drop lane fork clearance {drop_fork_clearance:.4f} m was below "
                     f"{args.self_test_min_drop_fork_clearance:.4f} m"
                 )
+            drop_dock_metrics = compute_drop_dock_metrics()
+            drop_dock_stop_count = drop_dock_metrics["drop_dock_stop_count"]
+            drop_dock_stop_gap = drop_dock_metrics["drop_dock_stop_gap"]
+            drop_dock_guide_clearance = drop_dock_metrics["drop_dock_guide_clearance"]
+            drop_dock_fork_clearance = drop_dock_metrics["drop_dock_fork_clearance"]
+            drop_dock_runner_clearance = drop_dock_metrics["drop_dock_runner_clearance"]
+            if (
+                args.self_test_min_drop_dock_stop_count > 0
+                and drop_dock_stop_count < args.self_test_min_drop_dock_stop_count
+            ):
+                self_test_failures.append(
+                    f"drop dock stop count {drop_dock_stop_count} was below "
+                    f"{args.self_test_min_drop_dock_stop_count}"
+                )
+            if args.self_test_max_drop_dock_stop_gap > 0:
+                if drop_dock_stop_gap > args.self_test_max_drop_dock_stop_gap:
+                    self_test_failures.append(
+                        f"drop dock stop gap {drop_dock_stop_gap:.4f} m exceeded "
+                        f"{args.self_test_max_drop_dock_stop_gap:.4f} m"
+                    )
+                if drop_dock_stop_gap < 0.0:
+                    self_test_failures.append(
+                        f"drop dock stop overlapped pallet front {-drop_dock_stop_gap:.4f} m"
+                    )
+            if (
+                args.self_test_min_drop_dock_guide_clearance > 0
+                and drop_dock_guide_clearance < args.self_test_min_drop_dock_guide_clearance
+            ):
+                self_test_failures.append(
+                    f"drop dock guide clearance {drop_dock_guide_clearance:.4f} m was below "
+                    f"{args.self_test_min_drop_dock_guide_clearance:.4f} m"
+                )
+            if (
+                args.self_test_min_drop_dock_fork_clearance > 0
+                and drop_dock_fork_clearance < args.self_test_min_drop_dock_fork_clearance
+            ):
+                self_test_failures.append(
+                    f"drop dock fork clearance {drop_dock_fork_clearance:.4f} m was below "
+                    f"{args.self_test_min_drop_dock_fork_clearance:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -2806,6 +3130,10 @@ def main():
                     f"max_return_ready_error={max_return_ready_error:.4f}; "
                     f"max_release_drift={max_release_drift:.4f}; "
                     f"max_release_retreat_lift={max_release_retreat_lift:.4f}; "
+                    f"scripted_place_count={scripted_place_count}; "
+                    f"max_scripted_place_error={max_scripted_place_error:.4f}; "
+                    f"max_release_separation={max_release_separation:.4f}; "
+                    f"max_release_vertical_clearance={max_release_vertical_clearance:.4f}; "
                     f"release_gripper_samples={release_gripper_samples}; "
                     f"release_gripper_not_open={release_gripper_not_open}; "
                     f"release_gripped_object_max={release_gripped_object_max}; "
@@ -2835,7 +3163,12 @@ def main():
                     f"drop_support_gap={drop_support_gap:.4f}; "
                     f"drop_lane_clearance={drop_lane_clearance:.4f}; "
                     f"drop_runner_clearance={drop_runner_clearance:.4f}; "
-                    f"drop_fork_clearance={drop_fork_clearance:.4f}",
+                    f"drop_fork_clearance={drop_fork_clearance:.4f}; "
+                    f"drop_dock_stop_count={drop_dock_stop_count}; "
+                    f"drop_dock_stop_gap={drop_dock_stop_gap:.4f}; "
+                    f"drop_dock_guide_clearance={drop_dock_guide_clearance:.4f}; "
+                    f"drop_dock_fork_clearance={drop_dock_fork_clearance:.4f}; "
+                    f"drop_dock_runner_clearance={drop_dock_runner_clearance:.4f}",
                     flush=True,
                 )
         else:

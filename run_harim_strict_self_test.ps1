@@ -24,6 +24,9 @@ $RunnerArgs = @{
     SelfTestMaxReturnReadyError = 0.05
     SelfTestMaxReleaseDrift = 0.005
     SelfTestMinReleaseRetreatLift = 0.20
+    SelfTestMinScriptedPlaceCount = 8
+    SelfTestMaxScriptedPlaceError = 0.005
+    SelfTestMinReleaseSeparation = 0.20
     SelfTestRequireGripperOpenAfterRelease = $true
     SelfTestMaxStackLateralGap = 0.03
     SelfTestMaxStackSupportGap = 0.02
@@ -44,6 +47,10 @@ $RunnerArgs = @{
     SelfTestMinDropLaneClearance = 0.03
     SelfTestMinDropRunnerClearance = 0.05
     SelfTestMinDropForkClearance = 0.03
+    SelfTestMinDropDockStopCount = 2
+    SelfTestMaxDropDockStopGap = 0.05
+    SelfTestMinDropDockGuideClearance = 0.10
+    SelfTestMinDropDockForkClearance = 0.03
 }
 
 if (-not $ShowGui) {
