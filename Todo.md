@@ -2041,6 +2041,70 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 ---
 
+## 2026-05-29 strict full realism self-test wrapper 추가
+
+현실성 gate가 많아지면서 매번 긴 명령을 직접 입력하면 특정 gate를 빼먹기 쉽다. 이번 보강에서는 지금까지 추가한 모든 full end-to-end realism gate를 한 번에 실행하는 wrapper를 추가했다.
+
+수정 내용:
+
+- [x] `run_harim_strict_self_test.ps1` 추가
+  - 기본 `SelfTestFrames = 12000`
+  - 기본 `Cycles = 1`
+  - 기본은 headless 실행
+  - `-ShowGui`를 주면 GUI 실행 가능
+  - `-AcceptEula`, `-SelfTestDebugBins` 전달 지원
+- [x] 현재 full realism gate를 모두 포함
+  - 8박스 적재
+  - AMR transfer 1회 완료
+  - pre-grip offset
+  - return-ready error
+  - release drift
+  - release gripper open state
+  - stack lateral/support gap
+  - stack pallet margin
+  - payload lift/drop drift
+  - AMR exit clearance
+  - lift contact/tunnel/fork geometry
+  - drop support/lane/runner/fork clearance
+- [x] PowerShell script 호출은 array splatting이 아니라 hashtable splatting으로 처리
+  - script parameter에 named argument가 정확히 전달되도록 수정했다.
+- [x] strict wrapper가 모든 gate를 포함하는지 unittest 추가
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+확인 결과:
+
+- [x] Python compile 통과
+- [x] unittest 41개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_strict_wrapper_full_e2e_12000.log`
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0400`
+  - `max_release_drift=0.0000`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `max_stack_lateral_gap=0.0200`
+  - `max_stack_support_gap=0.0100`
+  - `min_stack_pallet_margin=0.0850`
+  - `max_stack_pallet_overhang=0.0000`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`
+  - `amr_exit_clearance=0.6500`
+  - `max_lift_contact_gap=0.0050`
+  - `pallet_tunnel_clearance=0.1600`
+  - `drop_fork_clearance=0.0400`
+
+---
+
 ## 2026-05-29 AMR slide-out exit clearance gate 추가
 
 하역 후 payload drift는 0으로 검증하고 있었지만, AMR fork가 dropped pallet footprint 밖으로 충분히 빠져나갔는지는 별도 지표가 없었다. 이번 보강에서는 slide-out 완료 후 AMR lift fork의 뒤쪽 끝과 dropped pallet deck 앞쪽 끝 사이의 X 방향 여유를 계산해 self-test gate로 확인한다.

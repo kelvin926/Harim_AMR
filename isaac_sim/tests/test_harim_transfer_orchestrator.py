@@ -7,6 +7,7 @@ import numpy as np
 
 DEMO_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_harim_pallet_demo.py"
 RUNNER_PATH = Path(__file__).resolve().parents[2] / "run_harim_demo.ps1"
+STRICT_RUNNER_PATH = Path(__file__).resolve().parents[2] / "run_harim_strict_self_test.ps1"
 
 
 def load_demo_module():
@@ -551,6 +552,45 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-drop-lane-clearance", source)
         self.assertIn("--self-test-min-drop-runner-clearance", source)
         self.assertIn("--self-test-min-drop-fork-clearance", source)
+
+    def test_strict_runner_enables_all_current_realism_gates(self):
+        source = STRICT_RUNNER_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("run_harim_demo.ps1", source)
+        self.assertIn("[int]$SelfTestFrames = 12000", source)
+        self.assertIn("$RunnerArgs = @", source)
+        self.assertIn("SelfTestMinPlacedBins", source)
+        self.assertIn("8", source)
+        self.assertIn("SelfTestMinTransferCycles", source)
+        self.assertIn("1", source)
+        self.assertIn("SelfTestMaxPreGripOffset", source)
+        self.assertIn("0.05", source)
+        self.assertIn("SelfTestMaxReturnReadyError", source)
+        self.assertIn("SelfTestMaxReleaseDrift", source)
+        self.assertIn("0.005", source)
+        self.assertIn("SelfTestRequireGripperOpenAfterRelease = $true", source)
+        self.assertIn("SelfTestMaxStackLateralGap", source)
+        self.assertIn("0.03", source)
+        self.assertIn("SelfTestMaxStackSupportGap", source)
+        self.assertIn("0.02", source)
+        self.assertIn("SelfTestMinStackPalletMargin", source)
+        self.assertIn("0.08", source)
+        self.assertIn("SelfTestMinPayloadLift", source)
+        self.assertIn("0.10", source)
+        self.assertIn("SelfTestMaxDroppedPayloadDrift", source)
+        self.assertIn("SelfTestMinAmrExitClearance", source)
+        self.assertIn("0.60", source)
+        self.assertIn("SelfTestMaxLiftContactGap", source)
+        self.assertIn("0.01", source)
+        self.assertIn("SelfTestMinPalletTunnelClearance", source)
+        self.assertIn("SelfTestMinLiftForkInnerGap", source)
+        self.assertIn("0.30", source)
+        self.assertIn("SelfTestMaxDropSupportGap", source)
+        self.assertIn("SelfTestMinDropLaneClearance", source)
+        self.assertIn("SelfTestMinDropRunnerClearance", source)
+        self.assertIn("SelfTestMinDropForkClearance", source)
+        self.assertIn('if (-not $ShowGui)', source)
+        self.assertIn("Headless = $true", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
