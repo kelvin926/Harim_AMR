@@ -196,6 +196,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if the delivered pallet assembly drifts after detach by more than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-min-amr-exit-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR lift forks do not fully clear the dropped pallet by at least this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-lift-contact-gap",
         type=float,
         default=0.0,
@@ -503,6 +509,12 @@ def compute_drop_workstation_fork_clearance():
         for fork_offset in LIFT_FORK_OFFSETS:
             gaps.append(abs(float(lane_y) - float(fork_offset[1])) - lane_half_width - fork_half_width)
     return float(min(gaps)) if gaps else 0.0
+
+
+def compute_amr_exit_clearance(amr_x, drop_x=DEFAULT_DROP_X):
+    fork_rear_x = float(amr_x) - LIFT_FORK_SCALE[0] * 0.5
+    dropped_pallet_front_x = float(drop_x) + PALLET_DECK_SCALE[0] * 0.5
+    return float(fork_rear_x - dropped_pallet_front_x)
 
 
 def clone_stack_coordinates(stack_coordinates):
@@ -2174,6 +2186,15 @@ def main():
                     f"max dropped payload drift {max_dropped_payload_drift:.4f} m exceeded "
                     f"{args.self_test_max_dropped_payload_drift:.4f} m"
                 )
+            amr_exit_clearance = compute_amr_exit_clearance(orchestrator.get_amr_position()[0], args.drop_x)
+            if args.self_test_min_amr_exit_clearance > 0:
+                if transfer_cycles <= 0:
+                    self_test_failures.append("AMR exit clearance was not available before a completed transfer")
+                elif amr_exit_clearance < args.self_test_min_amr_exit_clearance:
+                    self_test_failures.append(
+                        f"AMR exit clearance {amr_exit_clearance:.4f} m was below "
+                        f"{args.self_test_min_amr_exit_clearance:.4f} m"
+                    )
             max_lift_contact_gap = float(getattr(orchestrator, "max_lift_contact_gap_observed", 0.0))
             min_lift_contact_gap = float(getattr(orchestrator, "min_lift_contact_gap_observed", 0.0))
             if args.self_test_max_lift_contact_gap > 0:
@@ -2267,6 +2288,7 @@ def main():
                     f"max_stack_pallet_overhang={max_stack_pallet_overhang:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
+                    f"amr_exit_clearance={amr_exit_clearance:.4f}; "
                     f"max_lift_contact_gap={max_lift_contact_gap:.4f}; "
                     f"min_lift_contact_gap={min_lift_contact_gap:.4f}; "
                     f"pallet_tunnel_clearance={pallet_tunnel_clearance:.4f}; "
