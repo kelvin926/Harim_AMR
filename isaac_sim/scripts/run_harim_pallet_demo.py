@@ -614,6 +614,24 @@ def parse_args():
         help="Fail the fixed-frame self-test if the drop workstation support is farther below the pallet deck underside than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-drop-handoff-xy-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the delivered pallet center is farther from the drop workstation center than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-drop-handoff-support-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the delivered pallet underside is farther above the drop workstation support than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-drop-handoff-support-penetration",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the delivered pallet underside penetrates below the drop workstation support by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-drop-lane-clearance",
         type=float,
         default=0.0,
@@ -2226,6 +2244,9 @@ class HarimTransferOrchestrator:
             args.drop_y,
         )
         self.max_carried_pallet_pose_error = 0.0
+        self.drop_handoff_xy_error = 0.0
+        self.drop_handoff_support_gap = compute_drop_workstation_support_gap()
+        self.drop_handoff_support_penetration = 0.0
         self.amr_warning_indicator_on_observed = 0
         self.amr_idle_indicator_on_observed = 0
         self.amr_indicator_visibility_mismatch_count = 0
@@ -2655,6 +2676,24 @@ class HarimTransferOrchestrator:
             pos, orient = part.get_world_pose()
             self.dropped_pallet_poses[part.name] = (part, np.array(pos, dtype=float), orient)
 
+    def _record_drop_handoff_geometry(self):
+        if not self.pallet_parts:
+            return
+        try:
+            deck_pos, _deck_orient = self.pallet_parts[0].get_world_pose()
+        except Exception:
+            return
+        deck_pos = np.array(deck_pos, dtype=float)
+        pallet_center = deck_pos - PALLET_DECK_OFFSETS[0]
+        drop_center = np.array([self.args.drop_x, self.args.drop_y, PALLET_CENTER_Z])
+        self.drop_handoff_xy_error = float(
+            np.linalg.norm((pallet_center - drop_center)[:2])
+        )
+        deck_underside_z = float(deck_pos[2] - PALLET_DECK_SCALE[2] * 0.5)
+        support_gap = deck_underside_z - DROP_SLIDE_SUPPORT_TOP_Z
+        self.drop_handoff_support_gap = float(support_gap)
+        self.drop_handoff_support_penetration = max(0.0, float(-support_gap))
+
     def _hold_dropped_assembly(self):
         for item, pos, orient in self.dropped_item_poses.values():
             try:
@@ -2684,6 +2723,7 @@ class HarimTransferOrchestrator:
         for item in self.attached_items:
             self._stop_dynamic_item(item)
         self._record_dropped_assembly()
+        self._record_drop_handoff_geometry()
         self.carrying = False
         self.attached_items = []
         self.item_offsets = {}
@@ -5031,6 +5071,35 @@ def main():
                     self_test_failures.append(
                         f"drop support overlapped pallet underside {-drop_support_gap:.4f} m exceeded 0.0050 m"
                     )
+            drop_handoff_xy_error = float(getattr(orchestrator, "drop_handoff_xy_error", 0.0))
+            drop_handoff_support_gap = float(getattr(orchestrator, "drop_handoff_support_gap", 0.0))
+            drop_handoff_support_penetration = float(
+                getattr(orchestrator, "drop_handoff_support_penetration", 0.0)
+            )
+            if args.self_test_max_drop_handoff_xy_error > 0:
+                if transfer_cycles <= 0:
+                    self_test_failures.append("drop handoff XY error was not available before a completed transfer")
+                elif drop_handoff_xy_error > args.self_test_max_drop_handoff_xy_error:
+                    self_test_failures.append(
+                        f"drop handoff XY error {drop_handoff_xy_error:.4f} m exceeded "
+                        f"{args.self_test_max_drop_handoff_xy_error:.4f} m"
+                    )
+            if args.self_test_max_drop_handoff_support_gap > 0:
+                if transfer_cycles <= 0:
+                    self_test_failures.append("drop handoff support gap was not available before a completed transfer")
+                elif drop_handoff_support_gap > args.self_test_max_drop_handoff_support_gap:
+                    self_test_failures.append(
+                        f"drop handoff support gap {drop_handoff_support_gap:.4f} m exceeded "
+                        f"{args.self_test_max_drop_handoff_support_gap:.4f} m"
+                    )
+            if (
+                args.self_test_max_drop_handoff_support_penetration > 0
+                and drop_handoff_support_penetration > args.self_test_max_drop_handoff_support_penetration
+            ):
+                self_test_failures.append(
+                    f"drop handoff support penetration {drop_handoff_support_penetration:.4f} m exceeded "
+                    f"{args.self_test_max_drop_handoff_support_penetration:.4f} m"
+                )
             drop_lane_clearance = compute_drop_workstation_tunnel_clearance()
             if (
                 args.self_test_min_drop_lane_clearance > 0
@@ -5410,6 +5479,9 @@ def main():
                     f"pallet_tunnel_clearance={pallet_tunnel_clearance:.4f}; "
                     f"lift_fork_inner_gap={lift_fork_inner_gap:.4f}; "
                     f"drop_support_gap={drop_support_gap:.4f}; "
+                    f"drop_handoff_xy_error={drop_handoff_xy_error:.4f}; "
+                    f"drop_handoff_support_gap={drop_handoff_support_gap:.4f}; "
+                    f"drop_handoff_support_penetration={drop_handoff_support_penetration:.4f}; "
                     f"drop_lane_clearance={drop_lane_clearance:.4f}; "
                     f"drop_runner_clearance={drop_runner_clearance:.4f}; "
                     f"drop_fork_clearance={drop_fork_clearance:.4f}; "

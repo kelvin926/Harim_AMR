@@ -1,5 +1,24 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Drop Handoff 동적 검증 및 GIF 저장
+
+- [x] 팔레트를 내려놓은 직후 실제 pallet center가 목표 drop 작업대 중심과 얼마나 맞는지 `drop_handoff_xy_error`로 기록하도록 했다.
+- [x] 팔레트 deck underside와 drop slide support top 사이의 실제 높이 차이를 `drop_handoff_support_gap`, `drop_handoff_support_penetration`으로 기록하도록 했다.
+- [x] self-test gate를 추가했다.
+  - Python: `--self-test-max-drop-handoff-xy-error`
+  - Python: `--self-test-max-drop-handoff-support-gap`
+  - Python: `--self-test-max-drop-handoff-support-penetration`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 사용자가 매번 확인할 수 있도록 기본 demo/self-test 실행은 review GIF를 `isaacsim_outputs`에 저장하게 유지한다.
+  - 성공, 실패, 예외 종료 모두 `save_review_gif()`를 거치며 로그에 `review_gif_path`를 남긴다.
+  - 앞으로 검증 실행 시 `-NoGif`는 사용하지 않는다.
+- [x] 검증 완료
+  - unittest 64개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_drop_handoff_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_014950_9596.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `drop_handoff_xy_error=0.0000`, `drop_handoff_support_gap=0.0050`, `drop_handoff_support_penetration=0.0000`
+
 ## 2026-05-30 Loaded Route Guard 동적 검증
 
 - [x] 정적 AMR route guard clearance뿐 아니라, 팔레트를 실제로 싣고 이동하는 동안 AMR이 계획 경로 중심선에서 얼마나 벗어나는지 기록하도록 했다.

@@ -519,6 +519,19 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             abs(self.demo.LIFT_FORK_OFFSETS[0][1]),
         )
 
+    def test_drop_handoff_records_delivered_pallet_on_workstation_support(self):
+        orchestrator, context, _world, _items = self.build_orchestrator(Args())
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.SLIDE_OUT_FROM_PALLET)
+
+        self.assertAlmostEqual(orchestrator.drop_handoff_xy_error, 0.0)
+        self.assertAlmostEqual(
+            orchestrator.drop_handoff_support_gap,
+            self.demo.compute_drop_workstation_support_gap(),
+        )
+        self.assertAlmostEqual(orchestrator.drop_handoff_support_penetration, 0.0)
+
     def test_drop_dock_stops_and_locator_posts_leave_clearance(self):
         metrics = self.demo.compute_drop_dock_metrics()
 
@@ -931,6 +944,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
         self.assertIn("--self-test-min-lift-fork-inner-gap", source)
         self.assertIn("--self-test-max-drop-support-gap", source)
+        self.assertIn("--self-test-max-drop-handoff-xy-error", source)
+        self.assertIn("--self-test-max-drop-handoff-support-gap", source)
+        self.assertIn("--self-test-max-drop-handoff-support-penetration", source)
         self.assertIn("--self-test-min-drop-lane-clearance", source)
         self.assertIn("--self-test-min-drop-runner-clearance", source)
         self.assertIn("--self-test-min-drop-fork-clearance", source)
@@ -1007,6 +1023,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("pallet tunnel clearance", source)
         self.assertIn("lift fork inner gap", source)
         self.assertIn("drop support gap", source)
+        self.assertIn("drop handoff XY error", source)
+        self.assertIn("drop handoff support gap", source)
+        self.assertIn("drop handoff support penetration", source)
         self.assertIn("drop lane tunnel clearance", source)
         self.assertIn("drop lane runner clearance", source)
         self.assertIn("drop lane fork clearance", source)
@@ -1093,6 +1112,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("pallet_tunnel_clearance=", source)
         self.assertIn("lift_fork_inner_gap=", source)
         self.assertIn("drop_support_gap=", source)
+        self.assertIn("drop_handoff_xy_error=", source)
+        self.assertIn("drop_handoff_support_gap=", source)
+        self.assertIn("drop_handoff_support_penetration=", source)
         self.assertIn("drop_lane_clearance=", source)
         self.assertIn("drop_runner_clearance=", source)
         self.assertIn("drop_fork_clearance=", source)
@@ -1189,6 +1211,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
         self.assertIn("$SelfTestMinLiftForkInnerGap", source)
         self.assertIn("$SelfTestMaxDropSupportGap", source)
+        self.assertIn("$SelfTestMaxDropHandoffXyError", source)
+        self.assertIn("$SelfTestMaxDropHandoffSupportGap", source)
+        self.assertIn("$SelfTestMaxDropHandoffSupportPenetration", source)
         self.assertIn("$SelfTestMinDropLaneClearance", source)
         self.assertIn("$SelfTestMinDropRunnerClearance", source)
         self.assertIn("$SelfTestMinDropForkClearance", source)
@@ -1254,6 +1279,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
         self.assertIn("--self-test-min-lift-fork-inner-gap", source)
         self.assertIn("--self-test-max-drop-support-gap", source)
+        self.assertIn("--self-test-max-drop-handoff-xy-error", source)
+        self.assertIn("--self-test-max-drop-handoff-support-gap", source)
+        self.assertIn("--self-test-max-drop-handoff-support-penetration", source)
         self.assertIn("--self-test-min-drop-lane-clearance", source)
         self.assertIn("--self-test-min-drop-runner-clearance", source)
         self.assertIn("--self-test-min-drop-fork-clearance", source)
@@ -1366,6 +1394,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinLiftForkInnerGap", source)
         self.assertIn("0.30", source)
         self.assertIn("SelfTestMaxDropSupportGap", source)
+        self.assertIn("SelfTestMaxDropHandoffXyError", source)
+        self.assertIn("SelfTestMaxDropHandoffSupportGap", source)
+        self.assertIn("SelfTestMaxDropHandoffSupportPenetration", source)
         self.assertIn("SelfTestMinDropLaneClearance", source)
         self.assertIn("SelfTestMinDropRunnerClearance", source)
         self.assertIn("SelfTestMinDropForkClearance", source)
