@@ -862,3 +862,33 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -AcceptEula
 cd E:\Harim_AMR
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2
 ```
+
+---
+
+## 2026-05-29 추가 진행 메모
+
+런타임 전 코드 검토와 lightweight unittest 과정에서 발견한 문제를 수정했다.
+
+- [x] `BinStackingTask`에 존재하지 않는 `on_bin_event`를 `make_decider_network()`에 넘기던 오류 수정
+- [x] UR10 behavior monitor callback은 no-op lambda로 연결
+- [x] LiftUp 중 stacked bin 높이를 매 프레임 누적해서 더하던 문제 수정
+- [x] LiftUp도 LiftDown과 동일하게 delta z만 적용하도록 변경
+- [x] Isaac Sim을 띄우지 않고 custom orchestrator FSM을 검증하는 unittest 추가
+- [x] `cycles=1` 단일 사이클: stack_complete -> pickup -> lift -> attach -> drop -> detach -> exit -> DONE_IDLE 검증
+- [x] `cycles=0` 무한 반복: 1사이클 후 world reset/play 및 WAIT_STACK_COMPLETE 복귀 검증
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+```
+
+검증 결과:
+
+- [x] unittest 2개 통과
+- [x] Python compile 통과
+- [x] PowerShell wrapper syntax 통과
+
+아직 실제 Isaac Sim stage 초기화와 물리 실행은 NVIDIA Omniverse Kit EULA 확인 이후에만 가능하다.

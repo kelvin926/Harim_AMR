@@ -231,14 +231,14 @@ class HarimTransferOrchestrator:
                 except TypeError:
                     method([0.0, 0.0, 0.0])
 
-    def _apply_lift_to_stack(self):
-        if self.lift_offset <= 0.0:
+    def _apply_lift_delta_to_stack(self, dz):
+        if abs(dz) <= 1e-6:
             return
         for item in self._get_stacked_items():
             try:
                 pos, orient = item.get_world_pose()
                 lifted = np.array(pos, dtype=float)
-                lifted[2] += self.lift_offset
+                lifted[2] += dz
                 item.set_world_pose(position=lifted, orientation=orient)
                 self._stop_dynamic_item(item)
             except Exception as exc:
@@ -337,10 +337,12 @@ class HarimTransferOrchestrator:
 
         elif self.state == TransferState.LIFT_UP:
             t = clamp(self.state_time / 1.0, 0.0, 1.0)
+            previous_offset = self.lift_offset
             self.lift_offset = lerp(0.0, self.args.lift_height, t)
+            dz = self.lift_offset - previous_offset
             self._set_lift_plate_pose()
             self._reset_pallet_pose()
-            self._apply_lift_to_stack()
+            self._apply_lift_delta_to_stack(dz)
             if t >= 1.0:
                 self._transition(TransferState.ATTACH)
 
@@ -481,7 +483,7 @@ def main():
     task.set_up_scene(world.scene)
     world.add_task(task)
 
-    decider_network = behavior.make_decider_network(robot, task.on_bin_event)
+    decider_network = behavior.make_decider_network(robot, lambda _diagnostic: None)
     decider_network.context.stack_coordinates = stack_coordinates
     world.add_decider_network(decider_network)
 

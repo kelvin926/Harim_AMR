@@ -52,3 +52,12 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Cycles 1 -StackCo
 
 첫 실행 시 NVIDIA Isaac asset 다운로드와 shader cache 생성 때문에 시간이 오래 걸릴 수 있습니다.
 NVIDIA EULA 확인이 필요한 환경에서는 Isaac Sim 첫 실행 단계에서 사용자 확인이 필요할 수 있습니다.
+
+## 로컬 검증
+
+Isaac Sim을 띄우지 않고 custom orchestrator FSM만 검증하려면 다음 unittest를 실행합니다.
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+```
