@@ -172,6 +172,15 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 확인 결과: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0049`, `max_return_ready_error=0.0396`, `max_release_drift=0.0000`, `max_payload_lift=0.1100`, `max_dropped_payload_drift=0.0000`.
 
+추가 안정화:
+
+- release 순간 gripper 상태를 직접 self-test gate로 확인합니다.
+  - PowerShell: `-SelfTestRequireGripperOpenAfterRelease`
+  - Python: `--self-test-require-gripper-open-after-release`
+- release 후에는 `DemoTimedArmJointSettle`이 0.65초 동안 기본 관절 자세 쪽으로 부드럽게 보간한 뒤 `return_ready`로 들어갑니다. 후반부 박스에서 arm 자세가 꼬여 다음 pick offset이 커지는 run을 줄이기 위한 동작입니다.
+
+최신 full 검증 결과: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0046`, `max_return_ready_error=0.0399`, `max_release_drift=0.0000`, `release_gripper_samples=8`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `release_gripper_probe_failures=0`, `joint_settle_count=8`, `max_payload_lift=0.1100`, `max_dropped_payload_drift=0.0000`.
+
 ## 2026-05-29 pre-grip 정렬 추가 보강
 
 `ReachToPick` 직후 `DemoSettleBinAtGripper`가 active bin의 grasp frame을 UR10 end-effector frame에 맞춰 최소 0.30초 동안 보간합니다. GUI에서 박스가 그리퍼에 계속 붙어 보이거나 release 뒤 다시 끌려가는 현상을 줄이기 위해 실제 surface gripper close는 기본 경로에서 제외하고 scripted attach/release만 사용합니다.

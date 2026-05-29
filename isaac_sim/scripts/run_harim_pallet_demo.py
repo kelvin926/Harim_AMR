@@ -23,6 +23,7 @@ PICK_STATION_BIN_POSITION = np.array([0.0, 0.42, -0.15], dtype=float)
 CONVEYOR_PICK_WINDOW_Y = 0.68
 PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
 POST_RELEASE_CLEARANCE_LIFT = 0.22
+POST_RELEASE_JOINT_SETTLE_DURATION = 0.65
 ARM_CLEAR_SETTLE_TIME = 1.8
 REACH_PICK_MAX_DURATION = 12.0
 REACH_PLACE_MAX_DURATION = 4.2
@@ -131,6 +132,11 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if a released bin drifts from its snapped stack pose by more than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-require-gripper-open-after-release",
+        action="store_true",
+        help="Fail the fixed-frame self-test if the surface gripper is not open or still reports gripped objects after a scripted release.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -907,6 +913,42 @@ def main():
             except Exception:
                 pass
 
+    def record_release_gripper_state(context):
+        gripper = getattr(getattr(context, "robot", None), "suction_gripper", None)
+        context.demo_release_gripper_samples = int(getattr(context, "demo_release_gripper_samples", 0)) + 1
+        if gripper is None:
+            context.demo_release_gripper_probe_failures = (
+                int(getattr(context, "demo_release_gripper_probe_failures", 0)) + 1
+            )
+            return
+
+        try:
+            if not gripper.is_open():
+                context.demo_release_gripper_not_open_samples = (
+                    int(getattr(context, "demo_release_gripper_not_open_samples", 0)) + 1
+                )
+        except Exception:
+            context.demo_release_gripper_probe_failures = (
+                int(getattr(context, "demo_release_gripper_probe_failures", 0)) + 1
+            )
+
+        interface = getattr(gripper, "_surface_gripper_interface", None)
+        gripper_path = getattr(gripper, "_surface_gripper_path", None)
+        if interface is None or gripper_path is None:
+            return
+        try:
+            gripped_objects_batch = interface.get_gripped_objects_batch([gripper_path])
+            gripped_objects = gripped_objects_batch[0] if gripped_objects_batch else []
+            gripped_count = len(gripped_objects)
+            context.demo_release_gripped_object_max = max(
+                int(getattr(context, "demo_release_gripped_object_max", 0)),
+                int(gripped_count),
+            )
+        except Exception:
+            context.demo_release_gripper_probe_failures = (
+                int(getattr(context, "demo_release_gripper_probe_failures", 0)) + 1
+            )
+
     def hold_demo_released_bin_at_target(context):
         released_bin = getattr(context, "demo_released_bin", None)
         if released_bin is None:
@@ -1113,6 +1155,8 @@ def main():
             active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
             stop_dynamic_prim(active_bin.bin_obj)
             set_kinematic_for_demo(active_bin.bin_obj, True)
+            if args.self_test_require_gripper_open_after_release:
+                record_release_gripper_state(self.context)
             print(f"[HarimDemo] demo-placed {active_bin.bin_obj.name} at {self.target_p.tolist()}", flush=True)
 
         def step(self):
@@ -1152,6 +1196,65 @@ def main():
         def exit(self):
             self.entry_time = None
             self.target_pq = None
+
+    class DemoTimedArmJointSettle(DfState):
+        def __init__(self, duration=POST_RELEASE_JOINT_SETTLE_DURATION):
+            self.duration = duration
+            self.entry_time = None
+            self.start_positions = None
+            self.target_positions = None
+            self.active = False
+
+        def enter(self):
+            self.entry_time = get_demo_time(self.context)
+            self.active = False
+            robot = self.context.robot
+            try:
+                self.start_positions = np.array(robot.get_joint_positions(), dtype=float)
+                self.target_positions = np.array(robot.default_config, dtype=float)
+            except Exception as exc:
+                print(f"[HarimDemo] joint settle skipped: {exc}", flush=True)
+                return
+            if self.start_positions.shape != self.target_positions.shape:
+                print(
+                    f"[HarimDemo] joint settle skipped: shape {self.start_positions.shape} "
+                    f"!= {self.target_positions.shape}",
+                    flush=True,
+                )
+                return
+            self.active = True
+            self.context.demo_joint_settle_count = int(getattr(self.context, "demo_joint_settle_count", 0)) + 1
+            robot.arm.clear()
+
+        def step(self):
+            hold_demo_released_bin_at_target(self.context)
+            if not self.active:
+                return None
+            elapsed = get_demo_time(self.context) - self.entry_time
+            t = clamp(elapsed / max(self.duration, 1e-6), 0.0, 1.0)
+            joint_positions = lerp(self.start_positions, self.target_positions, smoothstep(t))
+            robot = self.context.robot
+            try:
+                robot.set_joint_positions(joint_positions)
+                if hasattr(robot, "set_joint_velocities"):
+                    robot.set_joint_velocities(np.zeros_like(joint_positions))
+                robot.arm.soft_reset()
+            except Exception as exc:
+                print(f"[HarimDemo] joint settle aborted: {exc}", flush=True)
+                return None
+            if t < 1.0:
+                return self
+            return None
+
+        def exit(self):
+            try:
+                self.context.robot.arm.soft_reset()
+            except Exception:
+                pass
+            self.entry_time = None
+            self.start_positions = None
+            self.target_positions = None
+            self.active = False
 
     class DemoTimedArmMoveTo(DfState):
         def __init__(self, position, duration, label, position_threshold=RETURN_READY_POSITION_THRESHOLD):
@@ -1269,6 +1372,7 @@ def main():
                         DfWaitState(wait_time=0.15),
                         DemoReleaseBin(),
                         DemoTimedArmLift(height=POST_RELEASE_CLEARANCE_LIFT, duration=0.35),
+                        DemoTimedArmJointSettle(),
                         DemoTimedArmMoveTo(
                             PICK_READY_EE_POSITION,
                             duration=RETURN_READY_DURATION,
@@ -1659,6 +1763,11 @@ def main():
     decider_network.context.demo_max_pre_grip_offset = 0.0
     decider_network.context.demo_max_return_ready_error = 0.0
     decider_network.context.demo_max_release_drift = 0.0
+    decider_network.context.demo_release_gripper_samples = 0
+    decider_network.context.demo_release_gripper_not_open_samples = 0
+    decider_network.context.demo_release_gripped_object_max = 0
+    decider_network.context.demo_release_gripper_probe_failures = 0
+    decider_network.context.demo_joint_settle_count = 0
     orchestrator.reset_visual_state()
 
     def force_self_test_stack_complete():
@@ -1718,6 +1827,32 @@ def main():
                     f"max release drift {max_release_drift:.4f} m exceeded "
                     f"{args.self_test_max_release_drift:.4f} m"
                 )
+            release_gripper_samples = int(getattr(decider_network.context, "demo_release_gripper_samples", 0))
+            release_gripper_not_open = int(
+                getattr(decider_network.context, "demo_release_gripper_not_open_samples", 0)
+            )
+            release_gripped_object_max = int(
+                getattr(decider_network.context, "demo_release_gripped_object_max", 0)
+            )
+            release_gripper_probe_failures = int(
+                getattr(decider_network.context, "demo_release_gripper_probe_failures", 0)
+            )
+            joint_settle_count = int(getattr(decider_network.context, "demo_joint_settle_count", 0))
+            if args.self_test_require_gripper_open_after_release:
+                if placed_count > 0 and release_gripper_samples <= 0:
+                    self_test_failures.append("release gripper state was not sampled after placed bins")
+                if release_gripper_not_open > 0:
+                    self_test_failures.append(
+                        f"release gripper was not open for {release_gripper_not_open} sampled frames"
+                    )
+                if release_gripped_object_max > 0:
+                    self_test_failures.append(
+                        f"release gripper still reported {release_gripped_object_max} gripped objects"
+                    )
+                if release_gripper_probe_failures > 0:
+                    self_test_failures.append(
+                        f"release gripper state probe failed {release_gripper_probe_failures} times"
+                    )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
@@ -1745,6 +1880,11 @@ def main():
                     f"max_pre_grip_offset={max_pre_grip_offset:.4f}; "
                     f"max_return_ready_error={max_return_ready_error:.4f}; "
                     f"max_release_drift={max_release_drift:.4f}; "
+                    f"release_gripper_samples={release_gripper_samples}; "
+                    f"release_gripper_not_open={release_gripper_not_open}; "
+                    f"release_gripped_object_max={release_gripped_object_max}; "
+                    f"release_gripper_probe_failures={release_gripper_probe_failures}; "
+                    f"joint_settle_count={joint_settle_count}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}",
                     flush=True,

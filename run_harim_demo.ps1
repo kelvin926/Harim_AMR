@@ -13,6 +13,7 @@ param(
     [double]$SelfTestMaxPreGripOffset = 0.0,
     [double]$SelfTestMaxReturnReadyError = 0.0,
     [double]$SelfTestMaxReleaseDrift = 0.0,
+    [switch]$SelfTestRequireGripperOpenAfterRelease,
     [double]$SelfTestMinPayloadLift = 0.0,
     [double]$SelfTestMaxDroppedPayloadDrift = 0.0,
     [double]$MoveSpeed = 0.65,
@@ -73,6 +74,10 @@ if ($SelfTestForceStackComplete) {
 
 if ($SelfTestDebugBins) {
     $ArgsList += "--self-test-debug-bins"
+}
+
+if ($SelfTestRequireGripperOpenAfterRelease) {
+    $ArgsList += "--self-test-require-gripper-open-after-release"
 }
 
 & $PythonExe -u @ArgsList

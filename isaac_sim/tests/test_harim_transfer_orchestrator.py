@@ -6,6 +6,7 @@ import numpy as np
 
 
 DEMO_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_harim_pallet_demo.py"
+RUNNER_PATH = Path(__file__).resolve().parents[2] / "run_harim_demo.ps1"
 
 
 def load_demo_module():
@@ -278,7 +279,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         source = DEMO_PATH.read_text(encoding="utf-8")
 
         self.assertIn("def force_open_suction_gripper", source)
+        self.assertIn("def record_release_gripper_state", source)
         self.assertIn("interface.open_gripper(gripper_path)", source)
+        self.assertIn("interface.get_gripped_objects_batch([gripper_path])", source)
         self.assertIn("active_bin.demo_attached = False", source)
         self.assertIn("active_bin.demo_attach_T = None", source)
         self.assertIn("active_bin.is_attached = False", source)
@@ -303,6 +306,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("class DemoPickAndPlaceBin", source)
         self.assertIn("PICK_READY_EE_POSITION", source)
         self.assertIn("class DemoTimedArmMoveTo", source)
+        self.assertIn("class DemoTimedArmJointSettle", source)
         self.assertIn("CompletionSignalController", source)
         self.assertIn("StackCompleteSignalGreen", source)
         self.assertIn("ARM_CLEAR_SETTLE_TIME", source)
@@ -321,6 +325,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("REACH_PLACE_MAX_DURATION", source)
         self.assertIn("RETURN_READY_DURATION", source)
         self.assertIn("RETURN_READY_POSITION_THRESHOLD", source)
+        self.assertIn("POST_RELEASE_JOINT_SETTLE_DURATION", source)
         self.assertIn("position_error", source)
         self.assertIn("_record_final_error", source)
         self.assertIn('f"[HarimDemo] {self.label} reached; error=', source)
@@ -359,11 +364,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("demo_released_bin", source)
         self.assertIn("demo_release_target_p", source)
         self.assertIn("demo_max_release_drift", source)
+        self.assertIn("demo_release_gripper_samples", source)
+        self.assertIn("demo_release_gripped_object_max", source)
         self.assertIn("max_payload_lift_observed", source)
         self.assertIn("max_dropped_payload_drift", source)
         self.assertIn("task.context = decider_network.context", source)
         self.assertIn("release_duration=0.35", source)
         self.assertIn("POST_RELEASE_CLEARANCE_LIFT", source)
+        self.assertIn("DemoTimedArmJointSettle()", source)
+        self.assertIn("robot.set_joint_positions(joint_positions)", source)
+        self.assertIn("robot.arm.soft_reset()", source)
         self.assertIn("force_open_suction_gripper(self.context)", source)
         self.assertIn('"wait_next_bin"', source)
         self.assertIn('return DfDecision("wait_next_bin")', source)
@@ -380,6 +390,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-pre-grip-offset", source)
         self.assertIn("--self-test-max-return-ready-error", source)
         self.assertIn("--self-test-max-release-drift", source)
+        self.assertIn("--self-test-require-gripper-open-after-release", source)
         self.assertIn("--self-test-min-payload-lift", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("UR10 placed", source)
@@ -387,11 +398,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max pre-grip offset", source)
         self.assertIn("max return-ready error", source)
         self.assertIn("max release drift", source)
+        self.assertIn("release gripper was not open", source)
+        self.assertIn("release gripper still reported", source)
         self.assertIn("payload lift", source)
         self.assertIn("max dropped payload drift", source)
         self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("max_return_ready_error=", source)
         self.assertIn("max_release_drift=", source)
+        self.assertIn("release_gripper_not_open=", source)
+        self.assertIn("release_gripped_object_max=", source)
+        self.assertIn("joint_settle_count=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("demo_max_return_ready_error", source)
@@ -401,6 +417,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("transfer_cycles=", source)
         self.assertIn("expected at least", source)
         self.assertIn("[HarimDemo] self-test failed", source)
+
+    def test_runner_exposes_release_gripper_open_gate(self):
+        source = RUNNER_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("$SelfTestRequireGripperOpenAfterRelease", source)
+        self.assertIn("--self-test-require-gripper-open-after-release", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
