@@ -174,7 +174,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def test_arm_timing_constants_allow_visible_settle(self):
         self.assertGreaterEqual(self.demo.REACH_PICK_MAX_DURATION, 5.5)
         self.assertGreaterEqual(self.demo.REACH_PLACE_MAX_DURATION, 3.5)
-        self.assertGreaterEqual(self.demo.RETURN_READY_DURATION, 2.0)
+        self.assertGreaterEqual(self.demo.RETURN_READY_DURATION, 5.0)
+        self.assertLessEqual(self.demo.RETURN_READY_POSITION_THRESHOLD, 0.05)
 
     def test_completion_signal_controller_toggles_red_green(self):
         red = FakeLight()
@@ -290,6 +291,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("REACH_PICK_MAX_DURATION", source)
         self.assertIn("REACH_PLACE_MAX_DURATION", source)
         self.assertIn("RETURN_READY_DURATION", source)
+        self.assertIn("RETURN_READY_POSITION_THRESHOLD", source)
+        self.assertIn("position_error", source)
+        self.assertIn('f"[HarimDemo] {self.label} reached; error=', source)
         self.assertIn('label="return_ready"', source)
         self.assertIn("hold_active_bin_for_pick", source)
         self.assertIn('getattr(self.context, "stack_complete", False)', source)
@@ -342,10 +346,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("AMR completed", source)
         self.assertIn("max pre-grip offset", source)
         self.assertIn("max_pre_grip_offset=", source)
+        self.assertIn("preserving failure exit", source)
+        self.assertIn("os._exit(1)", source)
         self.assertIn("transfer_cycles=", source)
         self.assertIn("expected at least", source)
         self.assertIn("[HarimDemo] self-test failed", source)
-        self.assertIn("raise SystemExit(1)", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")

@@ -288,3 +288,19 @@ GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 경로를 줄
 - Python compile 통과
 - 8000-frame full end-to-end self-test 통과
 - `max_pre_grip_offset=0.0049` m로 5 cm 게이트 통과
+
+## 2026-05-29 return-ready 도달 판정 및 실패 exit 보강
+
+후반 박스에서 팔이 pick-ready 위치로 충분히 돌아오기 전에 다음 pick이 시작되면 pre-grip 보정량이 커져 GUI에서 박스가 순간 보정되는 것처럼 보일 수 있습니다. 이를 줄이기 위해 `return_ready`를 시간만으로 끝내지 않고 end-effector 위치 오차 기준으로 종료하도록 바꿨습니다.
+
+- `RETURN_READY_POSITION_THRESHOLD = 0.04` m 이하일 때 `return_ready reached`로 다음 박스로 넘어갑니다.
+- `RETURN_READY_DURATION = 5.0`초까지 기다릴 수 있게 했습니다.
+- self-test 실패와 simulation exception은 `os._exit(1)`로 종료해 외부 PowerShell에서도 실패 exit code가 보존됩니다.
+
+확인 결과:
+
+- 실패 probe: `$LASTEXITCODE=1`
+- unittest 28개 통과
+- Python compile 통과
+- 12000-frame full end-to-end self-test 통과
+- `max_pre_grip_offset=0.0050` m로 5 cm 게이트 통과

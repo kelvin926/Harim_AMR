@@ -1587,3 +1587,45 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `slide-released pallet assembly at drop pose`
   - `completed transfer cycle 1`
   - `self-test completed after 8000 frames; placed_bins=8; transfer_cycles=1; max_pre_grip_offset=0.0049`
+
+---
+
+## 2026-05-29 return-ready 도달 판정 및 실패 exit 보강 메모
+
+pre-grip gate를 실제로 엄격하게 걸어 보니, 후반 박스에서 `return_ready`가 단순 시간 만료로 끝난 뒤 다음 pick이 시작되는 경우가 있었다. 이 경우 팔이 pick-ready 위치로 충분히 돌아오기 전에 `ReachToPick`이 시작되어 pre-grip 보정량이 수십 cm 이상으로 커질 수 있다. GUI에서는 박스가 그리퍼 쪽으로 순간 보정되는 것처럼 보일 수 있으므로, return-ready를 실제 end-effector 위치 오차 기준으로 종료하도록 바꿨다.
+
+수정 내용:
+
+- [x] `RETURN_READY_POSITION_THRESHOLD = 0.04` 추가
+  - `return_ready`는 end-effector 위치와 목표 위치의 오차가 4 cm 이하가 되어야 정상 완료된다.
+- [x] `RETURN_READY_DURATION = 5.0`으로 확장
+  - 단순히 빠르게 다음 박스로 넘어가기보다 팔이 실제로 pick-ready 근처에 도달하는 것을 우선한다.
+- [x] `DemoTimedArmMoveTo`가 `position_error`를 계산하도록 수정
+  - 도달 시 `return_ready reached; error=... m` 로그를 남긴다.
+  - 최대 시간 초과 시에는 `timed release; error=... m`로 남겨 후속 튜닝 근거를 제공한다.
+- [x] self-test 실패 exit 보강
+  - Isaac/Kit 종료 경로가 `SystemExit(1)`을 0으로 흡수하는 경우가 있어, self-test 실패와 simulation exception에서는 `os._exit(1)`을 사용한다.
+  - 실패 로그가 있으면 외부 PowerShell `$LASTEXITCODE`도 1이 되도록 확인했다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim/scripts/run_harim_pallet_demo.py isaac_sim/tests/test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 10 -SelfTestMinPlacedBins 1 -Cycles 1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 28개 통과
+- [x] Python compile 통과
+- [x] 실패 probe에서 외부 `$LASTEXITCODE=1` 확인
+- [x] 12000-frame end-to-end self-test 통과
+  - 모든 `return_ready`가 `reached`로 종료
+  - `stack-count 8/8 after bin_7`
+  - `attached 8 stacked items and 12 pallet parts`
+  - `slide-released pallet assembly at drop pose`
+  - `completed transfer cycle 1`
+  - `self-test completed after 12000 frames; placed_bins=8; transfer_cycles=1; max_pre_grip_offset=0.0050`

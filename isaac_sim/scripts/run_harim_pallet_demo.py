@@ -26,7 +26,8 @@ POST_RELEASE_CLEARANCE_LIFT = 0.22
 ARM_CLEAR_SETTLE_TIME = 1.8
 REACH_PICK_MAX_DURATION = 5.8
 REACH_PLACE_MAX_DURATION = 3.6
-RETURN_READY_DURATION = 2.2
+RETURN_READY_DURATION = 5.0
+RETURN_READY_POSITION_THRESHOLD = 0.04
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
 AMR_LIFT_PLATE_OFFSET_Z = 0.48
@@ -1068,10 +1069,11 @@ def main():
             self.target_pq = None
 
     class DemoTimedArmMoveTo(DfState):
-        def __init__(self, position, duration, label):
+        def __init__(self, position, duration, label, position_threshold=RETURN_READY_POSITION_THRESHOLD):
             self.position = np.array(position, dtype=float)
             self.duration = duration
             self.label = label
+            self.position_threshold = position_threshold
             self.entry_time = None
             self.target_position = None
 
@@ -1084,9 +1086,14 @@ def main():
             self.context.robot.arm.send(
                 MotionCommand(target_position=self.target_position, posture_config=self.context.robot.default_config)
             )
+            current_position = np.array(self.context.robot.arm.get_fk_p(), dtype=float)
+            position_error = float(np.linalg.norm(current_position - self.target_position))
+            if position_error <= self.position_threshold:
+                print(f"[HarimDemo] {self.label} reached; error={position_error:.4f} m", flush=True)
+                return None
             if get_demo_time(self.context) - self.entry_time < self.duration:
                 return self
-            print(f"[HarimDemo] {self.label} timed release", flush=True)
+            print(f"[HarimDemo] {self.label} timed release; error={position_error:.4f} m", flush=True)
             return None
 
         def exit(self):
@@ -1592,6 +1599,8 @@ def main():
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
+                print("[HarimDemo] preserving failure exit; skipping SimulationApp.close()", flush=True)
+                os._exit(1)
             else:
                 print(
                     f"[HarimDemo] self-test completed after {args.self_test_frames} frames; "
@@ -1605,11 +1614,10 @@ def main():
     except Exception as exc:
         print(f"[HarimDemo] simulation aborted: {exc}", flush=True)
         traceback.print_exc()
-        raise
+        print("[HarimDemo] preserving failure exit; skipping SimulationApp.close()", flush=True)
+        os._exit(1)
     finally:
         simulation_app.close()
-    if self_test_failure_message is not None:
-        raise SystemExit(1)
 
 
 if __name__ == "__main__":
