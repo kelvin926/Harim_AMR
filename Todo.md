@@ -1,5 +1,19 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 AMR Lift Offset Continuity Gate 추가
+
+- [x] AMR lift-up/lift-down 중 리프트 높이가 한 프레임에 튀는지 `lift_offset_motion_sample_count`, `max_lift_offset_frame_step`으로 계측하도록 했다.
+- [x] strict self-test에 `--self-test-max-lift-offset-frame-step`를 추가하고, PowerShell wrapper에 `SelfTestMaxLiftOffsetFrameStep`을 연결했다.
+- [x] strict 기준은 `SelfTestMaxLiftOffsetFrameStep = 0.004`로 설정했다. 정상 smoothstep 리프트는 약 `0.0022 m/frame` 수준이라, 리프트 순간 점프는 잡고 정상 동작은 통과한다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 82개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_lift_offset_continuity_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_072617_17500.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_payload_lift=0.1100`, `lift_offset_motion_sample_count=11999`, `max_lift_offset_frame_step=0.0022`, `max_lift_contact_gap=0.0050`
+
 ## 2026-05-30 Review GIF Motion Phase Panel 추가
 
 - [x] review GIF 오른쪽 상태 패널에 팔레타이저 내부 `demo_motion_phase`를 함께 표시하도록 했다. GIF만 열어도 `reach_pick`, `reach_place`, `scripted_place`, `release_retreat`, `return_ready` 등 현재 팔 동작 단계를 확인할 수 있다.

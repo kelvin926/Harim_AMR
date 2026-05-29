@@ -958,6 +958,17 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         orchestrator.step(self.demo.AMR_LIFT_SETTLE_TIME + 0.01)
         self.assertEqual(orchestrator.state, self.demo.TransferState.ATTACH)
 
+    def test_amr_lift_offset_continuity_tracks_frame_steps(self):
+        orchestrator, context, _world, _items = self.build_orchestrator(Args())
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.LIFT_UP)
+        for _ in range(90):
+            orchestrator.step(1.0 / 60.0)
+
+        self.assertGreater(orchestrator.lift_offset_motion_sample_count, 0)
+        self.assertLess(orchestrator.max_lift_offset_frame_step, 0.004)
+
     def test_release_forces_suction_open_and_clears_attach_state(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
 
@@ -1282,6 +1293,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-amr-lift-guide-travel-cover", source)
         self.assertIn("--self-test-max-amr-lift-guide-pose-error", source)
         self.assertIn("--self-test-min-payload-lift", source)
+        self.assertIn("--self-test-max-lift-offset-frame-step", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("--self-test-min-dropped-stack-item-count", source)
         self.assertIn("--self-test-max-dropped-stack-pose-error", source)
@@ -1405,6 +1417,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("AMR lift guide travel cover", source)
         self.assertIn("AMR lift guide pose error", source)
         self.assertIn("payload lift", source)
+        self.assertIn("AMR lift offset frame step", source)
         self.assertIn("max dropped payload drift", source)
         self.assertIn("dropped stack item count", source)
         self.assertIn("dropped stack pose error", source)
@@ -1549,6 +1562,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("amr_lift_guide_min_height=", source)
         self.assertIn("max_amr_lift_guide_pose_error=", source)
         self.assertIn("max_payload_lift=", source)
+        self.assertIn("lift_offset_motion_sample_count=", source)
+        self.assertIn("max_lift_offset_frame_step=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("dropped_stack_item_count=", source)
         self.assertIn("max_dropped_stack_pose_error=", source)
@@ -1712,6 +1727,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxAmrLiftGuideBottomGap", source)
         self.assertIn("$SelfTestMinAmrLiftGuideTravelCover", source)
         self.assertIn("$SelfTestMaxAmrLiftGuidePoseError", source)
+        self.assertIn("$SelfTestMinPayloadLift", source)
+        self.assertIn("$SelfTestMaxLiftOffsetFrameStep", source)
+        self.assertIn("--self-test-max-lift-offset-frame-step", source)
         self.assertIn("$SelfTestMinDroppedStackItemCount", source)
         self.assertIn("$SelfTestMaxDroppedStackPoseError", source)
         self.assertIn("$SelfTestMaxDroppedStackSupportGap", source)
@@ -1977,6 +1995,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinAmrLiftGuideTravelCover", source)
         self.assertIn("SelfTestMaxAmrLiftGuidePoseError", source)
         self.assertIn("SelfTestMinPayloadLift", source)
+        self.assertIn("SelfTestMaxLiftOffsetFrameStep", source)
+        self.assertIn("0.004", source)
         self.assertIn("0.10", source)
         self.assertIn("SelfTestMaxDroppedPayloadDrift", source)
         self.assertIn("SelfTestMinDroppedStackItemCount", source)

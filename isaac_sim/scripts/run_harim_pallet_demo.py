@@ -775,6 +775,12 @@ def parse_args():
         help="Fail the fixed-frame self-test unless the AMR visibly lifts the payload by at least this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-lift-offset-frame-step",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR lift offset changes by more than this distance between orchestrator steps. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-dropped-payload-drift",
         type=float,
         default=0.0,
@@ -2738,6 +2744,9 @@ class HarimTransferOrchestrator:
         self.stack_center = self._compute_stack_center()
         self.amr_yaw = 0.0
         self.lift_offset = 0.0
+        self.lift_offset_motion_sample_count = 0
+        self.max_lift_offset_frame_step = 0.0
+        self._previous_lift_offset_sample = None
         self.max_payload_lift_observed = 0.0
         self.max_dropped_payload_drift = 0.0
         initial_lift_contact_gap = compute_lift_contact_gap(args.amr_z, 0.0)
@@ -2856,6 +2865,7 @@ class HarimTransferOrchestrator:
         self.locked_stack_poses = {}
         self.payload_lift_baseline_poses = {}
         self.lift_offset = 0.0
+        self._previous_lift_offset_sample = None
         self.set_amr_pose(self.start_pose)
         self._set_lift_plate_pose()
         self._reset_pallet_pose()
@@ -3018,6 +3028,14 @@ class HarimTransferOrchestrator:
         lift_contact_gap = compute_lift_contact_gap(amr_pos[2], self.lift_offset)
         self.max_lift_contact_gap_observed = max(self.max_lift_contact_gap_observed, lift_contact_gap)
         self.min_lift_contact_gap_observed = min(self.min_lift_contact_gap_observed, lift_contact_gap)
+
+    def _record_lift_offset_continuity(self):
+        current_offset = float(self.lift_offset)
+        if self._previous_lift_offset_sample is not None:
+            frame_step = abs(current_offset - float(self._previous_lift_offset_sample))
+            self.max_lift_offset_frame_step = max(self.max_lift_offset_frame_step, frame_step)
+            self.lift_offset_motion_sample_count += 1
+        self._previous_lift_offset_sample = current_offset
 
     def _record_pickup_handoff_geometry(self):
         if not self.pallet_parts:
@@ -3616,6 +3634,8 @@ class HarimTransferOrchestrator:
 
         elif self.state == TransferState.DONE_IDLE:
             pass
+
+        self._record_lift_offset_continuity()
 
 
 def main():
@@ -6304,11 +6324,21 @@ def main():
                     f"{args.self_test_max_amr_lift_guide_pose_error:.4f} m"
                 )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
+            lift_offset_motion_sample_count = int(getattr(orchestrator, "lift_offset_motion_sample_count", 0))
+            max_lift_offset_frame_step = float(getattr(orchestrator, "max_lift_offset_frame_step", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
                     f"payload lift {max_payload_lift:.4f} m was below "
                     f"{args.self_test_min_payload_lift:.4f} m"
                 )
+            if args.self_test_max_lift_offset_frame_step > 0:
+                if lift_offset_motion_sample_count <= 0:
+                    self_test_failures.append("AMR lift offset continuity was not sampled")
+                elif max_lift_offset_frame_step > args.self_test_max_lift_offset_frame_step:
+                    self_test_failures.append(
+                        f"AMR lift offset frame step {max_lift_offset_frame_step:.4f} m exceeded "
+                        f"{args.self_test_max_lift_offset_frame_step:.4f} m"
+                    )
             max_dropped_payload_drift = float(getattr(orchestrator, "max_dropped_payload_drift", 0.0))
             if (
                 args.self_test_max_dropped_payload_drift > 0
@@ -6996,6 +7026,8 @@ def main():
                     f"amr_lift_guide_min_height={amr_lift_guide_min_height:.4f}; "
                     f"max_amr_lift_guide_pose_error={max_amr_lift_guide_pose_error:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
+                    f"lift_offset_motion_sample_count={lift_offset_motion_sample_count}; "
+                    f"max_lift_offset_frame_step={max_lift_offset_frame_step:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"dropped_stack_item_count={dropped_stack_item_count}; "
                     f"max_dropped_stack_pose_error={max_dropped_stack_pose_error:.4f}; "

@@ -83,6 +83,7 @@ $RunnerArgs = @{
     SelfTestMinAmrLiftGuideTravelCover = 0.02
     SelfTestMaxAmrLiftGuidePoseError = 0.005
     SelfTestMinPayloadLift = 0.10
+    SelfTestMaxLiftOffsetFrameStep = 0.004
     SelfTestMaxDroppedPayloadDrift = 0.005
     SelfTestMinDroppedStackItemCount = 8
     SelfTestMaxDroppedStackPoseError = 0.005
