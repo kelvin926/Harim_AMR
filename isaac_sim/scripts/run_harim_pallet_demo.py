@@ -149,6 +149,50 @@ SAFETY_FENCE_RAIL_THICKNESS = 0.035
 SAFETY_FENCE_RAIL_Z_OFFSETS = (0.42, 0.92)
 SAFETY_FENCE_AMR_GATE_WIDTH = 1.44
 SAFETY_FENCE_INFEED_GATE_WIDTH = 0.86
+AMR_SAFETY_VISUAL_SPECS = (
+    (
+        "AmrBeaconPole",
+        "cuboid",
+        np.array([0.0, 0.0, 0.50], dtype=float),
+        np.array([0.035, 0.035, 0.30], dtype=float),
+        np.array([0.08, 0.08, 0.08], dtype=float),
+    ),
+    (
+        "AmrBeaconDome",
+        "sphere",
+        np.array([0.0, 0.0, 0.68], dtype=float),
+        0.065,
+        np.array([0.95, 0.58, 0.08], dtype=float),
+    ),
+    (
+        "AmrFrontSafetyScanner",
+        "cuboid",
+        np.array([-0.62, 0.0, 0.16], dtype=float),
+        np.array([0.050, 0.56, 0.055], dtype=float),
+        np.array([0.08, 0.55, 0.95], dtype=float),
+    ),
+    (
+        "AmrRearSafetyScanner",
+        "cuboid",
+        np.array([0.62, 0.0, 0.16], dtype=float),
+        np.array([0.050, 0.56, 0.055], dtype=float),
+        np.array([0.08, 0.55, 0.95], dtype=float),
+    ),
+    (
+        "AmrLeftStatusStrip",
+        "cuboid",
+        np.array([0.0, -0.42, 0.34], dtype=float),
+        np.array([0.32, 0.030, 0.045], dtype=float),
+        np.array([0.04, 0.75, 0.28], dtype=float),
+    ),
+    (
+        "AmrRightStatusStrip",
+        "cuboid",
+        np.array([0.0, 0.42, 0.34], dtype=float),
+        np.array([0.32, 0.030, 0.045], dtype=float),
+        np.array([0.04, 0.75, 0.28], dtype=float),
+    ),
+)
 
 
 def parse_args():
@@ -311,6 +355,30 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the safety fence infeed gate leaves less conveyor side clearance than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-safety-part-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many AMR beacon/scanner visual parts are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-safety-beacon-height",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the AMR beacon visual top is lower than this height above the AMR base. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-safety-scanner-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR scanner visuals are closer to the floor than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-safety-pose-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if AMR beacon/scanner visuals drift from the AMR pose by more than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -851,6 +919,41 @@ def compute_safety_fence_metrics(pickup_y=DEFAULT_PICKUP_Y):
     }
 
 
+def make_amr_safety_visual_specs():
+    return [
+        (
+            name,
+            shape,
+            np.array(offset, dtype=float),
+            size if isinstance(size, float) else np.array(size, dtype=float),
+            np.array(color, dtype=float),
+        )
+        for name, shape, offset, size, color in AMR_SAFETY_VISUAL_SPECS
+    ]
+
+
+def compute_amr_safety_visual_metrics():
+    specs = make_amr_safety_visual_specs()
+    beacon_tops = []
+    scanner_bottoms = []
+    for name, shape, offset, size, _color in specs:
+        if shape == "sphere":
+            part_top = float(offset[2]) + float(size)
+            part_bottom = float(offset[2]) - float(size)
+        else:
+            part_top = float(offset[2]) + float(size[2]) * 0.5
+            part_bottom = float(offset[2]) - float(size[2]) * 0.5
+        if "Beacon" in name:
+            beacon_tops.append(part_top)
+        if "Scanner" in name:
+            scanner_bottoms.append(part_bottom)
+    return {
+        "amr_safety_part_count": len(specs),
+        "amr_safety_beacon_height": float(max(beacon_tops)) if beacon_tops else 0.0,
+        "amr_safety_scanner_clearance": float(min(scanner_bottoms)) if scanner_bottoms else 0.0,
+    }
+
+
 def compute_lift_contact_gap(amr_z=DEFAULT_AMR_Z, lift_offset=0.0):
     pallet_underside_z = PALLET_DECK_UNDERSIDE_Z + float(lift_offset)
     lift_plate_top_z = float(amr_z) + AMR_LIFT_PLATE_OFFSET_Z + float(lift_offset) + LIFT_FORK_SCALE[2] * 0.5
@@ -975,6 +1078,8 @@ class HarimTransferOrchestrator:
         load_restraint_parts=None,
         lift_plate_parts=None,
         amr_lift_prim=None,
+        amr_safety_parts=None,
+        amr_safety_offsets=None,
         completion_signal=None,
     ):
         self.world = world
@@ -984,6 +1089,12 @@ class HarimTransferOrchestrator:
         self.amr_lift = amr_lift_prim
         self.lift_plate = lift_plate
         self.lift_plate_parts = list(lift_plate_parts) if lift_plate_parts is not None else [lift_plate]
+        self.amr_safety_parts = list(amr_safety_parts) if amr_safety_parts is not None else []
+        self.amr_safety_offsets = (
+            tuple(np.array(offset, dtype=float) for offset in amr_safety_offsets)
+            if amr_safety_offsets is not None
+            else tuple()
+        )
         self.pallet_parts = pallet_parts
         self.pallet_part_offsets = (
             tuple(np.array(offset, dtype=float) for offset in pallet_part_offsets)
@@ -1015,6 +1126,7 @@ class HarimTransferOrchestrator:
         initial_lift_contact_gap = compute_lift_contact_gap(args.amr_z, 0.0)
         self.max_lift_contact_gap_observed = initial_lift_contact_gap
         self.min_lift_contact_gap_observed = initial_lift_contact_gap
+        self.max_amr_safety_pose_error = 0.0
         self.pallet_tunnel_clearance = compute_pallet_tunnel_clearance()
         self.lift_fork_inner_gap = compute_lift_fork_inner_gap()
         self.amr_lift_base_offset = None
@@ -1085,6 +1197,7 @@ class HarimTransferOrchestrator:
 
     def set_amr_pose(self, position):
         self.amr.set_world_pose(position=np.array(position, dtype=float), orientation=yaw_to_quat(self.amr_yaw))
+        self._set_amr_safety_visual_pose()
 
     def get_amr_position(self):
         position, _orientation = self.amr.get_world_pose()
@@ -1104,6 +1217,26 @@ class HarimTransferOrchestrator:
             part.set_world_pose(position=self._lift_plate_position(fork_offset), orientation=yaw_to_quat(self.amr_yaw))
         self._set_actual_lift_pose()
         self._record_lift_geometry()
+
+    def _set_amr_safety_visual_pose(self):
+        if not self.amr_safety_parts:
+            return
+        amr_pos = self.get_amr_position()
+        if len(self.amr_safety_offsets) == len(self.amr_safety_parts):
+            offsets = self.amr_safety_offsets
+        else:
+            offsets = tuple(np.array([0.0, 0.0, 0.0], dtype=float) for _ in self.amr_safety_parts)
+        for part, offset in zip(self.amr_safety_parts, offsets):
+            expected = amr_pos + np.array(offset, dtype=float)
+            part.set_world_pose(position=expected, orientation=yaw_to_quat(self.amr_yaw))
+            try:
+                current, _ = part.get_world_pose()
+                self.max_amr_safety_pose_error = max(
+                    self.max_amr_safety_pose_error,
+                    float(np.linalg.norm(np.array(current, dtype=float) - expected)),
+                )
+            except Exception:
+                pass
 
     def _record_lift_geometry(self):
         amr_pos = self.get_amr_position()
@@ -2633,6 +2766,40 @@ def main():
     else:
         print(f"[HarimDemo] xformable iw_hub lift prim not found, using visual lift plate only: {amr_lift_path}")
 
+    def create_amr_safety_visuals():
+        safety_parts = []
+        safety_offsets = []
+        start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
+        for part_idx, (part_name, shape, offset, size, color) in enumerate(make_amr_safety_visual_specs()):
+            prim_path = f"{harim_root}/{part_name}"
+            object_name = f"harim_amr_safety_{part_idx}"
+            position = start_pose + offset
+            if shape == "sphere":
+                part = world.scene.add(
+                    VisualSphere(
+                        prim_path,
+                        name=object_name,
+                        position=position,
+                        radius=float(size),
+                        color=color,
+                    )
+                )
+            else:
+                part = world.scene.add(
+                    VisualCuboid(
+                        prim_path,
+                        name=object_name,
+                        position=position,
+                        scale=size,
+                        color=color,
+                    )
+                )
+            safety_parts.append(part)
+            safety_offsets.append(offset)
+        return safety_parts, safety_offsets
+
+    amr_safety_parts, amr_safety_offsets = create_amr_safety_visuals()
+
     def create_drop_slide_workstation():
         workstation_parts = []
         rail_color = np.array([0.18, 0.20, 0.21])
@@ -2890,6 +3057,8 @@ def main():
         task=task,
         amr_prim=amr,
         amr_lift_prim=amr_lift,
+        amr_safety_parts=amr_safety_parts,
+        amr_safety_offsets=amr_safety_offsets,
         lift_plate=lift_plate,
         lift_plate_parts=lift_plate_parts,
         pallet_parts=pallet_parts,
@@ -3174,6 +3343,43 @@ def main():
                     f"safety fence infeed gate clearance {safety_fence_infeed_gate_clearance:.4f} m was below "
                     f"{args.self_test_min_safety_fence_infeed_gate_clearance:.4f} m"
                 )
+            amr_safety_metrics = compute_amr_safety_visual_metrics()
+            amr_safety_part_count = amr_safety_metrics["amr_safety_part_count"]
+            amr_safety_beacon_height = amr_safety_metrics["amr_safety_beacon_height"]
+            amr_safety_scanner_clearance = amr_safety_metrics["amr_safety_scanner_clearance"]
+            max_amr_safety_pose_error = float(getattr(orchestrator, "max_amr_safety_pose_error", 0.0))
+            if (
+                args.self_test_min_amr_safety_part_count > 0
+                and amr_safety_part_count < args.self_test_min_amr_safety_part_count
+            ):
+                self_test_failures.append(
+                    f"AMR safety part count {amr_safety_part_count} was below "
+                    f"{args.self_test_min_amr_safety_part_count}"
+                )
+            if (
+                args.self_test_min_amr_safety_beacon_height > 0
+                and amr_safety_beacon_height < args.self_test_min_amr_safety_beacon_height
+            ):
+                self_test_failures.append(
+                    f"AMR safety beacon height {amr_safety_beacon_height:.4f} m was below "
+                    f"{args.self_test_min_amr_safety_beacon_height:.4f} m"
+                )
+            if (
+                args.self_test_min_amr_safety_scanner_clearance > 0
+                and amr_safety_scanner_clearance < args.self_test_min_amr_safety_scanner_clearance
+            ):
+                self_test_failures.append(
+                    f"AMR safety scanner clearance {amr_safety_scanner_clearance:.4f} m was below "
+                    f"{args.self_test_min_amr_safety_scanner_clearance:.4f} m"
+                )
+            if (
+                args.self_test_max_amr_safety_pose_error > 0
+                and max_amr_safety_pose_error > args.self_test_max_amr_safety_pose_error
+            ):
+                self_test_failures.append(
+                    f"AMR safety pose error {max_amr_safety_pose_error:.4f} m exceeded "
+                    f"{args.self_test_max_amr_safety_pose_error:.4f} m"
+                )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
@@ -3345,6 +3551,10 @@ def main():
                     f"safety_fence_part_count={safety_fence_part_count}; "
                     f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "
                     f"safety_fence_infeed_gate_clearance={safety_fence_infeed_gate_clearance:.4f}; "
+                    f"amr_safety_part_count={amr_safety_part_count}; "
+                    f"amr_safety_beacon_height={amr_safety_beacon_height:.4f}; "
+                    f"amr_safety_scanner_clearance={amr_safety_scanner_clearance:.4f}; "
+                    f"max_amr_safety_pose_error={max_amr_safety_pose_error:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "

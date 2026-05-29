@@ -582,3 +582,22 @@ GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 구간을 줄
 - 완료 로그: `safety_fence_part_count=24; safety_fence_amr_gate_clearance=0.3050; safety_fence_infeed_gate_clearance=0.2250; placed_bins=8; transfer_cycles=1`
 
 ---
+## AMR Safety Beacon And Scanner Visual
+
+AMR 이동 장면이 장비처럼 보이도록 safety beacon, front/rear scanner, side status strip visual을 추가했습니다. 이 visual들은 AMR pose와 같이 이동하며, strict self-test에서 pose error를 검증합니다.
+
+새 strict gate:
+
+- `SelfTestMinAmrSafetyPartCount = 6`
+- `SelfTestMinAmrSafetyBeaconHeight = 0.60`
+- `SelfTestMinAmrSafetyScannerClearance = 0.10`
+- `SelfTestMaxAmrSafetyPoseError = 0.005`
+
+검증 결과:
+
+- unittest 49개 통과
+- strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- 로그 파일: `isaacsim_logs/harim_amr_safety_visuals_strict_full_e2e_12000.log`
+- 완료 로그: `amr_safety_part_count=6; amr_safety_beacon_height=0.7450; amr_safety_scanner_clearance=0.1325; max_amr_safety_pose_error=0.0000; placed_bins=8; transfer_cycles=1`
+
+---

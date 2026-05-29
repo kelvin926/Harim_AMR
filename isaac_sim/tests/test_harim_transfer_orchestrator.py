@@ -143,6 +143,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         pallet_parts=None,
         pallet_part_offsets=None,
         load_restraint_parts=None,
+        amr_safety_parts=None,
+        amr_safety_offsets=None,
     ):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
         context = FakeContext(items)
@@ -156,6 +158,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             amr_prim=FakePosePrim("iw_hub"),
             amr_lift_prim=amr_lift_prim,
             lift_plate=FakePosePrim("lift_plate"),
+            amr_safety_parts=amr_safety_parts,
+            amr_safety_offsets=amr_safety_offsets,
             pallet_parts=pallet_parts,
             pallet_part_offsets=pallet_part_offsets,
             load_restraint_parts=load_restraint_parts,
@@ -361,6 +365,15 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertLess(self.demo.SAFETY_FENCE_MIN_X, self.demo.PICK_STATION_BIN_POSITION[0])
         self.assertGreater(self.demo.SAFETY_FENCE_MAX_X, self.demo.DEFAULT_PICKUP_X)
 
+    def test_amr_safety_visuals_have_beacon_and_scanner_clearance(self):
+        metrics = self.demo.compute_amr_safety_visual_metrics()
+        specs = self.demo.make_amr_safety_visual_specs()
+
+        self.assertEqual(metrics["amr_safety_part_count"], len(specs))
+        self.assertGreaterEqual(metrics["amr_safety_part_count"], 6)
+        self.assertGreaterEqual(metrics["amr_safety_beacon_height"], 0.60)
+        self.assertGreaterEqual(metrics["amr_safety_scanner_clearance"], 0.10)
+
     def test_lift_plate_sits_just_below_pallet_underside(self):
         contact_gap = self.demo.compute_lift_contact_gap(self.demo.DEFAULT_AMR_Z)
         lift_top_z = (
@@ -518,6 +531,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SafetyFenceSouthRail", source)
         self.assertIn("SafetyFencePost_WGateLow", source)
         self.assertIn("compute_safety_fence_metrics", source)
+        self.assertIn("create_amr_safety_visuals", source)
+        self.assertIn("AmrBeaconDome", source)
+        self.assertIn("AmrFrontSafetyScanner", source)
+        self.assertIn("compute_amr_safety_visual_metrics", source)
+        self.assertIn("_set_amr_safety_visual_pose", source)
         self.assertIn("create_drop_dock_alignment_visual", source)
         self.assertIn("DropDockStopBlock", source)
         self.assertIn("DropDockLocatorPost", source)
@@ -645,6 +663,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-safety-fence-part-count", source)
         self.assertIn("--self-test-min-safety-fence-amr-gate-clearance", source)
         self.assertIn("--self-test-min-safety-fence-infeed-gate-clearance", source)
+        self.assertIn("--self-test-min-amr-safety-part-count", source)
+        self.assertIn("--self-test-min-amr-safety-beacon-height", source)
+        self.assertIn("--self-test-min-amr-safety-scanner-clearance", source)
+        self.assertIn("--self-test-max-amr-safety-pose-error", source)
         self.assertIn("--self-test-min-payload-lift", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
@@ -683,6 +705,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("safety fence part count", source)
         self.assertIn("safety fence AMR gate clearance", source)
         self.assertIn("safety fence infeed gate clearance", source)
+        self.assertIn("AMR safety part count", source)
+        self.assertIn("AMR safety beacon height", source)
+        self.assertIn("AMR safety scanner clearance", source)
+        self.assertIn("AMR safety pose error", source)
         self.assertIn("payload lift", source)
         self.assertIn("max dropped payload drift", source)
         self.assertIn("AMR exit clearance", source)
@@ -723,6 +749,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("safety_fence_part_count=", source)
         self.assertIn("safety_fence_amr_gate_clearance=", source)
         self.assertIn("safety_fence_infeed_gate_clearance=", source)
+        self.assertIn("amr_safety_part_count=", source)
+        self.assertIn("amr_safety_beacon_height=", source)
+        self.assertIn("amr_safety_scanner_clearance=", source)
+        self.assertIn("max_amr_safety_pose_error=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("amr_exit_clearance=", source)
@@ -768,6 +798,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinSafetyFencePartCount", source)
         self.assertIn("$SelfTestMinSafetyFenceAmrGateClearance", source)
         self.assertIn("$SelfTestMinSafetyFenceInfeedGateClearance", source)
+        self.assertIn("$SelfTestMinAmrSafetyPartCount", source)
+        self.assertIn("$SelfTestMinAmrSafetyBeaconHeight", source)
+        self.assertIn("$SelfTestMinAmrSafetyScannerClearance", source)
+        self.assertIn("$SelfTestMaxAmrSafetyPoseError", source)
         self.assertIn("$SelfTestMinAmrExitClearance", source)
         self.assertIn("$SelfTestMaxLiftContactGap", source)
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
@@ -792,6 +826,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-safety-fence-part-count", source)
         self.assertIn("--self-test-min-safety-fence-amr-gate-clearance", source)
         self.assertIn("--self-test-min-safety-fence-infeed-gate-clearance", source)
+        self.assertIn("--self-test-min-amr-safety-part-count", source)
+        self.assertIn("--self-test-min-amr-safety-beacon-height", source)
+        self.assertIn("--self-test-min-amr-safety-scanner-clearance", source)
+        self.assertIn("--self-test-max-amr-safety-pose-error", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
@@ -852,6 +890,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinSafetyFenceAmrGateClearance", source)
         self.assertIn("0.25", source)
         self.assertIn("SelfTestMinSafetyFenceInfeedGateClearance", source)
+        self.assertIn("SelfTestMinAmrSafetyPartCount", source)
+        self.assertIn("6", source)
+        self.assertIn("SelfTestMinAmrSafetyBeaconHeight", source)
+        self.assertIn("0.60", source)
+        self.assertIn("SelfTestMinAmrSafetyScannerClearance", source)
+        self.assertIn("SelfTestMaxAmrSafetyPoseError", source)
         self.assertIn("SelfTestMinPayloadLift", source)
         self.assertIn("0.10", source)
         self.assertIn("SelfTestMaxDroppedPayloadDrift", source)
@@ -923,6 +967,22 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             expected = np.array([1.0, -0.3, Args.amr_z]) + offset
             expected[2] += self.demo.AMR_LIFT_PLATE_OFFSET_Z
             np.testing.assert_allclose(fork.get_world_pose()[0], expected)
+
+    def test_amr_safety_visual_parts_move_with_amr(self):
+        safety_parts = [FakePosePrim(f"safety_{idx}") for idx in range(2)]
+        safety_offsets = [np.array([0.1, 0.2, 0.3]), np.array([-0.2, -0.1, 0.4])]
+        orchestrator, _context, _world, _items = self.build_orchestrator(
+            Args(),
+            amr_safety_parts=safety_parts,
+            amr_safety_offsets=safety_offsets,
+        )
+
+        target_pose = np.array([1.4, -0.2, Args.amr_z])
+        orchestrator.set_amr_pose(target_pose)
+
+        for part, offset in zip(safety_parts, safety_offsets):
+            np.testing.assert_allclose(part.get_world_pose()[0], target_pose + offset)
+        self.assertAlmostEqual(orchestrator.max_amr_safety_pose_error, 0.0)
 
     def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
         block_offsets = self.demo.PALLET_BLOCK_OFFSETS

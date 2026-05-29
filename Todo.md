@@ -2707,3 +2707,63 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -Accep
   - `max_dropped_payload_drift=0.0000`
 
 ---
+## 2026-05-29 AMR safety beacon/scanner visual 추가
+
+iw_hub가 팔레트를 들고 이동할 때 장비 자체가 너무 기본 asset처럼 보이는 문제가 있어, AMR 위에 안전 beacon과 전후방 scanner, 좌우 status strip visual을 추가했다. visual은 독립 prim으로 생성하되 `HarimTransferOrchestrator.set_amr_pose()`에서 AMR pose와 함께 동기화한다.
+
+수정 내용:
+
+- [x] `AMR_SAFETY_VISUAL_SPECS` 추가
+  - `AmrBeaconPole`
+  - `AmrBeaconDome`
+  - `AmrFrontSafetyScanner`
+  - `AmrRearSafetyScanner`
+  - `AmrLeftStatusStrip`
+  - `AmrRightStatusStrip`
+- [x] `create_amr_safety_visuals()` 추가
+- [x] `HarimTransferOrchestrator`에 AMR safety visual 동기화 추가
+  - `amr_safety_parts`
+  - `amr_safety_offsets`
+  - `_set_amr_safety_visual_pose()`
+  - `max_amr_safety_pose_error`
+- [x] self-test gate 추가
+  - Python: `--self-test-min-amr-safety-part-count`
+  - Python: `--self-test-min-amr-safety-beacon-height`
+  - Python: `--self-test-min-amr-safety-scanner-clearance`
+  - Python: `--self-test-max-amr-safety-pose-error`
+  - PowerShell: `-SelfTestMinAmrSafetyPartCount`
+  - PowerShell: `-SelfTestMinAmrSafetyBeaconHeight`
+  - PowerShell: `-SelfTestMinAmrSafetyScannerClearance`
+  - PowerShell: `-SelfTestMaxAmrSafetyPoseError`
+- [x] strict wrapper gate 추가
+  - `SelfTestMinAmrSafetyPartCount = 6`
+  - `SelfTestMinAmrSafetyBeaconHeight = 0.60`
+  - `SelfTestMinAmrSafetyScannerClearance = 0.10`
+  - `SelfTestMaxAmrSafetyPoseError = 0.005`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] unittest 49개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- [x] 로그 파일: `isaacsim_logs/harim_amr_safety_visuals_strict_full_e2e_12000.log`
+- [x] 주요 완료 metric:
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `amr_safety_part_count=6`
+  - `amr_safety_beacon_height=0.7450`
+  - `amr_safety_scanner_clearance=0.1325`
+  - `max_amr_safety_pose_error=0.0000`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`
+
+---
