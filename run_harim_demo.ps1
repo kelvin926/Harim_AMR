@@ -8,6 +8,10 @@ param(
     [int]$SelfTestFrames = 0,
     [switch]$SelfTestForceStackComplete,
     [switch]$SelfTestDebugBins,
+    [switch]$NoGif,
+    [string]$GifOutputDir = "",
+    [int]$GifFrameStride = 80,
+    [int]$GifMaxFrames = 180,
     [int]$SelfTestMinPlacedBins = 0,
     [int]$SelfTestMinTransferCycles = 0,
     [double]$SelfTestMaxPreGripOffset = 0.0,
@@ -17,6 +21,7 @@ param(
     [int]$SelfTestMinScriptedPlaceCount = 0,
     [double]$SelfTestMaxScriptedPlaceError = 0.0,
     [double]$SelfTestMinReleaseSeparation = 0.0,
+    [double]$SelfTestMinReleaseVerticalClearance = 0.0,
     [switch]$SelfTestRequireGripperOpenAfterRelease,
     [double]$SelfTestMaxStackLateralGap = 0.0,
     [double]$SelfTestMaxStackSupportGap = 0.0,
@@ -53,6 +58,11 @@ param(
     [double]$SelfTestMaxDropDockStopGap = 0.0,
     [double]$SelfTestMinDropDockGuideClearance = 0.0,
     [double]$SelfTestMinDropDockForkClearance = 0.0,
+    [int]$SelfTestMinPickupDockStopCount = 0,
+    [double]$SelfTestMaxPickupDockStopGap = 0.0,
+    [double]$SelfTestMinPickupDockGuideClearance = 0.0,
+    [double]$SelfTestMinPickupDockForkClearance = 0.0,
+    [double]$SelfTestMinPickupDockRunnerClearance = 0.0,
     [int]$SelfTestMinCameraCount = 0,
     [int]$SelfTestMinCameraRoleCount = 0,
     [double]$SelfTestMinCameraHeight = 0.0,
@@ -101,6 +111,8 @@ $ArgsList = @(
     "--stack-cols", $StackCols,
     "--stack-rows", $StackRows,
     "--stack-layers", $StackLayers,
+    "--gif-frame-stride", $GifFrameStride,
+    "--gif-max-frames", $GifMaxFrames,
     "--self-test-frames", $SelfTestFrames,
     "--self-test-min-placed-bins", $SelfTestMinPlacedBins,
     "--self-test-min-transfer-cycles", $SelfTestMinTransferCycles,
@@ -111,6 +123,7 @@ $ArgsList = @(
     "--self-test-min-scripted-place-count", $SelfTestMinScriptedPlaceCount,
     "--self-test-max-scripted-place-error", $SelfTestMaxScriptedPlaceError,
     "--self-test-min-release-separation", $SelfTestMinReleaseSeparation,
+    "--self-test-min-release-vertical-clearance", $SelfTestMinReleaseVerticalClearance,
     "--self-test-max-stack-lateral-gap", $SelfTestMaxStackLateralGap,
     "--self-test-max-stack-support-gap", $SelfTestMaxStackSupportGap,
     "--self-test-min-stack-pallet-margin", $SelfTestMinStackPalletMargin,
@@ -146,6 +159,11 @@ $ArgsList = @(
     "--self-test-max-drop-dock-stop-gap", $SelfTestMaxDropDockStopGap,
     "--self-test-min-drop-dock-guide-clearance", $SelfTestMinDropDockGuideClearance,
     "--self-test-min-drop-dock-fork-clearance", $SelfTestMinDropDockForkClearance,
+    "--self-test-min-pickup-dock-stop-count", $SelfTestMinPickupDockStopCount,
+    "--self-test-max-pickup-dock-stop-gap", $SelfTestMaxPickupDockStopGap,
+    "--self-test-min-pickup-dock-guide-clearance", $SelfTestMinPickupDockGuideClearance,
+    "--self-test-min-pickup-dock-fork-clearance", $SelfTestMinPickupDockForkClearance,
+    "--self-test-min-pickup-dock-runner-clearance", $SelfTestMinPickupDockRunnerClearance,
     "--self-test-min-camera-count", $SelfTestMinCameraCount,
     "--self-test-min-camera-role-count", $SelfTestMinCameraRoleCount,
     "--self-test-min-camera-height", $SelfTestMinCameraHeight,
@@ -178,6 +196,14 @@ if ($SelfTestForceStackComplete) {
 
 if ($SelfTestDebugBins) {
     $ArgsList += "--self-test-debug-bins"
+}
+
+if ($NoGif) {
+    $ArgsList += "--no-gif"
+}
+
+if ($GifOutputDir -ne "") {
+    $ArgsList += @("--gif-output-dir", $GifOutputDir)
 }
 
 if ($SelfTestRequireGripperOpenAfterRelease) {

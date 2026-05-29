@@ -636,3 +636,48 @@ AMR 이동 장면이 장비처럼 보이도록 safety beacon, front/rear scanner
 - 완료 로그: `amr_safety_part_count=6; amr_safety_beacon_height=0.7450; amr_safety_scanner_clearance=0.1325; max_amr_safety_pose_error=0.0000; placed_bins=8; transfer_cycles=1`
 
 ---
+## Review GIF Auto Export
+
+Every demo run now writes a review GIF for quick visual inspection. The GIF is generated from live simulation coordinates, so it also works during headless strict self-tests. It shows the AMR route, pickup/drop zones, pallet, stacked boxes, current transfer state, and release clearance between the suction TCP and the released box.
+
+Default output:
+
+```text
+E:\Harim_AMR\isaacsim_outputs\harim_amr_review_YYYYMMDD_HHMMSS_PID.gif
+```
+
+Useful runner options:
+
+```powershell
+.\run_harim_demo.ps1 -AcceptEula
+.\run_harim_demo.ps1 -AcceptEula -GifOutputDir E:\Harim_AMR\isaacsim_outputs
+.\run_harim_demo.ps1 -AcceptEula -NoGif
+```
+
+The strict self-test log also includes `review_gif_path=...` so the generated GIF can be found from the log.
+
+## Release-Retreat And Pickup Dock Locator Update
+
+The release motion was strengthened because the GUI could make the suction gripper look like it was still holding the box. After scripted placement, the box is snapped to the target stack pose, the surface gripper is repeatedly opened, and the arm retreats up and back from the box.
+
+Current release constants:
+
+- `POST_RELEASE_CLEARANCE_LIFT = 0.42`
+- `POST_RELEASE_RETREAT_OFFSET = [-0.30, 0.0, 0.62]`
+- `SCRIPTED_PLACE_EE_HOVER = 0.30`
+- `RELEASE_RETREAT_DURATION = 0.90`
+
+Strict gates added:
+
+- `SelfTestMinReleaseVerticalClearance = 0.35`
+- `SelfTestMinPickupDockStopCount = 2`
+- `SelfTestMaxPickupDockStopGap = 0.05`
+- `SelfTestMinPickupDockGuideClearance = 0.10`
+- `SelfTestMinPickupDockForkClearance = 0.03`
+- `SelfTestMinPickupDockRunnerClearance = 0.05`
+
+Latest verified run:
+
+- log: `isaacsim_logs/harim_gif_release_retreat_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_004529_29628.gif`
+- key metrics: `placed_bins=8`, `transfer_cycles=1`, `max_release_vertical_clearance=0.8712`, `release_gripper_not_open=0`, `release_gripped_object_max=0`

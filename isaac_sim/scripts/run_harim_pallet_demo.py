@@ -15,6 +15,11 @@ DEFAULT_PICKUP_X = 0.82
 DEFAULT_PICKUP_Y = -0.31
 DEFAULT_DROP_X = DEFAULT_PICKUP_X + 10.6
 DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
+DEFAULT_GIF_OUTPUT_DIR = PROJECT_ROOT / "isaacsim_outputs"
+GIF_CANVAS_SIZE = (720, 420)
+GIF_FRAME_STRIDE = 80
+GIF_MAX_FRAMES = 180
+GIF_FRAME_DURATION_MS = 80
 WORLD_FLOOR_Z = -1.1818
 DEFAULT_AMR_Z = WORLD_FLOOR_Z
 DEFAULT_LIFT_HEIGHT = 0.11
@@ -22,11 +27,12 @@ DEFAULT_MOVE_SPEED = 0.65
 PICK_STATION_BIN_POSITION = np.array([0.0, 0.42, -0.15], dtype=float)
 CONVEYOR_PICK_WINDOW_Y = 0.68
 PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
-POST_RELEASE_CLEARANCE_LIFT = 0.32
-RELEASE_RETREAT_DURATION = 0.55
+POST_RELEASE_CLEARANCE_LIFT = 0.42
+POST_RELEASE_RETREAT_OFFSET = np.array([-0.30, 0.0, 0.62], dtype=float)
+RELEASE_RETREAT_DURATION = 0.90
 SURFACE_GRIPPER_RELEASE_RETRIES = 3
 SCRIPTED_PLACE_DURATION = 0.70
-SCRIPTED_PLACE_EE_HOVER = 0.18
+SCRIPTED_PLACE_EE_HOVER = 0.30
 POST_RELEASE_JOINT_SETTLE_DURATION = 0.65
 ARM_CLEAR_SETTLE_TIME = 1.8
 REACH_PICK_MAX_DURATION = 12.0
@@ -107,6 +113,17 @@ DROP_DOCK_GUIDE_POST_SCALE = np.array([0.06, 0.06, 0.42], dtype=float)
 DROP_DOCK_GUIDE_POST_X_OFFSETS = (-0.58, 0.58)
 DROP_DOCK_GUIDE_POST_Y_OFFSETS = (-0.72, 0.72)
 DROP_DOCK_GUIDE_POST_CENTER_Z = WORLD_FLOOR_Z + DROP_DOCK_GUIDE_POST_SCALE[2] * 0.5
+PICKUP_DOCK_STOP_GAP = 0.035
+PICKUP_DOCK_STOP_BLOCK_SCALE = np.array([0.08, 0.09, 0.16], dtype=float)
+PICKUP_DOCK_STOP_Y_OFFSETS = DROP_SLIDE_LANE_Y_OFFSETS
+PICKUP_DOCK_STOP_X_OFFSET = -(
+    PALLET_DECK_SCALE[0] * 0.5 + PICKUP_DOCK_STOP_GAP + PICKUP_DOCK_STOP_BLOCK_SCALE[0] * 0.5
+)
+PICKUP_DOCK_STOP_CENTER_Z = WORLD_FLOOR_Z + PICKUP_DOCK_STOP_BLOCK_SCALE[2] * 0.5
+PICKUP_DOCK_GUIDE_POST_SCALE = np.array([0.06, 0.06, 0.38], dtype=float)
+PICKUP_DOCK_GUIDE_POST_X_OFFSETS = (-0.58, 0.58)
+PICKUP_DOCK_GUIDE_POST_Y_OFFSETS = (-0.72, 0.72)
+PICKUP_DOCK_GUIDE_POST_CENTER_Z = WORLD_FLOOR_Z + PICKUP_DOCK_GUIDE_POST_SCALE[2] * 0.5
 FLOOR_MARKING_Z = WORLD_FLOOR_Z + 0.004
 FLOOR_MARKING_THICKNESS = 0.006
 AMR_PATH_MARKING_WIDTH = 0.10
@@ -244,6 +261,29 @@ def parse_args():
     parser.add_argument("--drop-x", type=float, default=DEFAULT_DROP_X, help="Drop X for delivered pallet. Default is over 10 m from pickup.")
     parser.add_argument("--drop-y", type=float, default=DEFAULT_DROP_Y, help="Drop Y for delivered pallet.")
     parser.add_argument(
+        "--no-gif",
+        action="store_true",
+        help="Disable the always-on review GIF export.",
+    )
+    parser.add_argument(
+        "--gif-output-dir",
+        type=Path,
+        default=DEFAULT_GIF_OUTPUT_DIR,
+        help="Directory for per-run review GIFs.",
+    )
+    parser.add_argument(
+        "--gif-frame-stride",
+        type=int,
+        default=GIF_FRAME_STRIDE,
+        help="Capture one review GIF frame every N simulation frames.",
+    )
+    parser.add_argument(
+        "--gif-max-frames",
+        type=int,
+        default=GIF_MAX_FRAMES,
+        help="Maximum frames retained for the review GIF.",
+    )
+    parser.add_argument(
         "--self-test-frames",
         type=int,
         default=0,
@@ -312,6 +352,12 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test unless the released box separates from the suction TCP by at least this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-release-vertical-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test unless the suction TCP rises above the released box by at least this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-require-gripper-open-after-release",
@@ -527,6 +573,36 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if drop dock stop blocks are closer to AMR lift forks than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-pickup-dock-stop-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many pickup dock stop blocks are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-pickup-dock-stop-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if pickup dock stop blocks are farther from the pallet rear than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-pickup-dock-guide-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if pickup dock locator posts leave less pallet side clearance than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-pickup-dock-fork-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if pickup dock stop blocks are closer to AMR lift forks than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-pickup-dock-runner-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if pickup dock stop blocks are closer to pallet side runners than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-camera-count",
@@ -1463,6 +1539,103 @@ def compute_drop_dock_metrics():
     }
 
 
+def make_pickup_dock_alignment_specs(
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+):
+    stop_color = np.array([0.92, 0.58, 0.08], dtype=float)
+    post_color = np.array([0.08, 0.09, 0.10], dtype=float)
+    cap_color = np.array([0.95, 0.74, 0.12], dtype=float)
+    dock_parts = []
+
+    for stop_idx, y_offset in enumerate(PICKUP_DOCK_STOP_Y_OFFSETS):
+        dock_parts.append(
+            (
+                f"PickupDockStopBlock_{stop_idx}",
+                "stop",
+                np.array(
+                    [
+                        pickup_x + PICKUP_DOCK_STOP_X_OFFSET,
+                        pickup_y + y_offset,
+                        PICKUP_DOCK_STOP_CENTER_Z,
+                    ],
+                    dtype=float,
+                ),
+                PICKUP_DOCK_STOP_BLOCK_SCALE.copy(),
+                stop_color,
+            )
+        )
+    for post_idx, x_offset in enumerate(PICKUP_DOCK_GUIDE_POST_X_OFFSETS):
+        for side_idx, y_offset in enumerate(PICKUP_DOCK_GUIDE_POST_Y_OFFSETS):
+            dock_parts.append(
+                (
+                    f"PickupDockLocatorPost_{post_idx}_{side_idx}",
+                    "post",
+                    np.array(
+                        [
+                            pickup_x + x_offset,
+                            pickup_y + y_offset,
+                            PICKUP_DOCK_GUIDE_POST_CENTER_Z,
+                        ],
+                        dtype=float,
+                    ),
+                    PICKUP_DOCK_GUIDE_POST_SCALE.copy(),
+                    post_color,
+                )
+            )
+            dock_parts.append(
+                (
+                    f"PickupDockLocatorCap_{post_idx}_{side_idx}",
+                    "cap",
+                    np.array(
+                        [
+                            pickup_x + x_offset,
+                            pickup_y + y_offset,
+                            PICKUP_DOCK_GUIDE_POST_CENTER_Z
+                            + PICKUP_DOCK_GUIDE_POST_SCALE[2] * 0.5
+                            + 0.025,
+                        ],
+                        dtype=float,
+                    ),
+                    np.array([0.10, 0.10, 0.05], dtype=float),
+                    cap_color,
+                )
+            )
+    return dock_parts
+
+
+def compute_pickup_dock_metrics():
+    stop_inner_clearances_to_forks = []
+    stop_inner_clearances_to_runners = []
+    for stop_y in PICKUP_DOCK_STOP_Y_OFFSETS:
+        stop_inner_half_width = abs(float(stop_y)) - PICKUP_DOCK_STOP_BLOCK_SCALE[1] * 0.5
+        for fork_offset in LIFT_FORK_OFFSETS:
+            fork_outer_half_width = abs(float(fork_offset[1])) + LIFT_FORK_SCALE[1] * 0.5
+            stop_inner_clearances_to_forks.append(stop_inner_half_width - fork_outer_half_width)
+        runner_inner_half_width = min(
+            abs(float(offset[1])) - PALLET_RUNNER_SCALE[1] * 0.5 for offset in PALLET_RUNNER_OFFSETS
+        )
+        stop_inner_clearances_to_runners.append(
+            runner_inner_half_width - (abs(float(stop_y)) + PICKUP_DOCK_STOP_BLOCK_SCALE[1] * 0.5)
+        )
+
+    guide_side_clearances = [
+        abs(float(y_offset)) - PICKUP_DOCK_GUIDE_POST_SCALE[1] * 0.5 - PALLET_DECK_SCALE[1] * 0.5
+        for y_offset in PICKUP_DOCK_GUIDE_POST_Y_OFFSETS
+    ]
+    return {
+        "pickup_dock_stop_count": len(PICKUP_DOCK_STOP_Y_OFFSETS),
+        "pickup_dock_stop_gap": float(PICKUP_DOCK_STOP_GAP),
+        "pickup_dock_guide_clearance": float(min(guide_side_clearances)) if guide_side_clearances else 0.0,
+        "pickup_dock_fork_clearance": (
+            float(min(stop_inner_clearances_to_forks)) if stop_inner_clearances_to_forks else 0.0
+        ),
+        "pickup_dock_runner_clearance": (
+            float(min(stop_inner_clearances_to_runners)) if stop_inner_clearances_to_runners else 0.0
+        ),
+    }
+
+
 def compute_amr_exit_clearance(amr_x, drop_x=DEFAULT_DROP_X):
     fork_rear_x = float(amr_x) - LIFT_FORK_SCALE[0] * 0.5
     dropped_pallet_front_x = float(drop_x) + PALLET_DECK_SCALE[0] * 0.5
@@ -1480,6 +1653,246 @@ def random_bin_spawn_transform():
     position = np.array([x, y, z], dtype=float)
     orientation = UPSIDE_DOWN_BIN_QUAT.copy()
     return position, orientation
+
+
+def resolve_project_path(path_value):
+    path = Path(path_value)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
+
+class DemoGifRecorder:
+    def __init__(
+        self,
+        enabled=True,
+        output_dir=DEFAULT_GIF_OUTPUT_DIR,
+        frame_stride=GIF_FRAME_STRIDE,
+        max_frames=GIF_MAX_FRAMES,
+        frame_duration_ms=GIF_FRAME_DURATION_MS,
+        canvas_size=GIF_CANVAS_SIZE,
+    ):
+        self.enabled = bool(enabled)
+        self.output_dir = resolve_project_path(output_dir)
+        self.frame_stride = max(1, int(frame_stride))
+        self.max_frames = max(1, int(max_frames))
+        self.frame_duration_ms = max(20, int(frame_duration_ms))
+        self.canvas_size = tuple(canvas_size)
+        self.frames = []
+        self.saved_path = None
+        self.last_captured_frame = None
+
+    def maybe_capture(self, frame_index, orchestrator, context, args, force=False):
+        if not self.enabled:
+            return
+        if len(self.frames) >= self.max_frames and not force:
+            return
+        frame_index = int(frame_index)
+        if not force and frame_index % self.frame_stride != 0:
+            return
+        if self.last_captured_frame == frame_index:
+            return
+        try:
+            frame = self._draw_frame(frame_index, orchestrator, context, args)
+            if len(self.frames) >= self.max_frames:
+                self.frames[-1] = frame
+            else:
+                self.frames.append(frame)
+            self.last_captured_frame = frame_index
+        except Exception as exc:
+            print(f"[HarimDemo] GIF capture skipped: {exc}", flush=True)
+            self.enabled = False
+
+    def save(self):
+        if not self.enabled or not self.frames:
+            return None
+        if self.saved_path is not None:
+            return self.saved_path
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            output_path = self.output_dir / f"harim_amr_review_{stamp}_{os.getpid()}.gif"
+            frames = self.frames
+            if len(frames) == 1:
+                frames = [frames[0], frames[0].copy()]
+            frames[0].save(
+                output_path,
+                save_all=True,
+                append_images=frames[1:],
+                duration=self.frame_duration_ms,
+                loop=0,
+                optimize=True,
+            )
+            self.saved_path = str(output_path)
+            print(f"[HarimDemo] review GIF saved: {self.saved_path}", flush=True)
+            return self.saved_path
+        except Exception as exc:
+            print(f"[HarimDemo] review GIF save failed: {exc}", flush=True)
+            self.enabled = False
+            return None
+
+    def _draw_frame(self, frame_index, orchestrator, context, args):
+        from PIL import Image, ImageDraw
+
+        width, height = self.canvas_size
+        image = Image.new("RGB", (width, height), (245, 247, 250))
+        draw = ImageDraw.Draw(image)
+        map_rect = (34, 62, 525, height - 38)
+        panel_rect = (548, 62, width - 28, height - 38)
+        self._draw_header(draw, frame_index, orchestrator, context, width)
+        self._draw_map(draw, map_rect, orchestrator, context, args)
+        self._draw_panel(draw, panel_rect, orchestrator, context)
+        return image
+
+    def _draw_header(self, draw, frame_index, orchestrator, context, width):
+        state_name = getattr(getattr(orchestrator, "state", None), "name", "UNKNOWN")
+        sim_time = float(getattr(context, "demo_sim_time", 0.0))
+        draw.rectangle((0, 0, width, 44), fill=(24, 31, 40))
+        draw.text((18, 12), "Harim AMR palletizing review", fill=(255, 255, 255))
+        draw.text(
+            (330, 12),
+            f"frame {frame_index}  t={sim_time:6.2f}s  state={state_name}",
+            fill=(226, 232, 240),
+        )
+
+    def _draw_map(self, draw, rect, orchestrator, context, args):
+        left, top, right, bottom = rect
+        draw.rectangle(rect, fill=(255, 255, 255), outline=(203, 213, 225))
+        draw.text((left + 8, top + 8), "top view", fill=(51, 65, 85))
+
+        x_min = float(args.pickup_x) - 1.4
+        x_max = float(args.drop_x) + 2.2
+        y_mid = (float(args.pickup_y) + float(args.drop_y)) * 0.5
+        y_min = y_mid - 1.65
+        y_max = y_mid + 1.65
+
+        def to_px(position):
+            x = float(position[0])
+            y = float(position[1])
+            px = left + 22 + (x - x_min) / max(x_max - x_min, 1e-6) * (right - left - 44)
+            py = bottom - 24 - (y - y_min) / max(y_max - y_min, 1e-6) * (bottom - top - 58)
+            return px, py
+
+        def draw_world_rect(center, scale, fill, outline=(30, 41, 59)):
+            cx, cy = to_px(center)
+            sx = float(scale[0]) / max(x_max - x_min, 1e-6) * (right - left - 44)
+            sy = float(scale[1]) / max(y_max - y_min, 1e-6) * (bottom - top - 58)
+            draw.rectangle(
+                (cx - sx * 0.5, cy - sy * 0.5, cx + sx * 0.5, cy + sy * 0.5),
+                fill=fill,
+                outline=outline,
+            )
+
+        pickup = np.array([args.pickup_x, args.pickup_y, 0.0], dtype=float)
+        drop = np.array([args.drop_x, args.drop_y, 0.0], dtype=float)
+        pickup_px = to_px(pickup)
+        drop_px = to_px(drop)
+        draw.line((pickup_px[0], pickup_px[1], drop_px[0], drop_px[1]), fill=(245, 158, 11), width=4)
+        draw_world_rect(pickup, [1.75, 1.35], (254, 243, 199), (217, 119, 6))
+        draw_world_rect(drop, [1.95, 1.45], (219, 234, 254), (37, 99, 235))
+        draw.text((pickup_px[0] - 28, pickup_px[1] - 48), "PICK", fill=(146, 64, 14))
+        draw.text((drop_px[0] - 24, drop_px[1] - 48), "DROP", fill=(30, 64, 175))
+
+        pallet_center = self._pallet_center(orchestrator, args)
+        draw_world_rect(pallet_center, PALLET_DECK_SCALE, (180, 132, 84), (120, 53, 15))
+
+        for bin_state in getattr(context, "stacked_bins", []):
+            bin_obj = getattr(bin_state, "bin_obj", None)
+            position = self._world_position(bin_obj)
+            if position is not None:
+                draw_world_rect(position, CARTON_BODY_SCALE, (191, 120, 66), (124, 45, 18))
+
+        active_bin = (
+            getattr(context, "demo_released_bin", None)
+            or getattr(context, "demo_carried_bin", None)
+            or getattr(context, "active_bin", None)
+        )
+        active_position = self._world_position(getattr(active_bin, "bin_obj", None))
+        if active_position is not None and active_bin not in getattr(context, "stacked_bins", []):
+            draw_world_rect(active_position, CARTON_BODY_SCALE, (239, 68, 68), (127, 29, 29))
+
+        amr_position = np.array(orchestrator.get_amr_position(), dtype=float)
+        draw_world_rect(amr_position, [1.0, 0.72], (59, 130, 246), (30, 64, 175))
+        amr_px = to_px(amr_position)
+        draw.polygon(
+            [(amr_px[0] + 16, amr_px[1]), (amr_px[0] + 2, amr_px[1] - 7), (amr_px[0] + 2, amr_px[1] + 7)],
+            fill=(255, 255, 255),
+        )
+
+    def _draw_panel(self, draw, rect, orchestrator, context):
+        left, top, right, bottom = rect
+        draw.rectangle(rect, fill=(255, 255, 255), outline=(203, 213, 225))
+        state_name = getattr(getattr(orchestrator, "state", None), "name", "UNKNOWN")
+        stack_count = len(getattr(context, "stacked_bins", []))
+        total_stack = len(getattr(context, "stack_coordinates", []))
+        lift_offset = float(getattr(orchestrator, "lift_offset", 0.0))
+        cycles = int(getattr(orchestrator, "completed_cycles", 0))
+        lines = [
+            "status",
+            f"state: {state_name}",
+            f"stack: {stack_count}/{total_stack}",
+            f"cycles: {cycles}",
+            f"lift: {lift_offset:.3f} m",
+        ]
+        y = top + 12
+        for idx, line in enumerate(lines):
+            fill = (15, 23, 42) if idx == 0 else (51, 65, 85)
+            draw.text((left + 12, y), line, fill=fill)
+            y += 22
+
+        release_bin = getattr(context, "demo_released_bin", None)
+        release_position = self._world_position(getattr(release_bin, "bin_obj", None))
+        arm_position = self._arm_position(context)
+        clearance = 0.0
+        if release_position is not None and arm_position is not None:
+            clearance = float(arm_position[2] - release_position[2])
+        y += 10
+        draw.text((left + 12, y), "release clearance", fill=(15, 23, 42))
+        y += 22
+        draw.text((left + 12, y), f"vertical: {clearance:.3f} m", fill=(51, 65, 85))
+
+        gauge_left = left + 30
+        gauge_right = right - 30
+        gauge_bottom = bottom - 34
+        gauge_top = gauge_bottom - 155
+        draw.rectangle(
+            (gauge_left, gauge_top, gauge_right, gauge_bottom),
+            fill=(248, 250, 252),
+            outline=(226, 232, 240),
+        )
+        box_y = gauge_bottom - 32
+        draw.rectangle(
+            (gauge_left + 18, box_y - 10, gauge_right - 18, box_y + 10),
+            fill=(191, 120, 66),
+            outline=(124, 45, 18),
+        )
+        arm_y = max(gauge_top + 14, min(gauge_bottom - 20, box_y - clearance * 110.0))
+        draw.line((gauge_left + 20, arm_y, gauge_right - 20, arm_y), fill=(239, 68, 68), width=4)
+        draw.text((gauge_left + 18, arm_y - 18), "TCP", fill=(127, 29, 29))
+        draw.text((gauge_left + 18, box_y + 14), "box", fill=(124, 45, 18))
+
+    def _pallet_center(self, orchestrator, args):
+        pallet_parts = getattr(orchestrator, "pallet_parts", [])
+        if pallet_parts:
+            position = self._world_position(pallet_parts[0])
+            if position is not None:
+                return np.array(position, dtype=float) - PALLET_DECK_OFFSETS[0]
+        return np.array([args.pickup_x, args.pickup_y, PALLET_CENTER_Z], dtype=float)
+
+    def _world_position(self, obj):
+        if obj is None:
+            return None
+        try:
+            position, _orientation = obj.get_world_pose()
+            return np.array(position, dtype=float)
+        except Exception:
+            return None
+
+    def _arm_position(self, context):
+        try:
+            return np.array(context.robot.arm.get_fk_p(), dtype=float)
+        except Exception:
+            return None
 
 
 class HarimTransferOrchestrator:
@@ -2601,8 +3014,18 @@ def main():
             self.entry_time = None
             self.released_bin = None
             self.target_p = None
-            self.retreat_pq = None
+            self.retreat_position = None
             self.release_start_arm_z = None
+
+        def _send_retreat_command(self):
+            if self.retreat_position is None:
+                return
+            self.context.robot.arm.send(
+                MotionCommand(
+                    target_position=self.retreat_position,
+                    posture_config=self.context.robot.default_config,
+                )
+            )
 
         def enter(self):
             self.entry_time = get_demo_time(self.context)
@@ -2618,11 +3041,15 @@ def main():
             target_index = len(self.context.stacked_bins)
             self.target_p = get_demo_stack_coordinate(self.context, target_index)
             self.released_bin = active_bin
-            self.retreat_pq = self.context.robot.arm.get_fk_pq()
-            self.release_start_arm_z = float(self.retreat_pq.p[2])
-            self.retreat_pq.p[2] += POST_RELEASE_CLEARANCE_LIFT
+            current_fk_p = np.array(self.context.robot.arm.get_fk_p(), dtype=float)
+            self.release_start_arm_z = float(current_fk_p[2])
+            self.retreat_position = np.array(self.target_p, dtype=float) + POST_RELEASE_RETREAT_OFFSET
+            self.retreat_position[2] = max(
+                float(self.retreat_position[2]),
+                float(current_fk_p[2] + POST_RELEASE_CLEARANCE_LIFT),
+            )
             release_demo_bin_at_target(self.context, active_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
-            self.context.robot.arm.send(MotionCommand(self.retreat_pq))
+            self._send_retreat_command()
             record_release_visual_separation(self.context, active_bin)
             if args.self_test_require_gripper_open_after_release:
                 record_release_gripper_state(self.context)
@@ -2634,8 +3061,7 @@ def main():
             force_open_suction_gripper(self.context)
             mark_demo_bin_released(self.context, self.released_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
             hold_demo_released_bin_at_target(self.context)
-            if self.retreat_pq is not None:
-                self.context.robot.arm.send(MotionCommand(self.retreat_pq))
+            self._send_retreat_command()
             record_release_visual_separation(self.context, self.released_bin)
             if self.release_start_arm_z is not None:
                 current_arm_z = float(self.context.robot.arm.get_fk_p()[2])
@@ -2658,7 +3084,7 @@ def main():
             self.entry_time = None
             self.released_bin = None
             self.target_p = None
-            self.retreat_pq = None
+            self.retreat_position = None
             self.release_start_arm_z = None
 
     class DemoTimedArmLift(DfState):
@@ -3313,6 +3739,27 @@ def main():
 
     create_floor_markings()
 
+    def create_pickup_dock_alignment_visual():
+        dock_parts = []
+        for part_name, _role, position, scale, color in make_pickup_dock_alignment_specs(
+            args.pickup_x,
+            args.pickup_y,
+        ):
+            dock_parts.append(
+                world.scene.add(
+                    VisualCuboid(
+                        f"{harim_root}/{part_name}",
+                        name=f"harim_{part_name.lower()}",
+                        position=np.array(position, dtype=float),
+                        scale=np.array(scale, dtype=float),
+                        color=np.array(color, dtype=float),
+                    )
+                )
+            )
+        return dock_parts
+
+    create_pickup_dock_alignment_visual()
+
     def create_amr_route_guard_visuals():
         route_guard_parts = []
         for part_name, _role, position, scale, color in make_amr_route_guard_specs(
@@ -3700,6 +4147,20 @@ def main():
     decider_network.context.demo_release_gripper_probe_failures = 0
     decider_network.context.demo_joint_settle_count = 0
     orchestrator.reset_visual_state()
+    gif_recorder = DemoGifRecorder(
+        enabled=not args.no_gif,
+        output_dir=args.gif_output_dir,
+        frame_stride=args.gif_frame_stride,
+        max_frames=args.gif_max_frames,
+    )
+    demo_frame_index = 0
+    review_gif_path = None
+
+    def save_review_gif():
+        nonlocal review_gif_path
+        if review_gif_path is None:
+            review_gif_path = gif_recorder.save()
+        return review_gif_path
 
     def force_self_test_stack_complete():
         if not args.self_test_force_stack_complete:
@@ -3711,6 +4172,7 @@ def main():
             ]
 
     def step_demo_frame():
+        nonlocal demo_frame_index
         physics_dt = world.get_physics_dt()
         decider_network.context.demo_sim_time = getattr(decider_network.context, "demo_sim_time", 0.0) + physics_dt
         hold_demo_released_bin_at_target(decider_network.context)
@@ -3719,12 +4181,15 @@ def main():
         hold_demo_released_bin_at_target(decider_network.context)
         force_self_test_stack_complete()
         orchestrator.step(physics_dt)
+        gif_recorder.maybe_capture(demo_frame_index, orchestrator, decider_network.context, args)
+        demo_frame_index += 1
 
     self_test_failure_message = None
     try:
         if args.self_test_frames > 0:
             for _frame_count in range(args.self_test_frames):
                 step_demo_frame()
+            gif_recorder.maybe_capture(demo_frame_index, orchestrator, decider_network.context, args, force=True)
             placed_count = len(getattr(decider_network.context, "stacked_bins", []))
             transfer_cycles = getattr(orchestrator, "completed_cycles", 0)
             self_test_failures = []
@@ -3790,6 +4255,14 @@ def main():
                 self_test_failures.append(
                     f"release separation {max_release_separation:.4f} m was below "
                     f"{args.self_test_min_release_separation:.4f} m"
+                )
+            if (
+                args.self_test_min_release_vertical_clearance > 0
+                and max_release_vertical_clearance < args.self_test_min_release_vertical_clearance
+            ):
+                self_test_failures.append(
+                    f"release vertical clearance {max_release_vertical_clearance:.4f} m was below "
+                    f"{args.self_test_min_release_vertical_clearance:.4f} m"
                 )
             release_gripper_samples = int(getattr(decider_network.context, "demo_release_gripper_samples", 0))
             release_gripper_not_open = int(
@@ -4170,6 +4643,54 @@ def main():
                     f"drop dock fork clearance {drop_dock_fork_clearance:.4f} m was below "
                     f"{args.self_test_min_drop_dock_fork_clearance:.4f} m"
                 )
+            pickup_dock_metrics = compute_pickup_dock_metrics()
+            pickup_dock_stop_count = pickup_dock_metrics["pickup_dock_stop_count"]
+            pickup_dock_stop_gap = pickup_dock_metrics["pickup_dock_stop_gap"]
+            pickup_dock_guide_clearance = pickup_dock_metrics["pickup_dock_guide_clearance"]
+            pickup_dock_fork_clearance = pickup_dock_metrics["pickup_dock_fork_clearance"]
+            pickup_dock_runner_clearance = pickup_dock_metrics["pickup_dock_runner_clearance"]
+            if (
+                args.self_test_min_pickup_dock_stop_count > 0
+                and pickup_dock_stop_count < args.self_test_min_pickup_dock_stop_count
+            ):
+                self_test_failures.append(
+                    f"pickup dock stop count {pickup_dock_stop_count} was below "
+                    f"{args.self_test_min_pickup_dock_stop_count}"
+                )
+            if args.self_test_max_pickup_dock_stop_gap > 0:
+                if pickup_dock_stop_gap > args.self_test_max_pickup_dock_stop_gap:
+                    self_test_failures.append(
+                        f"pickup dock stop gap {pickup_dock_stop_gap:.4f} m exceeded "
+                        f"{args.self_test_max_pickup_dock_stop_gap:.4f} m"
+                    )
+                if pickup_dock_stop_gap < 0.0:
+                    self_test_failures.append(
+                        f"pickup dock stop overlapped pallet rear {-pickup_dock_stop_gap:.4f} m"
+                    )
+            if (
+                args.self_test_min_pickup_dock_guide_clearance > 0
+                and pickup_dock_guide_clearance < args.self_test_min_pickup_dock_guide_clearance
+            ):
+                self_test_failures.append(
+                    f"pickup dock guide clearance {pickup_dock_guide_clearance:.4f} m was below "
+                    f"{args.self_test_min_pickup_dock_guide_clearance:.4f} m"
+                )
+            if (
+                args.self_test_min_pickup_dock_fork_clearance > 0
+                and pickup_dock_fork_clearance < args.self_test_min_pickup_dock_fork_clearance
+            ):
+                self_test_failures.append(
+                    f"pickup dock fork clearance {pickup_dock_fork_clearance:.4f} m was below "
+                    f"{args.self_test_min_pickup_dock_fork_clearance:.4f} m"
+                )
+            if (
+                args.self_test_min_pickup_dock_runner_clearance > 0
+                and pickup_dock_runner_clearance < args.self_test_min_pickup_dock_runner_clearance
+            ):
+                self_test_failures.append(
+                    f"pickup dock runner clearance {pickup_dock_runner_clearance:.4f} m was below "
+                    f"{args.self_test_min_pickup_dock_runner_clearance:.4f} m"
+                )
             camera_metrics = compute_camera_rig_metrics(args.pickup_x, args.pickup_y, args.drop_x, args.drop_y)
             camera_rig_count = camera_metrics["camera_rig_count"]
             camera_required_role_count = camera_metrics["camera_required_role_count"]
@@ -4308,10 +4829,12 @@ def main():
                 )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
+                save_review_gif()
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
                 print("[HarimDemo] preserving failure exit; skipping SimulationApp.close()", flush=True)
                 os._exit(1)
             else:
+                save_review_gif()
                 print(
                     f"[HarimDemo] self-test completed after {args.self_test_frames} frames; "
                     f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}; "
@@ -4370,6 +4893,11 @@ def main():
                     f"drop_dock_guide_clearance={drop_dock_guide_clearance:.4f}; "
                     f"drop_dock_fork_clearance={drop_dock_fork_clearance:.4f}; "
                     f"drop_dock_runner_clearance={drop_dock_runner_clearance:.4f}; "
+                    f"pickup_dock_stop_count={pickup_dock_stop_count}; "
+                    f"pickup_dock_stop_gap={pickup_dock_stop_gap:.4f}; "
+                    f"pickup_dock_guide_clearance={pickup_dock_guide_clearance:.4f}; "
+                    f"pickup_dock_fork_clearance={pickup_dock_fork_clearance:.4f}; "
+                    f"pickup_dock_runner_clearance={pickup_dock_runner_clearance:.4f}; "
                     f"camera_rig_count={camera_rig_count}; "
                     f"camera_required_role_count={camera_required_role_count}; "
                     f"camera_min_height={camera_min_height:.4f}; "
@@ -4384,7 +4912,8 @@ def main():
                     f"amr_route_guard_part_count={amr_route_guard_part_count}; "
                     f"amr_route_guard_span={amr_route_guard_span:.4f}; "
                     f"amr_route_guard_clearance={amr_route_guard_clearance:.4f}; "
-                    f"amr_route_bollard_height={amr_route_bollard_height:.4f}",
+                    f"amr_route_bollard_height={amr_route_bollard_height:.4f}; "
+                    f"review_gif_path={review_gif_path or ''}",
                     flush=True,
                 )
         else:
@@ -4393,9 +4922,11 @@ def main():
     except Exception as exc:
         print(f"[HarimDemo] simulation aborted: {exc}", flush=True)
         traceback.print_exc()
+        save_review_gif()
         print("[HarimDemo] preserving failure exit; skipping SimulationApp.close()", flush=True)
         os._exit(1)
     finally:
+        save_review_gif()
         simulation_app.close()
 
 

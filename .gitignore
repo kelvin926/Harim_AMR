@@ -3,6 +3,7 @@
 .pip_cache/
 .nvidia_cache/
 isaacsim_logs/
+isaacsim_outputs/
 .omni_user/
 .omni_cache/
 .kit_cache/

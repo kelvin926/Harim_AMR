@@ -2868,3 +2868,70 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -Accep
   - `max_dropped_payload_drift=0.0000`
 
 ---
+---
+## 2026-05-30 GUI 확인용 GIF 자동 저장 및 release-retreat 보강
+
+GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제를 확인하기 위해, 실행할 때마다 확인용 GIF가 자동 저장되도록 했습니다. 이 GIF는 Isaac viewport 캡처가 아니라 시뮬레이션 좌표를 샘플링한 review GIF입니다. headless strict self-test에서도 항상 생성되며, AMR 이동, 팔레트 위치, 적재 박스, release 후 TCP와 박스 사이의 수직 이격을 한 화면에서 볼 수 있습니다.
+
+수정 내용:
+
+- [x] `DemoGifRecorder` 추가
+  - 기본 저장 위치: `E:\Harim_AMR\isaacsim_outputs`
+  - 파일명 형식: `harim_amr_review_YYYYMMDD_HHMMSS_PID.gif`
+  - `--no-gif`로 비활성화 가능
+  - `--gif-output-dir`, `--gif-frame-stride`, `--gif-max-frames` 지원
+- [x] `run_harim_demo.ps1`에 GIF 옵션 연결
+  - `-NoGif`
+  - `-GifOutputDir`
+  - `-GifFrameStride`
+  - `-GifMaxFrames`
+- [x] strict self-test 완료 로그에 `review_gif_path=` 출력
+- [x] `.gitignore`에 `isaacsim_outputs/` 추가
+- [x] release 후 그리퍼가 박스에 붙어 보이지 않도록 retreat 동작 강화
+  - `POST_RELEASE_CLEARANCE_LIFT = 0.42`
+  - `POST_RELEASE_RETREAT_OFFSET = [-0.30, 0.0, 0.62]`
+  - `SCRIPTED_PLACE_EE_HOVER = 0.30`
+  - `RELEASE_RETREAT_DURATION = 0.90`
+- [x] release 수직 이격 self-test gate 추가
+  - Python: `--self-test-min-release-vertical-clearance`
+  - PowerShell: `-SelfTestMinReleaseVerticalClearance`
+  - strict 기준: `SelfTestMinReleaseVerticalClearance = 0.35`
+- [x] pickup dock locator visual 추가
+  - `PickupDockStopBlock_*`
+  - `PickupDockLocatorPost_*`
+  - `PickupDockLocatorCap_*`
+  - AMR은 `+X` 방향에서 접근하므로 stop block은 pallet 뒤쪽에 배치
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] unittest 56개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- [x] 로그 파일: `isaacsim_logs/harim_gif_release_retreat_strict_full_e2e_12000.log`
+- [x] GIF 파일: `isaacsim_outputs/harim_amr_review_20260530_004529_29628.gif`
+- [x] 주요 완료 metric:
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `scripted_place_count=8`
+  - `max_release_retreat_lift=0.4073`
+  - `max_release_separation=0.9018`
+  - `max_release_vertical_clearance=0.8712`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `pickup_dock_stop_count=2`
+  - `pickup_dock_stop_gap=0.0350`
+  - `pickup_dock_guide_clearance=0.1500`
+  - `pickup_dock_fork_clearance=0.0350`
+  - `pickup_dock_runner_clearance=0.0650`
+  - `review_gif_path=E:\Harim_AMR\isaacsim_outputs\harim_amr_review_20260530_004529_29628.gif`
+
+---
