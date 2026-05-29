@@ -2041,6 +2041,52 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 ---
 
+## 2026-05-29 carton side label visual 추가
+
+동작/간격 gate는 통과하고 있지만, GUI에서 박스가 단순한 갈색 cuboid와 top tape만으로 보이면 실제 물류 carton 느낌이 약하다. 이번 보강에서는 기존 KLT collision/grasp 구조는 그대로 두고 child visual overlay만 추가해 박스 양쪽 면에 라벨 패널과 빨간 방향 스트립을 표시한다.
+
+수정 내용:
+
+- [x] carton side label 치수/색상 상수 추가
+  - `CARTON_SIDE_LABEL_SCALE = [0.140, 0.006, 0.055]`
+  - `CARTON_SIDE_STRIPE_SCALE = [0.030, 0.007, 0.065]`
+  - `CARTON_LABEL_COLOR`
+- [x] `_add_carton_visual()` 보강
+  - 기존 `HarimCartonBody`, `HarimCartonTopTape` 유지
+  - `HarimCartonSideLabelFront`
+  - `HarimCartonSideLabelBack`
+  - `HarimCartonSideStripeFront`
+  - `HarimCartonSideStripeBack`
+- [x] carton visual dimension unittest 보강
+  - label과 stripe가 carton body보다 얇고, side label처럼 보이는 치수인지 확인
+- [x] 기존 strict wrapper로 전체 회귀 검증
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -AcceptEula -SelfTestDebugBins
+```
+
+확인 결과:
+
+- [x] Python compile 통과
+- [x] unittest 41개 통과
+- [x] strict wrapper 기반 12000-frame full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_carton_label_strict_full_e2e_12000.log`
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0399`
+  - `max_release_drift=0.0000`
+  - `min_stack_pallet_margin=0.0850`
+  - `max_dropped_payload_drift=0.0000`
+  - `amr_exit_clearance=0.6500`
+
+---
+
 ## 2026-05-29 strict full realism self-test wrapper 추가
 
 현실성 gate가 많아지면서 매번 긴 명령을 직접 입력하면 특정 gate를 빼먹기 쉽다. 이번 보강에서는 지금까지 추가한 모든 full end-to-end realism gate를 한 번에 실행하는 wrapper를 추가했다.

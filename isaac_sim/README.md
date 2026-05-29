@@ -479,3 +479,20 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_strict_self_test.ps1 -Accep
 - strict wrapper 기반 12000-frame full end-to-end self-test 통과
 - 로그 파일: `isaacsim_logs/harim_strict_wrapper_full_e2e_12000.log`
 - 완료 로그: `placed_bins=8; transfer_cycles=1; max_pre_grip_offset=0.0046; max_return_ready_error=0.0400; max_release_drift=0.0000; min_stack_pallet_margin=0.0850; max_dropped_payload_drift=0.0000; amr_exit_clearance=0.6500`
+
+## Carton Side Label Visual
+
+KLT collision/grasp 구조는 유지하면서 carton overlay에 side label과 red stripe visual을 추가했습니다. GUI에서 단순 갈색 박스가 아니라 물류 carton처럼 읽히도록 하기 위한 표시입니다.
+
+추가 visual:
+
+- `HarimCartonSideLabelFront`
+- `HarimCartonSideLabelBack`
+- `HarimCartonSideStripeFront`
+- `HarimCartonSideStripeBack`
+
+검증 결과:
+
+- unittest 41개 통과
+- strict wrapper 기반 12000-frame full end-to-end self-test 통과
+- 로그 파일: `isaacsim_logs/harim_carton_label_strict_full_e2e_12000.log`

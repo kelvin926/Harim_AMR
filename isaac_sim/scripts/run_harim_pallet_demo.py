@@ -96,8 +96,11 @@ DROP_SLIDE_ROLLER_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_ROLLER_SCALE[
 DROP_SLIDE_TOP_SUPPORT_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_TOP_SUPPORT_SCALE[2] * 0.5
 CARTON_BODY_SCALE = np.array([0.20, 0.29, 0.14], dtype=float)
 CARTON_TAPE_TOP_SCALE = np.array([0.205, 0.030, 0.008], dtype=float)
+CARTON_SIDE_LABEL_SCALE = np.array([0.140, 0.006, 0.055], dtype=float)
+CARTON_SIDE_STRIPE_SCALE = np.array([0.030, 0.007, 0.065], dtype=float)
 CARTON_BODY_COLOR = np.array([0.72, 0.48, 0.26], dtype=float)
 CARTON_TAPE_COLOR = np.array([0.86, 0.10, 0.08], dtype=float)
+CARTON_LABEL_COLOR = np.array([0.94, 0.90, 0.80], dtype=float)
 
 
 def parse_args():
@@ -1064,6 +1067,22 @@ def main():
                 scale=CARTON_TAPE_TOP_SCALE,
                 color=CARTON_TAPE_COLOR,
             )
+            label_y = CARTON_BODY_SCALE[1] * 0.5 + CARTON_SIDE_LABEL_SCALE[1] * 0.5 + 0.001
+            for side_name, y_sign in (("Front", 1.0), ("Back", -1.0)):
+                VisualCuboid(
+                    f"{prim_path}/HarimCartonSideLabel{side_name}",
+                    name=f"{name}_carton_side_label_{side_name.lower()}",
+                    translation=np.array([0.0, y_sign * label_y, 0.018], dtype=float),
+                    scale=CARTON_SIDE_LABEL_SCALE,
+                    color=CARTON_LABEL_COLOR,
+                )
+                VisualCuboid(
+                    f"{prim_path}/HarimCartonSideStripe{side_name}",
+                    name=f"{name}_carton_side_stripe_{side_name.lower()}",
+                    translation=np.array([-0.073, y_sign * (label_y + 0.0008), 0.018], dtype=float),
+                    scale=CARTON_SIDE_STRIPE_SCALE,
+                    color=CARTON_TAPE_COLOR,
+                )
 
         def post_reset(self) -> None:
             if len(self.bins) > 0:

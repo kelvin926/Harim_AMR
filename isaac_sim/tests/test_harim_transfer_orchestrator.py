@@ -216,12 +216,20 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def test_carton_visual_dimensions_are_box_like(self):
         body = self.demo.CARTON_BODY_SCALE
         tape = self.demo.CARTON_TAPE_TOP_SCALE
+        label = self.demo.CARTON_SIDE_LABEL_SCALE
+        stripe = self.demo.CARTON_SIDE_STRIPE_SCALE
 
         self.assertGreater(body[1], body[0])
         self.assertGreater(body[0], body[2])
         self.assertLess(tape[1], body[1])
         self.assertLess(tape[2], body[2])
+        self.assertLess(label[0], body[0])
+        self.assertLess(label[1], 0.01)
+        self.assertLess(label[2], body[2])
+        self.assertLess(stripe[0], label[0])
+        self.assertGreater(stripe[2], label[2])
         self.assertGreater(self.demo.CARTON_TAPE_COLOR[0], self.demo.CARTON_TAPE_COLOR[1])
+        self.assertGreater(self.demo.CARTON_LABEL_COLOR[0], self.demo.CARTON_BODY_COLOR[0])
 
     def test_stack_coordinate_clone_preserves_canonical_grid(self):
         original = self.demo.make_stack_coordinates(2, 2, 2)
@@ -384,6 +392,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("CARTON_BODY_SCALE", source)
         self.assertIn("HarimCartonBody", source)
         self.assertIn("HarimCartonTopTape", source)
+        self.assertIn("HarimCartonSideLabel", source)
+        self.assertIn("HarimCartonSideStripe", source)
+        self.assertIn('("Front", 1.0)', source)
+        self.assertIn('("Back", -1.0)', source)
+        self.assertIn("CARTON_SIDE_LABEL_SCALE", source)
+        self.assertIn("CARTON_SIDE_STRIPE_SCALE", source)
         self.assertIn("_add_carton_visual", source)
         self.assertIn("target_position=self.target_position", source)
         self.assertIn("posture_config=self.context.robot.default_config", source)
