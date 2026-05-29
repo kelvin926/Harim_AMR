@@ -547,6 +547,21 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         )
         self.assertAlmostEqual(orchestrator.max_pickup_handoff_lift_penetration, 0.0)
 
+    def test_slide_out_records_fork_clearance_while_exiting_dropped_pallet(self):
+        default_height_args = type("DefaultHeightArgs", (Args,), {"amr_z": self.demo.DEFAULT_AMR_Z})
+        orchestrator, context, _world, _items = self.build_orchestrator(default_height_args)
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.RESET_CYCLE)
+
+        self.assertGreater(orchestrator.slide_out_sample_count, 0)
+        self.assertAlmostEqual(orchestrator.max_slide_out_y_error, 0.0)
+        self.assertAlmostEqual(
+            orchestrator.max_slide_out_lift_gap,
+            self.demo.compute_lift_contact_gap(default_height_args.amr_z, 0.0),
+        )
+        self.assertAlmostEqual(orchestrator.max_slide_out_lift_penetration, 0.0)
+
     def test_drop_dock_stops_and_locator_posts_leave_clearance(self):
         metrics = self.demo.compute_drop_dock_metrics()
 
@@ -961,6 +976,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-pickup-handoff-xy-error", source)
         self.assertIn("--self-test-max-pickup-handoff-lift-gap", source)
         self.assertIn("--self-test-max-pickup-handoff-lift-penetration", source)
+        self.assertIn("--self-test-max-slide-out-y-error", source)
+        self.assertIn("--self-test-max-slide-out-lift-gap", source)
+        self.assertIn("--self-test-max-slide-out-lift-penetration", source)
         self.assertIn("--self-test-max-drop-support-gap", source)
         self.assertIn("--self-test-max-drop-handoff-xy-error", source)
         self.assertIn("--self-test-max-drop-handoff-support-gap", source)
@@ -1044,6 +1062,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("pickup handoff XY error", source)
         self.assertIn("pickup handoff lift gap", source)
         self.assertIn("pickup handoff lift penetration", source)
+        self.assertIn("slide-out geometry", source)
+        self.assertIn("slide-out Y error", source)
+        self.assertIn("slide-out lift gap", source)
+        self.assertIn("slide-out lift penetration", source)
         self.assertIn("drop support gap", source)
         self.assertIn("drop handoff XY error", source)
         self.assertIn("drop handoff support gap", source)
@@ -1137,6 +1159,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_pickup_handoff_xy_error=", source)
         self.assertIn("max_pickup_handoff_lift_gap=", source)
         self.assertIn("max_pickup_handoff_lift_penetration=", source)
+        self.assertIn("slide_out_sample_count=", source)
+        self.assertIn("max_slide_out_y_error=", source)
+        self.assertIn("max_slide_out_lift_gap=", source)
+        self.assertIn("max_slide_out_lift_penetration=", source)
         self.assertIn("drop_support_gap=", source)
         self.assertIn("drop_handoff_xy_error=", source)
         self.assertIn("drop_handoff_support_gap=", source)
@@ -1239,6 +1265,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxPickupHandoffXyError", source)
         self.assertIn("$SelfTestMaxPickupHandoffLiftGap", source)
         self.assertIn("$SelfTestMaxPickupHandoffLiftPenetration", source)
+        self.assertIn("$SelfTestMaxSlideOutYError", source)
+        self.assertIn("$SelfTestMaxSlideOutLiftGap", source)
+        self.assertIn("$SelfTestMaxSlideOutLiftPenetration", source)
         self.assertIn("$SelfTestMaxDropSupportGap", source)
         self.assertIn("$SelfTestMaxDropHandoffXyError", source)
         self.assertIn("$SelfTestMaxDropHandoffSupportGap", source)
@@ -1310,6 +1339,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-pickup-handoff-xy-error", source)
         self.assertIn("--self-test-max-pickup-handoff-lift-gap", source)
         self.assertIn("--self-test-max-pickup-handoff-lift-penetration", source)
+        self.assertIn("--self-test-max-slide-out-y-error", source)
+        self.assertIn("--self-test-max-slide-out-lift-gap", source)
+        self.assertIn("--self-test-max-slide-out-lift-penetration", source)
         self.assertIn("--self-test-max-drop-support-gap", source)
         self.assertIn("--self-test-max-drop-handoff-xy-error", source)
         self.assertIn("--self-test-max-drop-handoff-support-gap", source)
@@ -1428,6 +1460,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxPickupHandoffXyError", source)
         self.assertIn("SelfTestMaxPickupHandoffLiftGap", source)
         self.assertIn("SelfTestMaxPickupHandoffLiftPenetration", source)
+        self.assertIn("SelfTestMaxSlideOutYError", source)
+        self.assertIn("SelfTestMaxSlideOutLiftGap", source)
+        self.assertIn("SelfTestMaxSlideOutLiftPenetration", source)
         self.assertIn("SelfTestMaxDropSupportGap", source)
         self.assertIn("SelfTestMaxDropHandoffXyError", source)
         self.assertIn("SelfTestMaxDropHandoffSupportGap", source)

@@ -1,5 +1,14 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Slide-Out Clearance 동적 검증
+
+- 하역 후 AMR이 팔레트 밑에서 빠져나가는 동안 `SLIDE_OUT_FROM_PALLET` 구간의 lateral drift와 lift fork 높이를 매 frame 기록합니다.
+- `max_slide_out_y_error`로 AMR이 dropped pallet centerline에서 벗어나는지 확인하고, `max_slide_out_lift_gap`, `max_slide_out_lift_penetration`으로 lowered fork가 팔레트 하부를 끌거나 뚫지 않는지 검증합니다.
+- strict self-test에 slide-out Y error, lift gap, lift penetration gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_slide_out_clearance_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_021103_38356.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `slide_out_sample_count=168`, `max_slide_out_y_error=0.0000`, `max_slide_out_lift_gap=0.0050`, `max_slide_out_lift_penetration=0.0000`
+
 ## 2026-05-30 Pickup Handoff 동적 검증
 
 - AMR이 팔레트 밑으로 들어가 lift-up을 시작하기 직전, 실제 AMR lift center와 pallet center의 XY 오차를 `max_pickup_handoff_xy_error`로 기록합니다.

@@ -1,5 +1,22 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Slide-Out Clearance 동적 검증
+
+- [x] 하역 후 AMR이 팔레트 밑에서 빠져나가는 동안 `SLIDE_OUT_FROM_PALLET` 구간의 lateral drift와 lift fork 높이를 매 frame 기록하도록 했다.
+- [x] `max_slide_out_y_error`로 AMR이 dropped pallet centerline에서 벗어나는지 확인하도록 했다.
+- [x] `max_slide_out_lift_gap`, `max_slide_out_lift_penetration`으로 lowered fork가 팔레트 하부를 끌거나 뚫지 않는지 검증하도록 했다.
+- [x] self-test gate를 추가했다.
+  - Python: `--self-test-max-slide-out-y-error`
+  - Python: `--self-test-max-slide-out-lift-gap`
+  - Python: `--self-test-max-slide-out-lift-penetration`
+  - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
+- [x] 검증 완료
+  - unittest 66개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_slide_out_clearance_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_021103_38356.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `slide_out_sample_count=168`, `max_slide_out_y_error=0.0000`, `max_slide_out_lift_gap=0.0050`, `max_slide_out_lift_penetration=0.0000`
+
 ## 2026-05-30 Pickup Handoff 동적 검증
 
 - [x] AMR이 팔레트 밑으로 들어가 lift-up을 시작하기 직전 실제 AMR lift center와 pallet center의 XY 오차를 `max_pickup_handoff_xy_error`로 기록하도록 했다.
