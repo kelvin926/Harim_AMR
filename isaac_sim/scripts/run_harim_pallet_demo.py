@@ -34,7 +34,7 @@ AMR_APPROACH_STANDOFF = 1.05
 AMR_LIFT_DURATION = 1.25
 AMR_LIFT_SETTLE_TIME = 0.25
 SLIDE_EXIT_DISTANCE = 1.8
-PALLET_TUNNEL_HALF_WIDTH = 0.42
+PALLET_TUNNEL_HALF_WIDTH = 0.46
 DROP_WORKSTATION_Z = -0.73
 PALLET_CENTER_Z = -0.62
 PALLET_DECK_SCALE = np.array([1.20, 1.08, 0.06], dtype=float)
@@ -84,14 +84,14 @@ AMR_LIFT_PLATE_OFFSET_Z = (
     - WORLD_FLOOR_Z
     - LIFT_FORK_SCALE[2] * 0.5
 )
-DROP_SLIDE_LANE_Y_OFFSETS = tuple(float(offset[1]) for offset in LIFT_FORK_OFFSETS)
+DROP_SLIDE_LANE_Y_OFFSETS = (-0.38, 0.38)
 DROP_SLIDE_ROLLER_X_OFFSETS = (-0.62, -0.22, 0.22, 0.62)
 DROP_SLIDE_LEG_X_OFFSETS = (-0.78, 0.78)
 DROP_SLIDE_SUPPORT_GAP = 0.005
 DROP_SLIDE_SUPPORT_TOP_Z = PALLET_DECK_UNDERSIDE_Z - DROP_SLIDE_SUPPORT_GAP
-DROP_SLIDE_RAIL_SCALE = np.array([1.80, 0.10, 0.09], dtype=float)
-DROP_SLIDE_ROLLER_SCALE = np.array([0.12, 0.16, 0.035], dtype=float)
-DROP_SLIDE_TOP_SUPPORT_SCALE = np.array([1.95, 0.16, 0.035], dtype=float)
+DROP_SLIDE_RAIL_SCALE = np.array([1.80, 0.08, 0.09], dtype=float)
+DROP_SLIDE_ROLLER_SCALE = np.array([0.12, 0.08, 0.035], dtype=float)
+DROP_SLIDE_TOP_SUPPORT_SCALE = np.array([1.95, 0.08, 0.035], dtype=float)
 DROP_SLIDE_ROLLER_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_ROLLER_SCALE[2] * 0.5
 DROP_SLIDE_TOP_SUPPORT_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_TOP_SUPPORT_SCALE[2] * 0.5
 CARTON_BODY_SCALE = np.array([0.20, 0.29, 0.14], dtype=float)
@@ -224,6 +224,12 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the drop workstation lanes are closer to the pallet side runners than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-drop-fork-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the drop workstation lanes are closer to the AMR lift forks than this distance in meters. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -442,6 +448,20 @@ def compute_drop_workstation_runner_clearance():
         abs(float(offset[1])) - PALLET_RUNNER_SCALE[1] * 0.5 for offset in PALLET_RUNNER_OFFSETS
     )
     return float(runner_inner_half_width - compute_drop_workstation_lane_outer_half_width())
+
+
+def compute_drop_workstation_fork_clearance():
+    lane_half_width = max(
+        DROP_SLIDE_RAIL_SCALE[1],
+        DROP_SLIDE_ROLLER_SCALE[1],
+        DROP_SLIDE_TOP_SUPPORT_SCALE[1],
+    ) * 0.5
+    fork_half_width = LIFT_FORK_SCALE[1] * 0.5
+    gaps = []
+    for lane_y in DROP_SLIDE_LANE_Y_OFFSETS:
+        for fork_offset in LIFT_FORK_OFFSETS:
+            gaps.append(abs(float(lane_y) - float(fork_offset[1])) - lane_half_width - fork_half_width)
+    return float(min(gaps)) if gaps else 0.0
 
 
 def clone_stack_coordinates(stack_coordinates):
@@ -2157,6 +2177,15 @@ def main():
                     f"drop lane runner clearance {drop_runner_clearance:.4f} m was below "
                     f"{args.self_test_min_drop_runner_clearance:.4f} m"
                 )
+            drop_fork_clearance = compute_drop_workstation_fork_clearance()
+            if (
+                args.self_test_min_drop_fork_clearance > 0
+                and drop_fork_clearance < args.self_test_min_drop_fork_clearance
+            ):
+                self_test_failures.append(
+                    f"drop lane fork clearance {drop_fork_clearance:.4f} m was below "
+                    f"{args.self_test_min_drop_fork_clearance:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -2186,7 +2215,8 @@ def main():
                     f"lift_fork_inner_gap={lift_fork_inner_gap:.4f}; "
                     f"drop_support_gap={drop_support_gap:.4f}; "
                     f"drop_lane_clearance={drop_lane_clearance:.4f}; "
-                    f"drop_runner_clearance={drop_runner_clearance:.4f}",
+                    f"drop_runner_clearance={drop_runner_clearance:.4f}; "
+                    f"drop_fork_clearance={drop_fork_clearance:.4f}",
                     flush=True,
                 )
         else:

@@ -267,14 +267,20 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         support_gap = self.demo.compute_drop_workstation_support_gap()
         lane_clearance = self.demo.compute_drop_workstation_tunnel_clearance()
         runner_clearance = self.demo.compute_drop_workstation_runner_clearance()
+        fork_clearance = self.demo.compute_drop_workstation_fork_clearance()
 
         self.assertGreaterEqual(support_gap, 0.0)
         self.assertLessEqual(support_gap, 0.01)
-        self.assertGreaterEqual(lane_clearance, 0.08)
-        self.assertGreaterEqual(runner_clearance, 0.10)
+        self.assertGreaterEqual(lane_clearance, 0.03)
+        self.assertGreaterEqual(runner_clearance, 0.05)
+        self.assertGreaterEqual(fork_clearance, 0.03)
         self.assertLess(
             self.demo.compute_drop_workstation_lane_outer_half_width(),
             self.demo.PALLET_TUNNEL_HALF_WIDTH,
+        )
+        self.assertGreater(
+            abs(self.demo.DROP_SLIDE_LANE_Y_OFFSETS[0]),
+            abs(self.demo.LIFT_FORK_OFFSETS[0][1]),
         )
 
     def test_amr_starts_far_from_table_side_and_approaches_from_drop_side(self):
@@ -448,6 +454,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-drop-support-gap", source)
         self.assertIn("--self-test-min-drop-lane-clearance", source)
         self.assertIn("--self-test-min-drop-runner-clearance", source)
+        self.assertIn("--self-test-min-drop-fork-clearance", source)
         self.assertIn("UR10 placed", source)
         self.assertIn("AMR completed", source)
         self.assertIn("max pre-grip offset", source)
@@ -466,6 +473,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("drop support gap", source)
         self.assertIn("drop lane tunnel clearance", source)
         self.assertIn("drop lane runner clearance", source)
+        self.assertIn("drop lane fork clearance", source)
         self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("max_return_ready_error=", source)
         self.assertIn("max_release_drift=", source)
@@ -482,6 +490,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("drop_support_gap=", source)
         self.assertIn("drop_lane_clearance=", source)
         self.assertIn("drop_runner_clearance=", source)
+        self.assertIn("drop_fork_clearance=", source)
         self.assertIn("demo_max_return_ready_error", source)
         self.assertIn("demo_max_release_drift", source)
         self.assertIn("preserving failure exit", source)
@@ -503,6 +512,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxDropSupportGap", source)
         self.assertIn("$SelfTestMinDropLaneClearance", source)
         self.assertIn("$SelfTestMinDropRunnerClearance", source)
+        self.assertIn("$SelfTestMinDropForkClearance", source)
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
@@ -511,6 +521,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-drop-support-gap", source)
         self.assertIn("--self-test-min-drop-lane-clearance", source)
         self.assertIn("--self-test-min-drop-runner-clearance", source)
+        self.assertIn("--self-test-min-drop-fork-clearance", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")

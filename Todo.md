@@ -1936,6 +1936,61 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 ---
 
+## 2026-05-29 drop slide lane과 AMR fork 간섭 제거
+
+이전 보강에서 drop slide lane을 팔레트 중앙 터널로 옮겼지만, AMR fork와 같은 Y 위치를 사용하면 하역 순간에 작업대 lane과 AMR fork가 서로 겹칠 수 있었다. 이번 보강에서는 drop slide lane을 AMR fork보다 바깥쪽으로 옮기고, 두 구조물 사이 clearance를 self-test gate로 검증하도록 했다.
+
+수정 내용:
+
+- [x] 팔레트 터널 half width를 실제 runner/block 내부 여유에 맞게 `0.46 m`로 조정
+- [x] drop slide lane 위치 조정
+  - 기존: AMR fork와 같은 `Y = +/-0.24`
+  - 변경: AMR fork보다 바깥쪽인 `Y = +/-0.38`
+- [x] drop slide lane 폭 축소
+  - `DROP_SLIDE_RAIL_SCALE = [1.80, 0.08, 0.09]`
+  - `DROP_SLIDE_ROLLER_SCALE = [0.12, 0.08, 0.035]`
+  - `DROP_SLIDE_TOP_SUPPORT_SCALE = [1.95, 0.08, 0.035]`
+- [x] AMR fork와 drop lane 사이의 최소 간격 계산 추가
+  - `compute_drop_workstation_fork_clearance()`
+- [x] self-test gate 추가
+  - Python 옵션: `--self-test-min-drop-fork-clearance`
+  - PowerShell 옵션: `-SelfTestMinDropForkClearance`
+- [x] 완료 로그에 `drop_fork_clearance` 추가
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestRequireGripperOpenAfterRelease -SelfTestMaxStackLateralGap 0.03 -SelfTestMaxStackSupportGap 0.02 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestMaxLiftContactGap 0.01 -SelfTestMinPalletTunnelClearance 0.10 -SelfTestMinLiftForkInnerGap 0.30 -SelfTestMaxDropSupportGap 0.01 -SelfTestMinDropLaneClearance 0.03 -SelfTestMinDropRunnerClearance 0.05 -SelfTestMinDropForkClearance 0.03 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] Python compile 통과
+- [x] unittest 38개 통과
+- [x] 12000-frame full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_drop_fork_clearance_gate_full_e2e_12000.log`
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0399`
+  - `max_release_drift=0.0000`
+  - `max_stack_lateral_gap=0.0200`
+  - `max_stack_support_gap=0.0100`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`
+  - `max_lift_contact_gap=0.0050`
+  - `pallet_tunnel_clearance=0.1600`
+  - `lift_fork_inner_gap=0.3600`
+  - `drop_support_gap=0.0050`
+  - `drop_lane_clearance=0.0400`
+  - `drop_runner_clearance=0.0700`
+  - `drop_fork_clearance=0.0400`
+
+---
+
 ## 2026-05-29 GUI release 강제 해제 추가 보강
 
 GUI 확인에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 증상이 다시 관찰되어, release 순간에 scripted attach 상태와 실제 surface gripper 상태를 더 강하게 분리했다. 핵심은 “시각적으로 박스가 그리퍼를 따라가는 경로”를 줄이는 것이다.
