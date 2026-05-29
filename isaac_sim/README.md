@@ -304,3 +304,17 @@ GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 경로를 줄
 - Python compile 통과
 - 12000-frame full end-to-end self-test 통과
 - `max_pre_grip_offset=0.0050` m로 5 cm 게이트 통과
+
+## 2026-05-29 return-ready 오차 self-test 게이트
+
+`return_ready` 완료 시점의 위치 오차도 self-test gate로 확인합니다. 이동 중간 오차가 아니라 `return_ready reached` 또는 `timed release`로 상태가 끝나는 시점의 최종 오차만 기록합니다.
+
+- 새 옵션: `--self-test-max-return-ready-error`
+- PowerShell wrapper 옵션: `-SelfTestMaxReturnReadyError`
+- 완료 로그에 `max_return_ready_error`를 출력합니다.
+
+확인 결과:
+
+- 실패 probe: `max return-ready error 0.0395 m exceeded 0.0010 m`, `$LASTEXITCODE=1`
+- 12000-frame full end-to-end self-test 통과
+- `max_pre_grip_offset=0.0050`, `max_return_ready_error=0.0398`

@@ -1629,3 +1629,39 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `slide-released pallet assembly at drop pose`
   - `completed transfer cycle 1`
   - `self-test completed after 12000 frames; placed_bins=8; transfer_cycles=1; max_pre_grip_offset=0.0050`
+
+---
+
+## 2026-05-29 return-ready 오차 self-test 게이트 추가 메모
+
+이전 보강으로 `return_ready`가 실제 위치 오차 기준으로 종료되도록 만들었지만, 그 값은 로그로만 확인했다. 앞으로 다시 시간 만료나 모션 지연 때문에 다음 pick이 빨리 시작되는 회귀를 잡기 위해, return-ready 완료 시점의 최대 위치 오차를 self-test gate로 승격했다.
+
+수정 내용:
+
+- [x] `--self-test-max-return-ready-error` 옵션 추가
+  - `return_ready`가 종료된 순간의 end-effector 위치 오차가 지정 임계값을 넘으면 self-test를 실패시킨다.
+- [x] PowerShell wrapper에 `-SelfTestMaxReturnReadyError` 옵션 추가
+- [x] `DemoTimedArmMoveTo`는 이동 중간 오차가 아니라 `reached` 또는 `timed release`로 상태가 끝나는 시점의 최종 오차만 `demo_max_return_ready_error`에 기록한다.
+- [x] self-test 완료 로그에 `max_return_ready_error`를 추가했다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim/scripts/run_harim_pallet_demo.py isaac_sim/tests/test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 3000 -SelfTestMinPlacedBins 1 -SelfTestMaxReturnReadyError 0.001 -Cycles 1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 28개 통과
+- [x] Python compile 통과
+- [x] 실패 probe에서 `OUTER_LASTEXIT=1` 확인
+  - `max return-ready error 0.0395 m exceeded 0.0010 m`
+- [x] 12000-frame end-to-end self-test 통과
+  - 모든 `return_ready`가 `reached`로 종료
+  - `stack-count 8/8 after bin_7`
+  - `completed transfer cycle 1`
+  - `self-test completed after 12000 frames; placed_bins=8; transfer_cycles=1; max_pre_grip_offset=0.0050; max_return_ready_error=0.0398`

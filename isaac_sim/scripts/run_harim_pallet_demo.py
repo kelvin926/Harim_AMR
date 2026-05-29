@@ -118,6 +118,12 @@ def parse_args():
         default=0.0,
         help="Fail the fixed-frame self-test if any scripted pre-grip correction exceeds this distance in meters. 0 disables the check.",
     )
+    parser.add_argument(
+        "--self-test-max-return-ready-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if return_ready finishes farther than this distance from its target in meters. 0 disables the check.",
+    )
     return parser.parse_args()
 
 
@@ -1089,16 +1095,26 @@ def main():
             current_position = np.array(self.context.robot.arm.get_fk_p(), dtype=float)
             position_error = float(np.linalg.norm(current_position - self.target_position))
             if position_error <= self.position_threshold:
+                self._record_final_error(position_error)
                 print(f"[HarimDemo] {self.label} reached; error={position_error:.4f} m", flush=True)
                 return None
             if get_demo_time(self.context) - self.entry_time < self.duration:
                 return self
+            self._record_final_error(position_error)
             print(f"[HarimDemo] {self.label} timed release; error={position_error:.4f} m", flush=True)
             return None
 
         def exit(self):
             self.entry_time = None
             self.target_position = None
+
+        def _record_final_error(self, position_error):
+            if self.label != "return_ready":
+                return
+            self.context.demo_max_return_ready_error = max(
+                float(getattr(self.context, "demo_max_return_ready_error", 0.0)),
+                float(position_error),
+            )
 
     class DemoTimedState(DfState):
         def __init__(self, state, max_duration, label):
@@ -1554,6 +1570,7 @@ def main():
     decider_network.context.demo_stack_coordinates = clone_stack_coordinates(stack_coordinates)
     decider_network.context.demo_sim_time = 0.0
     decider_network.context.demo_max_pre_grip_offset = 0.0
+    decider_network.context.demo_max_return_ready_error = 0.0
     orchestrator.reset_visual_state()
 
     def force_self_test_stack_complete():
@@ -1596,6 +1613,15 @@ def main():
                     f"max pre-grip offset {max_pre_grip_offset:.4f} m exceeded "
                     f"{args.self_test_max_pre_grip_offset:.4f} m"
                 )
+            max_return_ready_error = float(getattr(decider_network.context, "demo_max_return_ready_error", 0.0))
+            if (
+                args.self_test_max_return_ready_error > 0
+                and max_return_ready_error > args.self_test_max_return_ready_error
+            ):
+                self_test_failures.append(
+                    f"max return-ready error {max_return_ready_error:.4f} m exceeded "
+                    f"{args.self_test_max_return_ready_error:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -1605,7 +1631,8 @@ def main():
                 print(
                     f"[HarimDemo] self-test completed after {args.self_test_frames} frames; "
                     f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}; "
-                    f"max_pre_grip_offset={max_pre_grip_offset:.4f}",
+                    f"max_pre_grip_offset={max_pre_grip_offset:.4f}; "
+                    f"max_return_ready_error={max_return_ready_error:.4f}",
                     flush=True,
                 )
         else:
