@@ -1872,6 +1872,70 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 ---
 
+## 2026-05-29 drop slide workstation 지지 높이 및 터널 간격 gate 추가
+
+하역 작업대가 존재하더라도 visible rail/roller가 팔레트 측면 runner와 겹치면 GUI에서 팔레트를 뚫고 지나가는 것처럼 보일 수 있다. 이번 보강에서는 drop slide workstation의 지지 lane을 AMR fork와 같은 중앙 터널 쪽으로 옮기고, 팔레트 상판 하부를 실제로 받는 높이/간격을 self-test gate로 묶었다.
+
+수정 내용:
+
+- [x] drop slide lane 위치를 팔레트 측면 runner 영역이 아니라 중앙 터널 안쪽으로 정렬
+  - `DROP_SLIDE_LANE_Y_OFFSETS`를 `LIFT_FORK_OFFSETS`의 Y offset과 맞춤
+  - lane Y offset: `-0.24`, `+0.24`
+- [x] drop support 상면 높이를 팔레트 deck underside 기준으로 계산
+  - `DROP_SLIDE_SUPPORT_GAP = 0.005`
+  - 팔레트 상판 하부와 작업대 support 상면 간격이 5 mm가 되도록 맞춤
+- [x] visible roller 치수를 좁혀 팔레트 side runner와 겹치지 않게 조정
+  - `DROP_SLIDE_ROLLER_SCALE = [0.12, 0.16, 0.035]`
+- [x] 숨겨진 collision support도 단일 넓은 slab이 아니라 lane별 support로 변경
+  - `DropSlideTopSupport_0`
+  - `DropSlideTopSupport_1`
+- [x] self-test gate 추가
+  - Python 옵션: `--self-test-max-drop-support-gap`
+  - Python 옵션: `--self-test-min-drop-lane-clearance`
+  - Python 옵션: `--self-test-min-drop-runner-clearance`
+  - PowerShell 옵션: `-SelfTestMaxDropSupportGap`
+  - PowerShell 옵션: `-SelfTestMinDropLaneClearance`
+  - PowerShell 옵션: `-SelfTestMinDropRunnerClearance`
+- [x] 완료 로그에 drop workstation 지표 추가
+  - `drop_support_gap`
+  - `drop_lane_clearance`
+  - `drop_runner_clearance`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestRequireGripperOpenAfterRelease -SelfTestMaxStackLateralGap 0.03 -SelfTestMaxStackSupportGap 0.02 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestMaxLiftContactGap 0.01 -SelfTestMinPalletTunnelClearance 0.10 -SelfTestMinLiftForkInnerGap 0.30 -SelfTestMaxDropSupportGap 0.01 -SelfTestMinDropLaneClearance 0.08 -SelfTestMinDropRunnerClearance 0.10 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] Python compile 통과
+- [x] unittest 38개 통과
+- [x] 12000-frame full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_drop_slide_gate_full_e2e_12000.log`
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0399`
+  - `max_release_drift=0.0000`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `max_stack_lateral_gap=0.0200`
+  - `max_stack_support_gap=0.0100`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`
+  - `max_lift_contact_gap=0.0050`
+  - `pallet_tunnel_clearance=0.1200`
+  - `lift_fork_inner_gap=0.3600`
+  - `drop_support_gap=0.0050`
+  - `drop_lane_clearance=0.1000`
+  - `drop_runner_clearance=0.1700`
+
+---
+
 ## 2026-05-29 GUI release 강제 해제 추가 보강
 
 GUI 확인에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 증상이 다시 관찰되어, release 순간에 scripted attach 상태와 실제 surface gripper 상태를 더 강하게 분리했다. 핵심은 “시각적으로 박스가 그리퍼를 따라가는 경로”를 줄이는 것이다.

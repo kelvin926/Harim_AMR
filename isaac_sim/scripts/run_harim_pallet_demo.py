@@ -84,6 +84,16 @@ AMR_LIFT_PLATE_OFFSET_Z = (
     - WORLD_FLOOR_Z
     - LIFT_FORK_SCALE[2] * 0.5
 )
+DROP_SLIDE_LANE_Y_OFFSETS = tuple(float(offset[1]) for offset in LIFT_FORK_OFFSETS)
+DROP_SLIDE_ROLLER_X_OFFSETS = (-0.62, -0.22, 0.22, 0.62)
+DROP_SLIDE_LEG_X_OFFSETS = (-0.78, 0.78)
+DROP_SLIDE_SUPPORT_GAP = 0.005
+DROP_SLIDE_SUPPORT_TOP_Z = PALLET_DECK_UNDERSIDE_Z - DROP_SLIDE_SUPPORT_GAP
+DROP_SLIDE_RAIL_SCALE = np.array([1.80, 0.10, 0.09], dtype=float)
+DROP_SLIDE_ROLLER_SCALE = np.array([0.12, 0.16, 0.035], dtype=float)
+DROP_SLIDE_TOP_SUPPORT_SCALE = np.array([1.95, 0.16, 0.035], dtype=float)
+DROP_SLIDE_ROLLER_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_ROLLER_SCALE[2] * 0.5
+DROP_SLIDE_TOP_SUPPORT_CENTER_Z = DROP_SLIDE_SUPPORT_TOP_Z - DROP_SLIDE_TOP_SUPPORT_SCALE[2] * 0.5
 CARTON_BODY_SCALE = np.array([0.20, 0.29, 0.14], dtype=float)
 CARTON_TAPE_TOP_SCALE = np.array([0.205, 0.030, 0.008], dtype=float)
 CARTON_BODY_COLOR = np.array([0.72, 0.48, 0.26], dtype=float)
@@ -196,6 +206,24 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if the visual lift forks are not separated by at least this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-drop-support-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the drop workstation support is farther below the pallet deck underside than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-drop-lane-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the drop workstation lanes have less tunnel clearance than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-drop-runner-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the drop workstation lanes are closer to the pallet side runners than this distance in meters. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -390,6 +418,30 @@ def compute_lift_fork_inner_gap():
 
 def compute_pallet_tunnel_clearance():
     return float(PALLET_TUNNEL_HALF_WIDTH - compute_lift_fork_outer_half_width())
+
+
+def compute_drop_workstation_lane_outer_half_width():
+    lane_half_width = max(
+        DROP_SLIDE_RAIL_SCALE[1],
+        DROP_SLIDE_ROLLER_SCALE[1],
+        DROP_SLIDE_TOP_SUPPORT_SCALE[1],
+    ) * 0.5
+    return float(max(abs(y_offset) + lane_half_width for y_offset in DROP_SLIDE_LANE_Y_OFFSETS))
+
+
+def compute_drop_workstation_support_gap():
+    return float(PALLET_DECK_UNDERSIDE_Z - DROP_SLIDE_SUPPORT_TOP_Z)
+
+
+def compute_drop_workstation_tunnel_clearance():
+    return float(PALLET_TUNNEL_HALF_WIDTH - compute_drop_workstation_lane_outer_half_width())
+
+
+def compute_drop_workstation_runner_clearance():
+    runner_inner_half_width = min(
+        abs(float(offset[1])) - PALLET_RUNNER_SCALE[1] * 0.5 for offset in PALLET_RUNNER_OFFSETS
+    )
+    return float(runner_inner_half_width - compute_drop_workstation_lane_outer_half_width())
 
 
 def clone_stack_coordinates(stack_coordinates):
@@ -1728,34 +1780,34 @@ def main():
         leg_height = DROP_WORKSTATION_Z - WORLD_FLOOR_Z
         leg_center_z = WORLD_FLOOR_Z + leg_height * 0.5
 
-        for side_idx, y_offset in enumerate((-0.58, 0.58)):
+        for side_idx, y_offset in enumerate(DROP_SLIDE_LANE_Y_OFFSETS):
             workstation_parts.append(
                 world.scene.add(
                     FixedCuboid(
                         f"{harim_root}/DropSlideRail_{side_idx}",
                         name=f"harim_drop_slide_rail_{side_idx}",
                         position=np.array([args.drop_x, args.drop_y + y_offset, DROP_WORKSTATION_Z], dtype=float),
-                        scale=np.array([1.80, 0.10, 0.09]),
+                        scale=DROP_SLIDE_RAIL_SCALE,
                         color=rail_color,
                     )
                 )
             )
-            for roller_idx, x_offset in enumerate((-0.62, -0.22, 0.22, 0.62)):
+            for roller_idx, x_offset in enumerate(DROP_SLIDE_ROLLER_X_OFFSETS):
                 workstation_parts.append(
                     world.scene.add(
                         VisualCuboid(
                             f"{harim_root}/DropSlideRoller_{side_idx}_{roller_idx}",
                             name=f"harim_drop_slide_roller_{side_idx}_{roller_idx}",
                             position=np.array(
-                                [args.drop_x + x_offset, args.drop_y + y_offset, DROP_WORKSTATION_Z + 0.07],
+                                [args.drop_x + x_offset, args.drop_y + y_offset, DROP_SLIDE_ROLLER_CENTER_Z],
                                 dtype=float,
                             ),
-                            scale=np.array([0.12, 0.24, 0.035]),
+                            scale=DROP_SLIDE_ROLLER_SCALE,
                             color=roller_color,
                         )
                     )
                 )
-            for leg_idx, x_offset in enumerate((-0.78, 0.78)):
+            for leg_idx, x_offset in enumerate(DROP_SLIDE_LEG_X_OFFSETS):
                 workstation_parts.append(
                     world.scene.add(
                         FixedCuboid(
@@ -1770,18 +1822,21 @@ def main():
                         )
                     )
                 )
-        workstation_parts.append(
-            world.scene.add(
-                FixedCuboid(
-                    f"{harim_root}/DropSlideTopSupport",
-                    name="harim_drop_slide_top_support",
-                    position=np.array([args.drop_x, args.drop_y, DROP_WORKSTATION_Z + 0.08], dtype=float),
-                    scale=np.array([1.95, 1.12, 0.035]),
-                    visible=False,
-                    color=roller_color,
+            workstation_parts.append(
+                world.scene.add(
+                    FixedCuboid(
+                        f"{harim_root}/DropSlideTopSupport_{side_idx}",
+                        name=f"harim_drop_slide_top_support_{side_idx}",
+                        position=np.array(
+                            [args.drop_x, args.drop_y + y_offset, DROP_SLIDE_TOP_SUPPORT_CENTER_Z],
+                            dtype=float,
+                        ),
+                        scale=DROP_SLIDE_TOP_SUPPORT_SCALE,
+                        visible=False,
+                        color=roller_color,
+                    )
                 )
             )
-        )
         return workstation_parts
 
     create_drop_slide_workstation()
@@ -2073,6 +2128,35 @@ def main():
                     f"lift fork inner gap {lift_fork_inner_gap:.4f} m was below "
                     f"{args.self_test_min_lift_fork_inner_gap:.4f} m"
                 )
+            drop_support_gap = compute_drop_workstation_support_gap()
+            if args.self_test_max_drop_support_gap > 0:
+                if drop_support_gap > args.self_test_max_drop_support_gap:
+                    self_test_failures.append(
+                        f"drop support gap {drop_support_gap:.4f} m exceeded "
+                        f"{args.self_test_max_drop_support_gap:.4f} m"
+                    )
+                if drop_support_gap < -0.005:
+                    self_test_failures.append(
+                        f"drop support overlapped pallet underside {-drop_support_gap:.4f} m exceeded 0.0050 m"
+                    )
+            drop_lane_clearance = compute_drop_workstation_tunnel_clearance()
+            if (
+                args.self_test_min_drop_lane_clearance > 0
+                and drop_lane_clearance < args.self_test_min_drop_lane_clearance
+            ):
+                self_test_failures.append(
+                    f"drop lane tunnel clearance {drop_lane_clearance:.4f} m was below "
+                    f"{args.self_test_min_drop_lane_clearance:.4f} m"
+                )
+            drop_runner_clearance = compute_drop_workstation_runner_clearance()
+            if (
+                args.self_test_min_drop_runner_clearance > 0
+                and drop_runner_clearance < args.self_test_min_drop_runner_clearance
+            ):
+                self_test_failures.append(
+                    f"drop lane runner clearance {drop_runner_clearance:.4f} m was below "
+                    f"{args.self_test_min_drop_runner_clearance:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -2099,7 +2183,10 @@ def main():
                     f"max_lift_contact_gap={max_lift_contact_gap:.4f}; "
                     f"min_lift_contact_gap={min_lift_contact_gap:.4f}; "
                     f"pallet_tunnel_clearance={pallet_tunnel_clearance:.4f}; "
-                    f"lift_fork_inner_gap={lift_fork_inner_gap:.4f}",
+                    f"lift_fork_inner_gap={lift_fork_inner_gap:.4f}; "
+                    f"drop_support_gap={drop_support_gap:.4f}; "
+                    f"drop_lane_clearance={drop_lane_clearance:.4f}; "
+                    f"drop_runner_clearance={drop_runner_clearance:.4f}",
                     flush=True,
                 )
         else:

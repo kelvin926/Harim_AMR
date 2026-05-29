@@ -263,6 +263,20 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertLess(self.demo.LIFT_FORK_SCALE[1], 0.20)
         self.assertGreaterEqual(self.demo.compute_lift_fork_inner_gap(), 0.30)
 
+    def test_drop_slide_lanes_support_pallet_without_runner_overlap(self):
+        support_gap = self.demo.compute_drop_workstation_support_gap()
+        lane_clearance = self.demo.compute_drop_workstation_tunnel_clearance()
+        runner_clearance = self.demo.compute_drop_workstation_runner_clearance()
+
+        self.assertGreaterEqual(support_gap, 0.0)
+        self.assertLessEqual(support_gap, 0.01)
+        self.assertGreaterEqual(lane_clearance, 0.08)
+        self.assertGreaterEqual(runner_clearance, 0.10)
+        self.assertLess(
+            self.demo.compute_drop_workstation_lane_outer_half_width(),
+            self.demo.PALLET_TUNNEL_HALF_WIDTH,
+        )
+
     def test_amr_starts_far_from_table_side_and_approaches_from_drop_side(self):
         orchestrator, _context, _world, _items = self.build_orchestrator(Args())
 
@@ -431,6 +445,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
         self.assertIn("--self-test-min-lift-fork-inner-gap", source)
+        self.assertIn("--self-test-max-drop-support-gap", source)
+        self.assertIn("--self-test-min-drop-lane-clearance", source)
+        self.assertIn("--self-test-min-drop-runner-clearance", source)
         self.assertIn("UR10 placed", source)
         self.assertIn("AMR completed", source)
         self.assertIn("max pre-grip offset", source)
@@ -446,6 +463,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max lift contact gap", source)
         self.assertIn("pallet tunnel clearance", source)
         self.assertIn("lift fork inner gap", source)
+        self.assertIn("drop support gap", source)
+        self.assertIn("drop lane tunnel clearance", source)
+        self.assertIn("drop lane runner clearance", source)
         self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("max_return_ready_error=", source)
         self.assertIn("max_release_drift=", source)
@@ -459,6 +479,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_lift_contact_gap=", source)
         self.assertIn("pallet_tunnel_clearance=", source)
         self.assertIn("lift_fork_inner_gap=", source)
+        self.assertIn("drop_support_gap=", source)
+        self.assertIn("drop_lane_clearance=", source)
+        self.assertIn("drop_runner_clearance=", source)
         self.assertIn("demo_max_return_ready_error", source)
         self.assertIn("demo_max_release_drift", source)
         self.assertIn("preserving failure exit", source)
@@ -477,11 +500,17 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxLiftContactGap", source)
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
         self.assertIn("$SelfTestMinLiftForkInnerGap", source)
+        self.assertIn("$SelfTestMaxDropSupportGap", source)
+        self.assertIn("$SelfTestMinDropLaneClearance", source)
+        self.assertIn("$SelfTestMinDropRunnerClearance", source)
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
         self.assertIn("--self-test-min-lift-fork-inner-gap", source)
+        self.assertIn("--self-test-max-drop-support-gap", source)
+        self.assertIn("--self-test-min-drop-lane-clearance", source)
+        self.assertIn("--self-test-min-drop-runner-clearance", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
@@ -491,6 +520,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("DropSlideRoller", source)
         self.assertIn("DropSlideLeg", source)
         self.assertIn("DropSlideTopSupport", source)
+        self.assertIn("DROP_SLIDE_LANE_Y_OFFSETS", source)
+        self.assertIn("DROP_SLIDE_SUPPORT_TOP_Z", source)
 
     def test_connected_pallet_uses_fixed_collision_support(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
