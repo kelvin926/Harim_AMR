@@ -735,10 +735,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(orchestrator.dropped_stack_item_count, len(items))
         self.assertAlmostEqual(orchestrator.max_dropped_stack_pose_error, 0.0)
+        self.assertAlmostEqual(orchestrator.max_dropped_stack_orientation_error, 0.0)
         self.assertLessEqual(orchestrator.max_dropped_stack_support_gap, 0.02)
         self.assertGreaterEqual(orchestrator.min_dropped_stack_support_gap, -0.005)
         self.assertGreaterEqual(orchestrator.min_dropped_stack_pallet_margin, 0.08)
         self.assertAlmostEqual(orchestrator.max_dropped_stack_pallet_overhang, 0.0)
+
+        items[0].set_world_pose(orientation=self.demo.yaw_to_quat(0.18))
+        orchestrator._hold_dropped_assembly()
+
+        self.assertGreater(orchestrator.max_dropped_stack_orientation_error, 0.17)
 
     def test_dropped_pallet_geometry_records_connected_part_offsets(self):
         orchestrator, context, _world, _items = self.build_orchestrator(Args())
@@ -931,7 +937,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertAlmostEqual(orchestrator.drop_approach_final_error, 0.0)
 
     def test_loaded_route_metrics_track_y_error_and_carried_payload_pose(self):
-        orchestrator, _context, _world, _items = self.build_orchestrator(Args())
+        orchestrator, _context, _world, items = self.build_orchestrator(Args())
 
         orchestrator._attach_assembly()
         shifted_pose = np.array([Args.pickup_x + 1.0, Args.pickup_y + 0.02, Args.amr_z])
@@ -946,11 +952,14 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertAlmostEqual(orchestrator.max_carried_pallet_pose_error, 0.0)
         self.assertAlmostEqual(orchestrator.max_carried_pallet_orientation_error, 0.0)
         self.assertAlmostEqual(orchestrator.max_carried_payload_pose_error, 0.0)
+        self.assertAlmostEqual(orchestrator.max_carried_payload_orientation_error, 0.0)
 
         orchestrator.pallet_parts[0].set_world_pose(orientation=self.demo.yaw_to_quat(0.15))
+        items[0].set_world_pose(orientation=self.demo.yaw_to_quat(0.16))
         orchestrator._record_loaded_route_geometry()
 
         self.assertGreater(orchestrator.max_carried_pallet_orientation_error, 0.149)
+        self.assertGreater(orchestrator.max_carried_payload_orientation_error, 0.159)
 
     def test_amr_cell_gate_clearance_tracks_moving_amr_lateral_error(self):
         orchestrator, _context, _world, _items = self.build_orchestrator(Args())
@@ -1447,6 +1456,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max dropped payload drift", source)
         self.assertIn("dropped stack item count", source)
         self.assertIn("dropped stack pose error", source)
+        self.assertIn("dropped stack orientation error", source)
         self.assertIn("dropped stack support gap", source)
         self.assertIn("dropped stack pallet margin", source)
         self.assertIn("dropped pallet part count", source)
@@ -1500,6 +1510,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("carried pallet pose error", source)
         self.assertIn("carried pallet orientation error", source)
         self.assertIn("carried payload pose error", source)
+        self.assertIn("carried payload orientation error", source)
         self.assertIn("drop approach standoff", source)
         self.assertIn("drop dock arrival count", source)
         self.assertIn("drop dock final error", source)
@@ -1597,6 +1608,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("dropped_stack_item_count=", source)
         self.assertIn("max_dropped_stack_pose_error=", source)
+        self.assertIn("max_dropped_stack_orientation_error=", source)
         self.assertIn("max_dropped_stack_support_gap=", source)
         self.assertIn("min_dropped_stack_support_gap=", source)
         self.assertIn("min_dropped_stack_pallet_margin=", source)
@@ -1663,6 +1675,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max_carried_pallet_pose_error=", source)
         self.assertIn("max_carried_pallet_orientation_error=", source)
         self.assertIn("max_carried_payload_pose_error=", source)
+        self.assertIn("max_carried_payload_orientation_error=", source)
         self.assertIn("drop_approach_standoff=", source)
         self.assertIn("dock_move_speed_scale=", source)
         self.assertIn("drop_dock_arrival_count=", source)
@@ -1766,6 +1779,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-lift-offset-frame-step", source)
         self.assertIn("$SelfTestMinDroppedStackItemCount", source)
         self.assertIn("$SelfTestMaxDroppedStackPoseError", source)
+        self.assertIn("$SelfTestMaxDroppedStackOrientationError", source)
+        self.assertIn("--self-test-max-dropped-stack-orientation-error", source)
         self.assertIn("$SelfTestMaxDroppedStackSupportGap", source)
         self.assertIn("$SelfTestMinDroppedStackPalletMargin", source)
         self.assertIn("$SelfTestMinDroppedPalletPartCount", source)
@@ -1823,6 +1838,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMaxCarriedPalletOrientationError", source)
         self.assertIn("--self-test-max-carried-pallet-orientation-error", source)
         self.assertIn("$SelfTestMaxCarriedPayloadPoseError", source)
+        self.assertIn("$SelfTestMaxCarriedPayloadOrientationError", source)
+        self.assertIn("--self-test-max-carried-payload-orientation-error", source)
         self.assertIn("$SelfTestMinDropApproachStandoff", source)
         self.assertIn("$SelfTestMinDropDockArrivalCount", source)
         self.assertIn("$SelfTestMaxDropDockFinalError", source)
@@ -2041,6 +2058,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxDroppedPayloadDrift", source)
         self.assertIn("SelfTestMinDroppedStackItemCount", source)
         self.assertIn("SelfTestMaxDroppedStackPoseError", source)
+        self.assertIn("SelfTestMaxDroppedStackOrientationError", source)
         self.assertIn("SelfTestMaxDroppedStackSupportGap", source)
         self.assertIn("SelfTestMinDroppedStackPalletMargin", source)
         self.assertIn("SelfTestMinDroppedPalletPartCount", source)
@@ -2103,6 +2121,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMaxCarriedPalletPoseError", source)
         self.assertIn("SelfTestMaxCarriedPalletOrientationError", source)
         self.assertIn("SelfTestMaxCarriedPayloadPoseError", source)
+        self.assertIn("SelfTestMaxCarriedPayloadOrientationError", source)
         self.assertIn("SelfTestMinDropApproachStandoff", source)
         self.assertIn("SelfTestMinDropDockArrivalCount", source)
         self.assertIn("SelfTestMaxDropDockFinalError", source)

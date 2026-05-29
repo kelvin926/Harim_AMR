@@ -1,5 +1,24 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Payload Box Orientation Error Gate 추가
+
+- [x] AMR가 적재 박스를 싣고 이동하는 동안 각 carton이 AMR 기준 위치뿐 아니라 orientation도 유지하는지 `max_carried_payload_orientation_error`로 계측하도록 했다.
+- [x] 하역 후 작업대 위에 남은 dropped stack의 각 carton이 팔레트 기준 expected orientation에서 회전하지 않았는지 `max_dropped_stack_orientation_error`로 계측하도록 했다.
+- [x] 하역 후 hold 단계에서도 dropped carton orientation이 저장된 하역 자세에서 벗어나면 같은 metric으로 누적되도록 했다.
+- [x] strict self-test에 payload orientation gate를 추가했다.
+  - Python: `--self-test-max-dropped-stack-orientation-error`
+  - Python: `--self-test-max-carried-payload-orientation-error`
+  - PowerShell wrapper: `SelfTestMaxDroppedStackOrientationError`, `SelfTestMaxCarriedPayloadOrientationError`
+  - strict 기준: 두 값 모두 `0.01 rad`
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 83개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_payload_orientation_gate_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_075744_17556.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `dropped_stack_item_count=8`, `max_dropped_stack_orientation_error=0.0000`, `max_carried_payload_orientation_error=0.0000`, `review_gif_frame_count=151`
+
 ## 2026-05-30 Pallet Part Orientation Error Gate 추가
 
 - [x] 팔레트가 AMR에 실려 이동하는 동안 deck/runner/block/load-restraint part가 AMR 기준 offset뿐 아니라 원래 orientation도 유지하는지 `max_carried_pallet_orientation_error`로 계측하도록 했다.
