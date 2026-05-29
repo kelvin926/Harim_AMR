@@ -24,6 +24,7 @@ CONVEYOR_PICK_WINDOW_Y = 0.68
 PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
 POST_RELEASE_CLEARANCE_LIFT = 0.32
 RELEASE_RETREAT_DURATION = 0.55
+SURFACE_GRIPPER_RELEASE_RETRIES = 3
 SCRIPTED_PLACE_DURATION = 0.70
 SCRIPTED_PLACE_EE_HOVER = 0.18
 POST_RELEASE_JOINT_SETTLE_DURATION = 0.65
@@ -192,7 +193,23 @@ AMR_SAFETY_VISUAL_SPECS = (
         np.array([0.32, 0.030, 0.045], dtype=float),
         np.array([0.04, 0.75, 0.28], dtype=float),
     ),
+    (
+        "AmrLeftWarningStrip",
+        "cuboid",
+        np.array([0.0, -0.425, 0.42], dtype=float),
+        np.array([0.34, 0.030, 0.045], dtype=float),
+        np.array([0.95, 0.58, 0.08], dtype=float),
+    ),
+    (
+        "AmrRightWarningStrip",
+        "cuboid",
+        np.array([0.0, 0.425, 0.42], dtype=float),
+        np.array([0.34, 0.030, 0.045], dtype=float),
+        np.array([0.95, 0.58, 0.08], dtype=float),
+    ),
 )
+AMR_WARNING_INDICATOR_NAMES = {"AmrBeaconDome", "AmrLeftWarningStrip", "AmrRightWarningStrip"}
+AMR_IDLE_INDICATOR_NAMES = {"AmrLeftStatusStrip", "AmrRightStatusStrip"}
 
 
 def parse_args():
@@ -379,6 +396,36 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if AMR beacon/scanner visuals drift from the AMR pose by more than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-warning-indicator-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many AMR warning indicator visuals are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-idle-indicator-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many AMR idle indicator visuals are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-warning-observed",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless AMR warning indicators are observed visible at least this many times. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-amr-idle-observed",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless AMR idle indicators are observed visible at least this many times. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-amr-indicator-visibility-mismatches",
+        type=int,
+        default=-1,
+        help="Fail the fixed-frame self-test if AMR indicator visibility writes mismatch the requested state more than this many times. -1 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -932,10 +979,20 @@ def make_amr_safety_visual_specs():
     ]
 
 
+def get_amr_safety_visual_role(name):
+    if name in AMR_WARNING_INDICATOR_NAMES:
+        return "warning"
+    if name in AMR_IDLE_INDICATOR_NAMES:
+        return "idle"
+    return "static"
+
+
 def compute_amr_safety_visual_metrics():
     specs = make_amr_safety_visual_specs()
     beacon_tops = []
     scanner_bottoms = []
+    warning_indicator_count = 0
+    idle_indicator_count = 0
     for name, shape, offset, size, _color in specs:
         if shape == "sphere":
             part_top = float(offset[2]) + float(size)
@@ -943,6 +1000,11 @@ def compute_amr_safety_visual_metrics():
         else:
             part_top = float(offset[2]) + float(size[2]) * 0.5
             part_bottom = float(offset[2]) - float(size[2]) * 0.5
+        role = get_amr_safety_visual_role(name)
+        if role == "warning":
+            warning_indicator_count += 1
+        elif role == "idle":
+            idle_indicator_count += 1
         if "Beacon" in name:
             beacon_tops.append(part_top)
         if "Scanner" in name:
@@ -951,6 +1013,8 @@ def compute_amr_safety_visual_metrics():
         "amr_safety_part_count": len(specs),
         "amr_safety_beacon_height": float(max(beacon_tops)) if beacon_tops else 0.0,
         "amr_safety_scanner_clearance": float(min(scanner_bottoms)) if scanner_bottoms else 0.0,
+        "amr_warning_indicator_count": warning_indicator_count,
+        "amr_idle_indicator_count": idle_indicator_count,
     }
 
 
@@ -1080,6 +1144,7 @@ class HarimTransferOrchestrator:
         amr_lift_prim=None,
         amr_safety_parts=None,
         amr_safety_offsets=None,
+        amr_safety_roles=None,
         completion_signal=None,
     ):
         self.world = world
@@ -1095,6 +1160,7 @@ class HarimTransferOrchestrator:
             if amr_safety_offsets is not None
             else tuple()
         )
+        self.amr_safety_roles = tuple(amr_safety_roles) if amr_safety_roles is not None else tuple()
         self.pallet_parts = pallet_parts
         self.pallet_part_offsets = (
             tuple(np.array(offset, dtype=float) for offset in pallet_part_offsets)
@@ -1127,6 +1193,9 @@ class HarimTransferOrchestrator:
         self.max_lift_contact_gap_observed = initial_lift_contact_gap
         self.min_lift_contact_gap_observed = initial_lift_contact_gap
         self.max_amr_safety_pose_error = 0.0
+        self.amr_warning_indicator_on_observed = 0
+        self.amr_idle_indicator_on_observed = 0
+        self.amr_indicator_visibility_mismatch_count = 0
         self.pallet_tunnel_clearance = compute_pallet_tunnel_clearance()
         self.lift_fork_inner_gap = compute_lift_fork_inner_gap()
         self.amr_lift_base_offset = None
@@ -1168,6 +1237,7 @@ class HarimTransferOrchestrator:
             self.move_start_pose = None
             self.move_duration = 0.0
         print(f"[HarimDemo] state -> {state.name}")
+        self._set_amr_indicator_visibility()
 
     def reset_visual_state(self):
         self.carrying = False
@@ -1183,6 +1253,7 @@ class HarimTransferOrchestrator:
         self._set_lift_plate_pose()
         self._reset_pallet_pose()
         self._set_load_restraint_visibility(False)
+        self._set_amr_indicator_visibility()
         if self.completion_signal is not None:
             self.completion_signal.set_completed(False)
 
@@ -1237,6 +1308,35 @@ class HarimTransferOrchestrator:
                 )
             except Exception:
                 pass
+
+    def _set_amr_indicator_visibility(self):
+        if not self.amr_safety_parts:
+            return
+        active_warning = self.state not in (TransferState.WAIT_STACK_COMPLETE, TransferState.DONE_IDLE)
+        if len(self.amr_safety_roles) == len(self.amr_safety_parts):
+            roles = self.amr_safety_roles
+        else:
+            roles = tuple("static" for _ in self.amr_safety_parts)
+        for part, role in zip(self.amr_safety_parts, roles):
+            if role == "warning":
+                visible = active_warning
+                if visible:
+                    self.amr_warning_indicator_on_observed += 1
+            elif role == "idle":
+                visible = not active_warning
+                if visible:
+                    self.amr_idle_indicator_on_observed += 1
+            else:
+                visible = True
+            set_visibility = getattr(part, "set_visibility", None)
+            if set_visibility is None:
+                continue
+            try:
+                set_visibility(bool(visible))
+                if hasattr(part, "visible") and part.visible != bool(visible):
+                    self.amr_indicator_visibility_mismatch_count += 1
+            except Exception:
+                self.amr_indicator_visibility_mismatch_count += 1
 
     def _record_lift_geometry(self):
         amr_pos = self.get_amr_position()
@@ -1754,6 +1854,8 @@ def main():
         bin_state.demo_attach_T = None
         bin_state.demo_force_released = True
         bin_state.is_attached = False
+        bin_state.is_grasp_reached = False
+        bin_state.needs_flip = False
         bin_state.demo_release_target_p = np.array(target_position, dtype=float)
         bin_state.demo_release_target_q = np.array(target_orientation, dtype=float)
         context.demo_released_bin = bin_state
@@ -1763,18 +1865,34 @@ def main():
         gripper = getattr(getattr(context, "robot", None), "suction_gripper", None)
         if gripper is None:
             return
-        try:
-            gripper.open()
-        except Exception as exc:
-            print(f"[HarimDemo] suction open fallback: {exc}", flush=True)
-
         interface = getattr(gripper, "_surface_gripper_interface", None)
         gripper_path = getattr(gripper, "_surface_gripper_path", None)
-        if interface is not None and gripper_path is not None:
+        for _attempt in range(SURFACE_GRIPPER_RELEASE_RETRIES):
+            try:
+                gripper.open()
+            except Exception as exc:
+                print(f"[HarimDemo] suction open fallback: {exc}", flush=True)
+            if interface is None or gripper_path is None:
+                continue
             try:
                 interface.open_gripper(gripper_path)
             except Exception:
                 pass
+            set_gripper_action_batch = getattr(interface, "set_gripper_action_batch", None)
+            if set_gripper_action_batch is not None:
+                try:
+                    set_gripper_action_batch([gripper_path], [-1.0])
+                except Exception:
+                    pass
+
+    def release_demo_bin_at_target(context, bin_state, target_position, target_orientation):
+        if bin_state is None:
+            return
+        force_open_suction_gripper(context)
+        mark_demo_bin_released(context, bin_state, target_position, target_orientation)
+        bin_state.bin_obj.set_world_pose(position=target_position, orientation=target_orientation)
+        stop_dynamic_prim(bin_state.bin_obj)
+        set_kinematic_for_demo(bin_state.bin_obj, True)
 
     def record_release_gripper_state(context):
         gripper = getattr(getattr(context, "robot", None), "suction_gripper", None)
@@ -2082,9 +2200,7 @@ def main():
 
         def exit(self):
             if self.active_bin is not None and self.target_p is not None:
-                self.active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=self.target_q)
-                stop_dynamic_prim(self.active_bin.bin_obj)
-                set_kinematic_for_demo(self.active_bin.bin_obj, True)
+                release_demo_bin_at_target(self.context, self.active_bin, self.target_p, self.target_q)
                 place_error = float(
                     np.linalg.norm(np.array(self.active_bin.bin_obj.get_world_pose()[0], dtype=float) - self.target_p)
                 )
@@ -2092,7 +2208,8 @@ def main():
                     float(getattr(self.context, "demo_max_scripted_place_error", 0.0)),
                     place_error,
                 )
-                self.context.active_bin = self.active_bin
+                if args.self_test_debug_bins:
+                    print(f"[HarimDemo] scripted-release {self.active_bin.bin_obj.name}", flush=True)
             self.entry_time = None
             self.active_bin = None
             self.start_position = None
@@ -2114,8 +2231,8 @@ def main():
             print("<open gripper>", flush=True)
             force_open_suction_gripper(self.context)
 
-            active_bin = self.context.active_bin
-            active_bin = get_demo_carried_bin(self.context) or active_bin
+            active_bin = getattr(self.context, "demo_released_bin", None)
+            active_bin = active_bin or get_demo_carried_bin(self.context) or self.context.active_bin
             if active_bin is None:
                 return
 
@@ -2126,16 +2243,7 @@ def main():
             self.retreat_pq = self.context.robot.arm.get_fk_pq()
             self.release_start_arm_z = float(self.retreat_pq.p[2])
             self.retreat_pq.p[2] += POST_RELEASE_CLEARANCE_LIFT
-            active_bin.demo_attached = False
-            active_bin.demo_attach_T = None
-            active_bin.demo_force_released = True
-            active_bin.is_attached = False
-            set_kinematic_for_demo(active_bin.bin_obj, True)
-            stop_dynamic_prim(active_bin.bin_obj)
-            mark_demo_bin_released(self.context, active_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
-            active_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
-            stop_dynamic_prim(active_bin.bin_obj)
-            set_kinematic_for_demo(active_bin.bin_obj, True)
+            release_demo_bin_at_target(self.context, active_bin, self.target_p, UPSIDE_DOWN_BIN_QUAT)
             self.context.robot.arm.send(MotionCommand(self.retreat_pq))
             record_release_visual_separation(self.context, active_bin)
             if args.self_test_require_gripper_open_after_release:
@@ -2769,6 +2877,7 @@ def main():
     def create_amr_safety_visuals():
         safety_parts = []
         safety_offsets = []
+        safety_roles = []
         start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         for part_idx, (part_name, shape, offset, size, color) in enumerate(make_amr_safety_visual_specs()):
             prim_path = f"{harim_root}/{part_name}"
@@ -2796,9 +2905,10 @@ def main():
                 )
             safety_parts.append(part)
             safety_offsets.append(offset)
-        return safety_parts, safety_offsets
+            safety_roles.append(get_amr_safety_visual_role(part_name))
+        return safety_parts, safety_offsets, safety_roles
 
-    amr_safety_parts, amr_safety_offsets = create_amr_safety_visuals()
+    amr_safety_parts, amr_safety_offsets, amr_safety_roles = create_amr_safety_visuals()
 
     def create_drop_slide_workstation():
         workstation_parts = []
@@ -3059,6 +3169,7 @@ def main():
         amr_lift_prim=amr_lift,
         amr_safety_parts=amr_safety_parts,
         amr_safety_offsets=amr_safety_offsets,
+        amr_safety_roles=amr_safety_roles,
         lift_plate=lift_plate,
         lift_plate_parts=lift_plate_parts,
         pallet_parts=pallet_parts,
@@ -3347,7 +3458,14 @@ def main():
             amr_safety_part_count = amr_safety_metrics["amr_safety_part_count"]
             amr_safety_beacon_height = amr_safety_metrics["amr_safety_beacon_height"]
             amr_safety_scanner_clearance = amr_safety_metrics["amr_safety_scanner_clearance"]
+            amr_warning_indicator_count = amr_safety_metrics["amr_warning_indicator_count"]
+            amr_idle_indicator_count = amr_safety_metrics["amr_idle_indicator_count"]
             max_amr_safety_pose_error = float(getattr(orchestrator, "max_amr_safety_pose_error", 0.0))
+            amr_warning_indicator_observed = int(getattr(orchestrator, "amr_warning_indicator_on_observed", 0))
+            amr_idle_indicator_observed = int(getattr(orchestrator, "amr_idle_indicator_on_observed", 0))
+            amr_indicator_visibility_mismatches = int(
+                getattr(orchestrator, "amr_indicator_visibility_mismatch_count", 0)
+            )
             if (
                 args.self_test_min_amr_safety_part_count > 0
                 and amr_safety_part_count < args.self_test_min_amr_safety_part_count
@@ -3379,6 +3497,46 @@ def main():
                 self_test_failures.append(
                     f"AMR safety pose error {max_amr_safety_pose_error:.4f} m exceeded "
                     f"{args.self_test_max_amr_safety_pose_error:.4f} m"
+                )
+            if (
+                args.self_test_min_amr_warning_indicator_count > 0
+                and amr_warning_indicator_count < args.self_test_min_amr_warning_indicator_count
+            ):
+                self_test_failures.append(
+                    f"AMR warning indicator count {amr_warning_indicator_count} was below "
+                    f"{args.self_test_min_amr_warning_indicator_count}"
+                )
+            if (
+                args.self_test_min_amr_idle_indicator_count > 0
+                and amr_idle_indicator_count < args.self_test_min_amr_idle_indicator_count
+            ):
+                self_test_failures.append(
+                    f"AMR idle indicator count {amr_idle_indicator_count} was below "
+                    f"{args.self_test_min_amr_idle_indicator_count}"
+                )
+            if (
+                args.self_test_min_amr_warning_observed > 0
+                and amr_warning_indicator_observed < args.self_test_min_amr_warning_observed
+            ):
+                self_test_failures.append(
+                    f"AMR warning indicator observed {amr_warning_indicator_observed} was below "
+                    f"{args.self_test_min_amr_warning_observed}"
+                )
+            if (
+                args.self_test_min_amr_idle_observed > 0
+                and amr_idle_indicator_observed < args.self_test_min_amr_idle_observed
+            ):
+                self_test_failures.append(
+                    f"AMR idle indicator observed {amr_idle_indicator_observed} was below "
+                    f"{args.self_test_min_amr_idle_observed}"
+                )
+            if (
+                args.self_test_max_amr_indicator_visibility_mismatches >= 0
+                and amr_indicator_visibility_mismatches > args.self_test_max_amr_indicator_visibility_mismatches
+            ):
+                self_test_failures.append(
+                    f"AMR indicator visibility mismatches {amr_indicator_visibility_mismatches} exceeded "
+                    f"{args.self_test_max_amr_indicator_visibility_mismatches}"
                 )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
@@ -3555,6 +3713,11 @@ def main():
                     f"amr_safety_beacon_height={amr_safety_beacon_height:.4f}; "
                     f"amr_safety_scanner_clearance={amr_safety_scanner_clearance:.4f}; "
                     f"max_amr_safety_pose_error={max_amr_safety_pose_error:.4f}; "
+                    f"amr_warning_indicator_count={amr_warning_indicator_count}; "
+                    f"amr_idle_indicator_count={amr_idle_indicator_count}; "
+                    f"amr_warning_indicator_observed={amr_warning_indicator_observed}; "
+                    f"amr_idle_indicator_observed={amr_idle_indicator_observed}; "
+                    f"amr_indicator_visibility_mismatches={amr_indicator_visibility_mismatches}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}; "
                     f"amr_exit_clearance={amr_exit_clearance:.4f}; "

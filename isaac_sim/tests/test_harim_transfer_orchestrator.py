@@ -145,6 +145,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         load_restraint_parts=None,
         amr_safety_parts=None,
         amr_safety_offsets=None,
+        amr_safety_roles=None,
     ):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
         context = FakeContext(items)
@@ -160,6 +161,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             lift_plate=FakePosePrim("lift_plate"),
             amr_safety_parts=amr_safety_parts,
             amr_safety_offsets=amr_safety_offsets,
+            amr_safety_roles=amr_safety_roles,
             pallet_parts=pallet_parts,
             pallet_part_offsets=pallet_part_offsets,
             load_restraint_parts=load_restraint_parts,
@@ -370,9 +372,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         specs = self.demo.make_amr_safety_visual_specs()
 
         self.assertEqual(metrics["amr_safety_part_count"], len(specs))
-        self.assertGreaterEqual(metrics["amr_safety_part_count"], 6)
+        self.assertGreaterEqual(metrics["amr_safety_part_count"], 8)
         self.assertGreaterEqual(metrics["amr_safety_beacon_height"], 0.60)
         self.assertGreaterEqual(metrics["amr_safety_scanner_clearance"], 0.10)
+        self.assertEqual(metrics["amr_warning_indicator_count"], 3)
+        self.assertEqual(metrics["amr_idle_indicator_count"], 2)
 
     def test_lift_plate_sits_just_below_pallet_underside(self):
         contact_gap = self.demo.compute_lift_contact_gap(self.demo.DEFAULT_AMR_Z)
@@ -482,15 +486,19 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         source = DEMO_PATH.read_text(encoding="utf-8")
 
         self.assertIn("def force_open_suction_gripper", source)
+        self.assertIn("SURFACE_GRIPPER_RELEASE_RETRIES", source)
+        self.assertIn("def release_demo_bin_at_target", source)
         self.assertIn("def record_release_gripper_state", source)
         self.assertIn("interface.open_gripper(gripper_path)", source)
+        self.assertIn("set_gripper_action_batch([gripper_path], [-1.0])", source)
         self.assertIn("interface.get_gripped_objects_batch([gripper_path])", source)
         self.assertIn("def record_release_visual_separation", source)
-        self.assertIn("active_bin.demo_attached = False", source)
-        self.assertIn("active_bin.demo_attach_T = None", source)
-        self.assertIn("active_bin.demo_force_released = True", source)
+        self.assertIn("bin_state.demo_attached = False", source)
+        self.assertIn("bin_state.demo_attach_T = None", source)
+        self.assertIn("bin_state.demo_force_released = True", source)
         self.assertIn("active_bin.demo_force_released = False", source)
-        self.assertIn("active_bin.is_attached = False", source)
+        self.assertIn("bin_state.is_attached = False", source)
+        self.assertIn("bin_state.is_grasp_reached = False", source)
         self.assertIn("demo_scripted_place_bin = None", source)
 
     def test_spawned_bins_are_upside_down_to_skip_flip_station(self):
@@ -533,9 +541,14 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("compute_safety_fence_metrics", source)
         self.assertIn("create_amr_safety_visuals", source)
         self.assertIn("AmrBeaconDome", source)
+        self.assertIn("AmrLeftWarningStrip", source)
+        self.assertIn("AMR_WARNING_INDICATOR_NAMES", source)
+        self.assertIn("AMR_IDLE_INDICATOR_NAMES", source)
+        self.assertIn("get_amr_safety_visual_role", source)
         self.assertIn("AmrFrontSafetyScanner", source)
         self.assertIn("compute_amr_safety_visual_metrics", source)
         self.assertIn("_set_amr_safety_visual_pose", source)
+        self.assertIn("_set_amr_indicator_visibility", source)
         self.assertIn("create_drop_dock_alignment_visual", source)
         self.assertIn("DropDockStopBlock", source)
         self.assertIn("DropDockLocatorPost", source)
@@ -580,12 +593,14 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("place_active_bin_grasp_at_effector", source)
         self.assertIn("DemoScriptedPlaceBin()", source)
         self.assertIn("scripted-place", source)
+        self.assertIn("scripted-release", source)
         self.assertIn("SCRIPTED_PLACE_DURATION", source)
         self.assertIn("SCRIPTED_PLACE_EE_HOVER", source)
         self.assertIn("get_demo_pre_grip_bin", source)
         self.assertIn("restore_demo_carried_active_bin", source)
         self.assertIn("clear_demo_carry_context", source)
         self.assertIn("mark_demo_bin_released", source)
+        self.assertIn("release_demo_bin_at_target", source)
         self.assertIn("hold_demo_released_bin_at_target", source)
         self.assertIn("clone_stack_coordinates", source)
         self.assertIn("get_demo_stack_coordinate", source)
@@ -667,6 +682,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-amr-safety-beacon-height", source)
         self.assertIn("--self-test-min-amr-safety-scanner-clearance", source)
         self.assertIn("--self-test-max-amr-safety-pose-error", source)
+        self.assertIn("--self-test-min-amr-warning-indicator-count", source)
+        self.assertIn("--self-test-min-amr-idle-indicator-count", source)
+        self.assertIn("--self-test-min-amr-warning-observed", source)
+        self.assertIn("--self-test-min-amr-idle-observed", source)
+        self.assertIn("--self-test-max-amr-indicator-visibility-mismatches", source)
         self.assertIn("--self-test-min-payload-lift", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
@@ -709,6 +729,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("AMR safety beacon height", source)
         self.assertIn("AMR safety scanner clearance", source)
         self.assertIn("AMR safety pose error", source)
+        self.assertIn("AMR warning indicator count", source)
+        self.assertIn("AMR idle indicator count", source)
+        self.assertIn("AMR warning indicator observed", source)
+        self.assertIn("AMR idle indicator observed", source)
+        self.assertIn("AMR indicator visibility mismatches", source)
         self.assertIn("payload lift", source)
         self.assertIn("max dropped payload drift", source)
         self.assertIn("AMR exit clearance", source)
@@ -753,6 +778,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("amr_safety_beacon_height=", source)
         self.assertIn("amr_safety_scanner_clearance=", source)
         self.assertIn("max_amr_safety_pose_error=", source)
+        self.assertIn("amr_warning_indicator_count=", source)
+        self.assertIn("amr_idle_indicator_count=", source)
+        self.assertIn("amr_warning_indicator_observed=", source)
+        self.assertIn("amr_idle_indicator_observed=", source)
+        self.assertIn("amr_indicator_visibility_mismatches=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("amr_exit_clearance=", source)
@@ -802,6 +832,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinAmrSafetyBeaconHeight", source)
         self.assertIn("$SelfTestMinAmrSafetyScannerClearance", source)
         self.assertIn("$SelfTestMaxAmrSafetyPoseError", source)
+        self.assertIn("$SelfTestMinAmrWarningIndicatorCount", source)
+        self.assertIn("$SelfTestMinAmrIdleIndicatorCount", source)
+        self.assertIn("$SelfTestMinAmrWarningObserved", source)
+        self.assertIn("$SelfTestMinAmrIdleObserved", source)
+        self.assertIn("$SelfTestMaxAmrIndicatorVisibilityMismatches", source)
         self.assertIn("$SelfTestMinAmrExitClearance", source)
         self.assertIn("$SelfTestMaxLiftContactGap", source)
         self.assertIn("$SelfTestMinPalletTunnelClearance", source)
@@ -830,6 +865,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-amr-safety-beacon-height", source)
         self.assertIn("--self-test-min-amr-safety-scanner-clearance", source)
         self.assertIn("--self-test-max-amr-safety-pose-error", source)
+        self.assertIn("--self-test-min-amr-warning-indicator-count", source)
+        self.assertIn("--self-test-min-amr-idle-indicator-count", source)
+        self.assertIn("--self-test-min-amr-warning-observed", source)
+        self.assertIn("--self-test-min-amr-idle-observed", source)
+        self.assertIn("--self-test-max-amr-indicator-visibility-mismatches", source)
         self.assertIn("--self-test-min-amr-exit-clearance", source)
         self.assertIn("--self-test-max-lift-contact-gap", source)
         self.assertIn("--self-test-min-pallet-tunnel-clearance", source)
@@ -891,11 +931,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("0.25", source)
         self.assertIn("SelfTestMinSafetyFenceInfeedGateClearance", source)
         self.assertIn("SelfTestMinAmrSafetyPartCount", source)
-        self.assertIn("6", source)
+        self.assertIn("8", source)
         self.assertIn("SelfTestMinAmrSafetyBeaconHeight", source)
         self.assertIn("0.60", source)
         self.assertIn("SelfTestMinAmrSafetyScannerClearance", source)
         self.assertIn("SelfTestMaxAmrSafetyPoseError", source)
+        self.assertIn("SelfTestMinAmrWarningIndicatorCount", source)
+        self.assertIn("SelfTestMinAmrIdleIndicatorCount", source)
+        self.assertIn("SelfTestMinAmrWarningObserved", source)
+        self.assertIn("SelfTestMinAmrIdleObserved", source)
+        self.assertIn("SelfTestMaxAmrIndicatorVisibilityMismatches", source)
         self.assertIn("SelfTestMinPayloadLift", source)
         self.assertIn("0.10", source)
         self.assertIn("SelfTestMaxDroppedPayloadDrift", source)
@@ -983,6 +1028,30 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         for part, offset in zip(safety_parts, safety_offsets):
             np.testing.assert_allclose(part.get_world_pose()[0], target_pose + offset)
         self.assertAlmostEqual(orchestrator.max_amr_safety_pose_error, 0.0)
+
+    def test_amr_indicator_visibility_tracks_transfer_state(self):
+        warning = FakePosePrim("warning")
+        idle = FakePosePrim("idle")
+        static = FakePosePrim("static")
+        orchestrator, _context, _world, _items = self.build_orchestrator(
+            Args(),
+            amr_safety_parts=[warning, idle, static],
+            amr_safety_offsets=[np.zeros(3), np.zeros(3), np.zeros(3)],
+            amr_safety_roles=["warning", "idle", "static"],
+        )
+
+        self.assertFalse(warning.visible)
+        self.assertTrue(idle.visible)
+        self.assertTrue(static.visible)
+
+        orchestrator._transition(self.demo.TransferState.MOVE_TO_APPROACH)
+
+        self.assertTrue(warning.visible)
+        self.assertFalse(idle.visible)
+        self.assertTrue(static.visible)
+        self.assertGreater(orchestrator.amr_warning_indicator_on_observed, 0)
+        self.assertGreater(orchestrator.amr_idle_indicator_on_observed, 0)
+        self.assertEqual(orchestrator.amr_indicator_visibility_mismatch_count, 0)
 
     def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
         block_offsets = self.demo.PALLET_BLOCK_OFFSETS

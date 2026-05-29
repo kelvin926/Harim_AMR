@@ -1,5 +1,19 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-29 GUI 확인 반영: 로봇팔 release 안정화
+
+- GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제를 줄이기 위해, `DemoScriptedPlaceBin.exit()` 시점에 박스가 목표 stack pose에 도달하면 즉시 `release_demo_bin_at_target()`을 호출하도록 변경한다.
+- release helper는 `demo_attached`, `demo_attach_T`, `demo_carried_bin`, `demo_scripted_place_bin`, `active_bin`, `is_attached`, `is_grasp_reached` 상태를 한 번에 끊고, 박스를 목표 위치에 kinematic으로 고정한다.
+- `DemoReleaseBin`은 이미 release된 `demo_released_bin`을 우선 사용하며, 이후에는 surface gripper open 상태 유지와 arm retreat만 담당한다.
+- `force_open_suction_gripper()`는 `gripper.open()`, `interface.open_gripper()`, `set_gripper_action_batch(..., -1.0)`를 여러 번 시도해 surface gripper joint가 남는 경우를 더 강하게 방지한다.
+- strict self-test 로그 `isaacsim_logs/harim_release_detach_indicator_strict_full_e2e_12000.log` 기준 8개 박스 모두 `scripted-release` 후 `demo-placed`가 기록되고, `release_gripped_object_max=0`, `release_gripper_not_open=0`, `max_release_drift=0.0000`으로 확인했다.
+
+## 2026-05-29 AMR 상태 indicator 보강
+
+- `iw_hub` 안전 시각 요소에 warning strip 2개를 추가해 총 8개 AMR safety visual을 구성한다.
+- beacon dome과 warning strip은 AMR 이동/리프트/하역 동작 중 표시하고, green status strip은 idle/wait 상태에서 표시하도록 role 기반 visibility를 추가한다.
+- strict self-test에 AMR warning/idle indicator 구성 수, 관측 여부, visibility mismatch gate를 추가했다.
+
 ## 0. 목표 정의
 
 본 프로젝트의 1차 목표는 YouTube 영상의 Robotize GoPal U24W 팔레트 AMR 데모와 유사한 물류 자동화 장면을 Isaac Sim에서 구현하는 것이다.

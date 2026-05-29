@@ -3,6 +3,12 @@
 이 폴더는 `E:\Harim_AMR` 내부에 설치한 Isaac Sim 5.1.0 pip 환경만 사용합니다.
 기존 `E:\isaac-sim-5.1.0`, `E:\IsaacLab`, 기존 conda env는 사용하지 않습니다.
 
+## 최근 변경
+
+- 로봇팔 release를 강화했습니다. 박스가 scripted place 목표 pose에 도달하는 즉시 carry/attach 상태를 끊고 surface gripper open을 반복 적용한 뒤, release state에서는 열린 gripper와 arm retreat만 유지합니다.
+- AMR safety indicator를 보강했습니다. warning beacon/strip은 AMR 동작 중 켜지고, green idle strip은 대기 상태에서 켜집니다.
+- 검증 로그: `isaacsim_logs/harim_release_detach_indicator_strict_full_e2e_12000.log`
+
 ## 실행
 
 PowerShell에서 프로젝트 루트로 이동한 뒤 실행합니다.
