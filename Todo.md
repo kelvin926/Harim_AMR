@@ -1712,3 +1712,49 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `max_pre_grip_offset=0.0050`
   - `max_return_ready_error=0.0395`
   - `max_release_drift=0.0000`
+
+---
+
+## 2026-05-29 AMR 리프트/하역 현실성 검증 보강 메모
+
+이전 self-test는 AMR state가 `LIFT_UP`, `MOVE_TO_DROP`, `DETACH`, `SLIDE_OUT_FROM_PALLET`까지 진행되는지는 확인했지만, 실제 적재 payload가 얼마나 들어 올려졌는지와 하역 후 팔레트 assembly가 AMR 이탈 중 제자리에 남는지는 별도 수치로 검증하지 않았다. 현실감 기준에서는 이 두 가지가 핵심이므로 self-test 지표를 추가했다.
+
+수정 내용:
+
+- [x] payload lift 측정 추가
+  - `stack_complete` 시점에 각 stack item의 기준 pose를 저장한다.
+  - `LIFT_UP` 동안 각 item의 실제 Z 상승량을 계산해 `max_payload_lift_observed`에 기록한다.
+  - full self-test에서 `--self-test-min-payload-lift`로 최소 상승량을 요구할 수 있다.
+- [x] dropped payload drift 측정 추가
+  - `DETACH` 시점의 박스/팔레트 pose를 기록한다.
+  - `SLIDE_OUT_FROM_PALLET` 동안 현재 pose와 drop pose의 거리 차이를 `max_dropped_payload_drift`에 기록한다.
+  - full self-test에서 `--self-test-max-dropped-payload-drift`로 하역 후 밀림 허용치를 제한할 수 있다.
+- [x] PowerShell wrapper 옵션 추가
+  - `-SelfTestMinPayloadLift`
+  - `-SelfTestMaxDroppedPayloadDrift`
+- [x] 후반 pick 안정성 보강
+  - `REACH_PICK_MAX_DURATION = 12.0`
+  - `RETURN_READY_DURATION = 10.0`
+  - 후반부 박스에서 reach가 시간 초과되며 pre-grip offset이 커지는 run이 있어, 팔이 충분히 pick-ready/grasp 근처로 수렴할 시간을 더 준다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 29개 통과
+- [x] Python compile 통과
+- [x] 12000-frame full end-to-end self-test 통과
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0048`
+  - `max_return_ready_error=0.0392`
+  - `max_release_drift=0.0000`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`

@@ -24,9 +24,9 @@ CONVEYOR_PICK_WINDOW_Y = 0.68
 PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
 POST_RELEASE_CLEARANCE_LIFT = 0.22
 ARM_CLEAR_SETTLE_TIME = 1.8
-REACH_PICK_MAX_DURATION = 5.8
-REACH_PLACE_MAX_DURATION = 3.6
-RETURN_READY_DURATION = 5.0
+REACH_PICK_MAX_DURATION = 12.0
+REACH_PLACE_MAX_DURATION = 4.2
+RETURN_READY_DURATION = 10.0
 RETURN_READY_POSITION_THRESHOLD = 0.04
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
@@ -129,6 +129,18 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if a released bin drifts from its snapped stack pose by more than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-payload-lift",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test unless the AMR visibly lifts the payload by at least this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-dropped-payload-drift",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the delivered pallet assembly drifts after detach by more than this distance in meters. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -306,10 +318,13 @@ class HarimTransferOrchestrator:
         self.dropped_item_poses = {}
         self.dropped_pallet_poses = {}
         self.locked_stack_poses = {}
+        self.payload_lift_baseline_poses = {}
 
         self.stack_center = self._compute_stack_center()
         self.amr_yaw = 0.0
         self.lift_offset = 0.0
+        self.max_payload_lift_observed = 0.0
+        self.max_dropped_payload_drift = 0.0
         self.amr_lift_base_offset = None
         self.amr_lift_orientation = None
         self.move_target = None
@@ -358,6 +373,7 @@ class HarimTransferOrchestrator:
         self.dropped_item_poses = {}
         self.dropped_pallet_poses = {}
         self.locked_stack_poses = {}
+        self.payload_lift_baseline_poses = {}
         self.lift_offset = 0.0
         self.set_amr_pose(self.start_pose)
         self._set_lift_plate_pose()
@@ -459,10 +475,12 @@ class HarimTransferOrchestrator:
 
     def _lock_stack_items(self):
         self.locked_stack_poses = {}
+        self.payload_lift_baseline_poses = {}
         for item in self._get_stacked_items():
             try:
                 pos, orient = item.get_world_pose()
                 self.locked_stack_poses[item.name] = (item, np.array(pos, dtype=float), orient)
+                self.payload_lift_baseline_poses[item.name] = np.array(pos, dtype=float)
                 self._stop_dynamic_item(item)
                 self._set_item_kinematic(item, True)
             except Exception as exc:
@@ -486,6 +504,12 @@ class HarimTransferOrchestrator:
                 lifted[2] += dz
                 item.set_world_pose(position=lifted, orientation=orient)
                 self._stop_dynamic_item(item)
+                baseline = self.payload_lift_baseline_poses.get(item.name)
+                if baseline is not None:
+                    self.max_payload_lift_observed = max(
+                        self.max_payload_lift_observed,
+                        float(lifted[2] - baseline[2]),
+                    )
                 if item.name in self.locked_stack_poses:
                     self.locked_stack_poses[item.name] = (item, lifted, orient)
             except Exception as exc:
@@ -509,6 +533,7 @@ class HarimTransferOrchestrator:
             self.pallet_base_offsets[part.name] = (np.array(pos, dtype=float) - amr_pos, orient)
         self.carrying = True
         self.locked_stack_poses = {}
+        self.payload_lift_baseline_poses = {}
         self._update_attached_items()
         print(f"[HarimDemo] attached {len(self.attached_items)} stacked items and {len(self.pallet_parts)} pallet parts")
 
@@ -550,11 +575,17 @@ class HarimTransferOrchestrator:
     def _hold_dropped_assembly(self):
         for item, pos, orient in self.dropped_item_poses.values():
             try:
+                current_pos, _ = item.get_world_pose()
+                drift = float(np.linalg.norm(np.array(current_pos, dtype=float) - np.array(pos, dtype=float)))
+                self.max_dropped_payload_drift = max(self.max_dropped_payload_drift, drift)
                 item.set_world_pose(position=pos, orientation=orient)
                 self._stop_dynamic_item(item)
             except Exception as exc:
                 print(f"[HarimDemo] could not hold dropped item: {exc}")
         for part, pos, orient in self.dropped_pallet_poses.values():
+            current_pos, _ = part.get_world_pose()
+            drift = float(np.linalg.norm(np.array(current_pos, dtype=float) - np.array(pos, dtype=float)))
+            self.max_dropped_payload_drift = max(self.max_dropped_payload_drift, drift)
             part.set_world_pose(position=pos, orientation=orient)
 
     def _sync_payload_pose(self):
@@ -1667,6 +1698,21 @@ def main():
                     f"max release drift {max_release_drift:.4f} m exceeded "
                     f"{args.self_test_max_release_drift:.4f} m"
                 )
+            max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
+            if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
+                self_test_failures.append(
+                    f"payload lift {max_payload_lift:.4f} m was below "
+                    f"{args.self_test_min_payload_lift:.4f} m"
+                )
+            max_dropped_payload_drift = float(getattr(orchestrator, "max_dropped_payload_drift", 0.0))
+            if (
+                args.self_test_max_dropped_payload_drift > 0
+                and max_dropped_payload_drift > args.self_test_max_dropped_payload_drift
+            ):
+                self_test_failures.append(
+                    f"max dropped payload drift {max_dropped_payload_drift:.4f} m exceeded "
+                    f"{args.self_test_max_dropped_payload_drift:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -1678,7 +1724,9 @@ def main():
                     f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}; "
                     f"max_pre_grip_offset={max_pre_grip_offset:.4f}; "
                     f"max_return_ready_error={max_return_ready_error:.4f}; "
-                    f"max_release_drift={max_release_drift:.4f}",
+                    f"max_release_drift={max_release_drift:.4f}; "
+                    f"max_payload_lift={max_payload_lift:.4f}; "
+                    f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}",
                     flush=True,
                 )
         else:

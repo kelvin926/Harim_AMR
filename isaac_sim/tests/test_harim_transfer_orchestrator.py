@@ -330,6 +330,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("demo_released_bin", source)
         self.assertIn("demo_release_target_p", source)
         self.assertIn("demo_max_release_drift", source)
+        self.assertIn("max_payload_lift_observed", source)
+        self.assertIn("max_dropped_payload_drift", source)
         self.assertIn("task.context = decider_network.context", source)
         self.assertIn("release_duration=0.35", source)
         self.assertIn("POST_RELEASE_CLEARANCE_LIFT", source)
@@ -349,14 +351,20 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-pre-grip-offset", source)
         self.assertIn("--self-test-max-return-ready-error", source)
         self.assertIn("--self-test-max-release-drift", source)
+        self.assertIn("--self-test-min-payload-lift", source)
+        self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("UR10 placed", source)
         self.assertIn("AMR completed", source)
         self.assertIn("max pre-grip offset", source)
         self.assertIn("max return-ready error", source)
         self.assertIn("max release drift", source)
+        self.assertIn("payload lift", source)
+        self.assertIn("max dropped payload drift", source)
         self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("max_return_ready_error=", source)
         self.assertIn("max_release_drift=", source)
+        self.assertIn("max_payload_lift=", source)
+        self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("demo_max_return_ready_error", source)
         self.assertIn("demo_max_release_drift", source)
         self.assertIn("preserving failure exit", source)
@@ -429,6 +437,21 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             np.testing.assert_allclose(item.get_world_pose()[0], dropped_item_positions[item.name])
         for part in orchestrator.pallet_parts:
             np.testing.assert_allclose(part.get_world_pose()[0], dropped_pallet_positions[part.name])
+        self.assertAlmostEqual(orchestrator.max_dropped_payload_drift, 0.0)
+
+    def test_dropped_payload_drift_metric_records_external_motion(self):
+        orchestrator, context, _world, items = self.build_orchestrator(Args())
+        context.stack_complete = True
+
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.SLIDE_OUT_FROM_PALLET)
+        items[0].set_world_pose(position=items[0].get_world_pose()[0] + np.array([0.03, 0.0, 0.0]))
+        orchestrator.pallet_parts[0].set_world_pose(
+            position=orchestrator.pallet_parts[0].get_world_pose()[0] + np.array([0.0, 0.02, 0.0])
+        )
+
+        orchestrator.step(0.1)
+
+        self.assertGreater(orchestrator.max_dropped_payload_drift, 0.029)
 
     def test_infinite_cycles_reset_for_next_stack(self):
         orchestrator, context, world, _items = self.build_orchestrator(RepeatArgs())
@@ -455,6 +478,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         lifted_z = lift_prim.get_world_pose()[0][2]
         self.assertAlmostEqual(lifted_z, initial_lift_z + Args.lift_height, places=6)
+        self.assertGreaterEqual(orchestrator.max_payload_lift_observed, Args.lift_height)
 
     def test_surface_gripper_extension_is_enabled_before_cortex_ur10_import(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
