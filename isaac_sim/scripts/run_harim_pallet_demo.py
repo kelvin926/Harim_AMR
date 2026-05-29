@@ -625,6 +625,18 @@ def parse_args():
         help="Fail the fixed-frame self-test if the suction-attached carton moves farther than this distance between sampled frames. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-scripted-place-bin-frame-displacement",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the scripted place carton moves farther than this distance between sampled frames. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-released-bin-frame-displacement",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if a released carton moves farther than this distance between sampled frames. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-carried-payload-frame-displacement",
         type=float,
         default=0.0,
@@ -1626,7 +1638,7 @@ class MotionContinuityTracker:
         self.sample_count_by_group = {}
         self.tracked_keys = set()
 
-    def sample(self, group, item_id, position):
+    def sample(self, group, item_id, position, phase=None, frame_index=None):
         group = str(group)
         item_id = str(item_id)
         key = (group, item_id)
@@ -1644,6 +1656,10 @@ class MotionContinuityTracker:
                     "position": position.copy(),
                     "displacement": displacement,
                 }
+                if phase is not None:
+                    self.max_detail_by_group[group]["phase"] = str(phase)
+                if frame_index is not None:
+                    self.max_detail_by_group[group]["frame_index"] = int(frame_index)
             self.sample_count_by_group[group] = int(self.sample_count_by_group.get(group, 0)) + 1
         self.previous_positions[key] = position.copy()
 
@@ -3928,6 +3944,9 @@ def main():
     def get_demo_time(context):
         return float(getattr(context, "demo_sim_time", time.time()))
 
+    def set_demo_motion_phase(context, phase):
+        context.demo_motion_phase = str(phase)
+
     def get_demo_stack_coordinate(context, index):
         canonical_coordinates = getattr(context, "demo_stack_coordinates", None)
         if canonical_coordinates is not None:
@@ -4088,6 +4107,7 @@ def main():
             self.start_orientation = None
 
         def enter(self):
+            set_demo_motion_phase(self.context, "pre_grip_settle")
             self.entry_time = get_demo_time(self.context)
             active_bin = getattr(self.context, "active_bin", None)
             self.context.demo_pre_grip_bin = active_bin
@@ -4109,6 +4129,7 @@ def main():
                 print(f"[HarimDemo] pre-grip offset {offset:.4f} m; settle={self.duration:.2f}s", flush=True)
 
         def step(self):
+            set_demo_motion_phase(self.context, "pre_grip_settle")
             if self.entry_time is None:
                 return None
             active_bin = get_demo_pre_grip_bin(self.context) or getattr(self.context, "active_bin", None)
@@ -4139,6 +4160,7 @@ def main():
 
     class DemoAttachBin(DfState):
         def enter(self):
+            set_demo_motion_phase(self.context, "attach_bin")
             print("<close gripper>", flush=True)
             active_bin = get_demo_pre_grip_bin(self.context) or getattr(self.context, "active_bin", None)
             if active_bin is None:
@@ -4188,6 +4210,7 @@ def main():
             self.target_q = None
 
         def enter(self):
+            set_demo_motion_phase(self.context, "scripted_place")
             self.entry_time = get_demo_time(self.context)
             active_bin = get_demo_carried_bin(self.context) or getattr(self.context, "active_bin", None)
             if active_bin is None:
@@ -4211,6 +4234,7 @@ def main():
             print(f"[HarimDemo] scripted-place {active_bin.bin_obj.name} -> {self.target_p.tolist()}", flush=True)
 
         def step(self):
+            set_demo_motion_phase(self.context, "scripted_place")
             if self.active_bin is None or self.target_p is None:
                 return None
             force_open_suction_gripper(self.context)
@@ -4271,6 +4295,7 @@ def main():
             )
 
         def enter(self):
+            set_demo_motion_phase(self.context, "release_retreat")
             self.entry_time = get_demo_time(self.context)
             print("<open gripper>", flush=True)
             force_open_suction_gripper(self.context)
@@ -4299,6 +4324,7 @@ def main():
             print(f"[HarimDemo] demo-placed {active_bin.bin_obj.name} at {self.target_p.tolist()}", flush=True)
 
         def step(self):
+            set_demo_motion_phase(self.context, "release_retreat")
             if self.released_bin is None or self.target_p is None:
                 return None
             force_open_suction_gripper(self.context)
@@ -4338,11 +4364,13 @@ def main():
             self.target_pq = None
 
         def enter(self):
+            set_demo_motion_phase(self.context, "post_pick_lift")
             self.entry_time = get_demo_time(self.context)
             self.target_pq = self.context.robot.arm.get_fk_pq()
             self.target_pq.p[2] += self.height
 
         def step(self):
+            set_demo_motion_phase(self.context, "post_pick_lift")
             hold_demo_released_bin_at_target(self.context)
             self.context.robot.arm.send(MotionCommand(self.target_pq))
             if get_demo_time(self.context) - self.entry_time < self.duration:
@@ -4361,6 +4389,7 @@ def main():
             self.active = False
 
         def enter(self):
+            set_demo_motion_phase(self.context, "post_release_joint_settle")
             self.entry_time = get_demo_time(self.context)
             self.active = False
             robot = self.context.robot
@@ -4374,6 +4403,7 @@ def main():
             robot.arm.clear()
 
         def step(self):
+            set_demo_motion_phase(self.context, "post_release_joint_settle")
             hold_demo_released_bin_at_target(self.context)
             if not self.active:
                 return None
@@ -4402,11 +4432,13 @@ def main():
             self.target_position = None
 
         def enter(self):
+            set_demo_motion_phase(self.context, self.label)
             self.entry_time = get_demo_time(self.context)
             self.target_position = self.position.copy()
             print(f"[HarimDemo] {self.label} start", flush=True)
 
         def step(self):
+            set_demo_motion_phase(self.context, self.label)
             hold_demo_released_bin_at_target(self.context)
             self.context.robot.arm.send(
                 MotionCommand(target_position=self.target_position, posture_config=self.context.robot.default_config)
@@ -4450,12 +4482,14 @@ def main():
                 self.state.bind(context, params)
 
         def enter(self):
+            set_demo_motion_phase(self.context, self.label)
             self.entry_time = get_demo_time(self.context)
             print(f"[HarimDemo] {self.label} start", flush=True)
             restore_demo_carried_active_bin(self.context)
             self.state.enter()
 
         def step(self):
+            set_demo_motion_phase(self.context, self.label)
             restore_demo_carried_active_bin(self.context)
             next_state = self.state.step()
             if next_state is None:
@@ -4471,6 +4505,7 @@ def main():
 
     class DemoMarkCarriedBinComplete(DfState):
         def enter(self):
+            set_demo_motion_phase(self.context, "mark_bin_complete")
             hold_demo_released_bin_at_target(self.context)
             active_bin = (
                 getattr(self.context, "demo_released_bin", None)
@@ -4489,9 +4524,11 @@ def main():
 
     class DemoWaitForNextBin(DfState):
         def enter(self):
+            set_demo_motion_phase(self.context, "wait_next_bin")
             self.context.robot.arm.clear()
 
         def step(self):
+            set_demo_motion_phase(self.context, "wait_next_bin")
             return self
 
     class DemoPickAndPlaceBin(DfStateMachineDecider):
@@ -5444,6 +5481,7 @@ def main():
     decider_network.context.stack_coordinates = clone_stack_coordinates(stack_coordinates)
     decider_network.context.demo_stack_coordinates = clone_stack_coordinates(stack_coordinates)
     decider_network.context.demo_sim_time = 0.0
+    decider_network.context.demo_motion_phase = "initializing"
     decider_network.context.demo_max_pre_grip_offset = 0.0
     decider_network.context.demo_max_return_ready_error = 0.0
     decider_network.context.demo_max_release_drift = 0.0
@@ -5494,9 +5532,16 @@ def main():
             ]
 
     def sample_motion_continuity():
-        motion_continuity.sample("amr", "iw_hub", orchestrator.get_amr_position())
+        phase = getattr(decider_network.context, "demo_motion_phase", None)
+        motion_continuity.sample("amr", "iw_hub", orchestrator.get_amr_position(), phase, demo_frame_index)
         try:
-            motion_continuity.sample("arm_ee", "ur10_ee", decider_network.context.robot.arm.get_fk_p())
+            motion_continuity.sample(
+                "arm_ee",
+                "ur10_ee",
+                decider_network.context.robot.arm.get_fk_p(),
+                phase,
+                demo_frame_index,
+            )
         except Exception:
             pass
 
@@ -5522,7 +5567,13 @@ def main():
                         getattr(active_bin, "demo_attached", False)
                     ):
                         motion_group = "attached_bin"
-                    motion_continuity.sample(motion_group, getattr(bin_obj, "name", motion_group), position)
+                    motion_continuity.sample(
+                        motion_group,
+                        getattr(bin_obj, "name", motion_group),
+                        position,
+                        phase,
+                        demo_frame_index,
+                    )
                 except Exception:
                     pass
 
@@ -5530,7 +5581,13 @@ def main():
             for item in getattr(orchestrator, "attached_items", []):
                 try:
                     position, _orientation = item.get_world_pose()
-                    motion_continuity.sample("carried_payload", getattr(item, "name", str(id(item))), position)
+                    motion_continuity.sample(
+                        "carried_payload",
+                        getattr(item, "name", str(id(item))),
+                        position,
+                        phase,
+                        demo_frame_index,
+                    )
                 except Exception:
                     pass
 
@@ -5926,17 +5983,23 @@ def main():
             motion_continuity_tracked_item_count = motion_continuity.tracked_item_count()
             active_bin_motion_sample_count = motion_continuity.sample_count("active_bin")
             attached_bin_motion_sample_count = motion_continuity.sample_count("attached_bin")
+            scripted_place_bin_motion_sample_count = motion_continuity.sample_count("scripted_place_bin")
+            released_bin_motion_sample_count = motion_continuity.sample_count("released_bin")
             carried_payload_motion_sample_count = motion_continuity.sample_count("carried_payload")
             arm_ee_motion_sample_count = motion_continuity.sample_count("arm_ee")
             max_amr_frame_displacement = motion_continuity.max_displacement("amr")
             max_arm_ee_frame_displacement = motion_continuity.max_displacement("arm_ee")
             max_active_bin_frame_displacement = motion_continuity.max_displacement("active_bin")
             max_attached_bin_frame_displacement = motion_continuity.max_displacement("attached_bin")
+            max_scripted_place_bin_frame_displacement = motion_continuity.max_displacement("scripted_place_bin")
+            max_released_bin_frame_displacement = motion_continuity.max_displacement("released_bin")
             max_carried_payload_frame_displacement = motion_continuity.max_displacement("carried_payload")
             amr_motion_detail = motion_continuity.max_detail("amr")
             arm_ee_motion_detail = motion_continuity.max_detail("arm_ee")
             active_bin_motion_detail = motion_continuity.max_detail("active_bin")
             attached_bin_motion_detail = motion_continuity.max_detail("attached_bin")
+            scripted_place_bin_motion_detail = motion_continuity.max_detail("scripted_place_bin")
+            released_bin_motion_detail = motion_continuity.max_detail("released_bin")
             carried_payload_motion_detail = motion_continuity.max_detail("carried_payload")
 
             def format_motion_detail(detail):
@@ -5946,7 +6009,13 @@ def main():
                 position = np.array(detail["position"], dtype=float)
                 previous_text = np.array2string(previous_position, precision=3, separator=", ")
                 position_text = np.array2string(position, precision=3, separator=", ")
-                return f" ({detail['item_id']}: {previous_text} -> {position_text})"
+                detail_parts = []
+                if "phase" in detail:
+                    detail_parts.append(f"phase={detail['phase']}")
+                if "frame_index" in detail:
+                    detail_parts.append(f"frame={detail['frame_index']}")
+                detail_suffix = f"; {'; '.join(detail_parts)}" if detail_parts else ""
+                return f" ({detail['item_id']}: {previous_text} -> {position_text}{detail_suffix})"
 
             if (
                 args.self_test_min_motion_continuity_sample_count > 0
@@ -5991,6 +6060,27 @@ def main():
                         f"attached bin frame displacement {max_attached_bin_frame_displacement:.4f} m exceeded "
                         f"{args.self_test_max_attached_bin_frame_displacement:.4f} m"
                         f"{format_motion_detail(attached_bin_motion_detail)}"
+                    )
+            if args.self_test_max_scripted_place_bin_frame_displacement > 0:
+                if scripted_place_bin_motion_sample_count <= 0:
+                    self_test_failures.append("scripted place bin motion continuity was not sampled")
+                elif (
+                    max_scripted_place_bin_frame_displacement
+                    > args.self_test_max_scripted_place_bin_frame_displacement
+                ):
+                    self_test_failures.append(
+                        f"scripted place bin frame displacement {max_scripted_place_bin_frame_displacement:.4f} m exceeded "
+                        f"{args.self_test_max_scripted_place_bin_frame_displacement:.4f} m"
+                        f"{format_motion_detail(scripted_place_bin_motion_detail)}"
+                    )
+            if args.self_test_max_released_bin_frame_displacement > 0:
+                if released_bin_motion_sample_count <= 0:
+                    self_test_failures.append("released bin motion continuity was not sampled")
+                elif max_released_bin_frame_displacement > args.self_test_max_released_bin_frame_displacement:
+                    self_test_failures.append(
+                        f"released bin frame displacement {max_released_bin_frame_displacement:.4f} m exceeded "
+                        f"{args.self_test_max_released_bin_frame_displacement:.4f} m"
+                        f"{format_motion_detail(released_bin_motion_detail)}"
                     )
             if args.self_test_max_carried_payload_frame_displacement > 0:
                 if carried_payload_motion_sample_count <= 0:
@@ -6861,11 +6951,15 @@ def main():
                     f"arm_ee_motion_sample_count={arm_ee_motion_sample_count}; "
                     f"active_bin_motion_sample_count={active_bin_motion_sample_count}; "
                     f"attached_bin_motion_sample_count={attached_bin_motion_sample_count}; "
+                    f"scripted_place_bin_motion_sample_count={scripted_place_bin_motion_sample_count}; "
+                    f"released_bin_motion_sample_count={released_bin_motion_sample_count}; "
                     f"carried_payload_motion_sample_count={carried_payload_motion_sample_count}; "
                     f"max_amr_frame_displacement={max_amr_frame_displacement:.4f}; "
                     f"max_arm_ee_frame_displacement={max_arm_ee_frame_displacement:.4f}; "
                     f"max_active_bin_frame_displacement={max_active_bin_frame_displacement:.4f}; "
                     f"max_attached_bin_frame_displacement={max_attached_bin_frame_displacement:.4f}; "
+                    f"max_scripted_place_bin_frame_displacement={max_scripted_place_bin_frame_displacement:.4f}; "
+                    f"max_released_bin_frame_displacement={max_released_bin_frame_displacement:.4f}; "
                     f"max_carried_payload_frame_displacement={max_carried_payload_frame_displacement:.4f}; "
                     f"safety_fence_part_count={safety_fence_part_count}; "
                     f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "

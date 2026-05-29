@@ -1,5 +1,25 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Scripted/Released Box Continuity Gate 및 실패 진단 강화
+
+- [x] 팔레타이징 후반의 `scripted_place_bin`, `released_bin` 단계도 별도 motion continuity group으로 계측하고 strict self-test 실패 조건에 연결했다.
+- [x] 새 CLI gate를 추가했다.
+  - Python: `--self-test-max-scripted-place-bin-frame-displacement`
+  - Python: `--self-test-max-released-bin-frame-displacement`
+  - PowerShell: `SelfTestMaxScriptedPlaceBinFrameDisplacement`, `SelfTestMaxReleasedBinFrameDisplacement`
+- [x] strict wrapper 기준은 `SelfTestMaxScriptedPlaceBinFrameDisplacement = 0.08`, `SelfTestMaxReleasedBinFrameDisplacement = 0.02`로 설정했다. scripted place는 실제 보간 이동을 허용하고, release 이후 박스는 목표 위치에 고정되어야 하므로 더 엄격하게 본다.
+- [x] `MotionContinuityTracker`의 최대 프레임 이동 상세 정보에 `phase`, `frame_index`를 저장하도록 보강했다. 이후 RMPflow/UR10이 비결정적으로 튀는 run이 나오면 실패 메시지에서 `reach_place`, `scripted_place`, `release_retreat` 같은 실제 상태와 프레임 번호를 바로 확인할 수 있다.
+- [x] 모든 Isaac/self-test 실행은 성공/실패와 관계없이 review GIF를 저장한다. timestamp GIF는 `isaacsim_outputs/harim_amr_review_*.gif`에 남기고, 최신본은 항상 `isaacsim_outputs/latest_review.gif`로 갱신한다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 80개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_motion_phase_scripted_released_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_070051_16232.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - GIF 크기: `960x540`, `151` frames
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `scripted_place_bin_motion_sample_count=335`, `released_bin_motion_sample_count=1638`, `max_scripted_place_bin_frame_displacement=0.0303`, `max_released_bin_frame_displacement=0.0000`, `max_attached_grasp_error=0.1569`, `max_arm_ee_frame_displacement=0.2092`
+
 ## 2026-05-30 Attached Grasp Alignment Gate 및 Motion Group 분리
 
 - [x] 흡착 중인 박스가 UR10 suction gripper target에서 과하게 벌어지는지 `demo_attached_grasp_sample_count`, `demo_max_attached_grasp_error`로 계측하도록 했다.
