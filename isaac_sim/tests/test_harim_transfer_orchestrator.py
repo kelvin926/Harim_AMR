@@ -733,6 +733,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(metrics["pickup_dock_runner_clearance"], 0.05)
         self.assertLess(self.demo.PICKUP_DOCK_STOP_X_OFFSET, 0.0)
 
+    def test_review_gif_layout_has_readable_panel(self):
+        map_rect, panel_rect = self.demo.compute_review_gif_layout()
+
+        self.assertGreaterEqual(self.demo.GIF_CANVAS_SIZE[0], 900)
+        self.assertGreaterEqual(self.demo.GIF_CANVAS_SIZE[1], 500)
+        self.assertEqual(panel_rect[0] - map_rect[2], 24)
+        self.assertGreaterEqual(map_rect[2] - map_rect[0], 520)
+        self.assertGreaterEqual(panel_rect[2] - panel_rect[0], 280)
+        self.assertGreaterEqual(panel_rect[3] - panel_rect[1], 430)
+
     def test_review_gif_recorder_exports_per_run_gif(self):
         orchestrator, context, _world, _items = self.build_orchestrator(Args())
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -749,6 +759,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             self.assertEqual(output_path.suffix, ".gif")
             self.assertTrue(output_path.exists())
             self.assertGreater(output_path.stat().st_size, 0)
+            from PIL import Image
+
+            with Image.open(output_path) as image:
+                self.assertEqual(image.size, self.demo.GIF_CANVAS_SIZE)
             latest_path = Path(tmp_dir) / self.demo.LATEST_REVIEW_GIF_NAME
             self.assertTrue(latest_path.exists())
             self.assertEqual(recorder.latest_path, str(latest_path))
@@ -937,6 +951,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("LATEST_REVIEW_GIF_NAME", source)
         self.assertIn("GIF_FRAME_STRIDE", source)
         self.assertIn("GIF_MAX_FRAMES", source)
+        self.assertIn("compute_review_gif_layout", source)
         self.assertIn("gif_recorder.maybe_capture", source)
         self.assertIn("save_review_gif", source)
         self.assertIn("review_gif_path=", source)

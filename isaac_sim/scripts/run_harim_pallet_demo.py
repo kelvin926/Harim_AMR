@@ -18,7 +18,7 @@ DEFAULT_DROP_X = DEFAULT_PICKUP_X + 10.6
 DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
 DEFAULT_GIF_OUTPUT_DIR = PROJECT_ROOT / "isaacsim_outputs"
 LATEST_REVIEW_GIF_NAME = "latest_review.gif"
-GIF_CANVAS_SIZE = (720, 420)
+GIF_CANVAS_SIZE = (960, 540)
 GIF_FRAME_STRIDE = 80
 GIF_MAX_FRAMES = 180
 GIF_FRAME_DURATION_MS = 80
@@ -313,6 +313,18 @@ AMR_ROUTE_GUARD_BOLLARD_SCALE = np.array([0.08, 0.08, 0.72], dtype=float)
 AMR_ROUTE_GUARD_RAIL_SCALE_YZ = np.array([0.035, 0.050], dtype=float)
 AMR_ROUTE_GUARD_BOLLARD_COLOR = np.array([0.94, 0.74, 0.10], dtype=float)
 AMR_ROUTE_GUARD_RAIL_COLOR = np.array([0.08, 0.09, 0.10], dtype=float)
+
+
+def compute_review_gif_layout(canvas_size=GIF_CANVAS_SIZE):
+    width, height = (int(canvas_size[0]), int(canvas_size[1]))
+    top = 62
+    bottom = height - 38
+    side_margin = 28
+    panel_width = max(280, min(340, int(width * 0.32)))
+    panel_left = width - side_margin - panel_width
+    map_rect = (34, top, panel_left - 24, bottom)
+    panel_rect = (panel_left, top, width - side_margin, bottom)
+    return map_rect, panel_rect
 
 
 def parse_args():
@@ -2296,8 +2308,7 @@ class DemoGifRecorder:
         width, height = self.canvas_size
         image = Image.new("RGB", (width, height), (245, 247, 250))
         draw = ImageDraw.Draw(image)
-        map_rect = (34, 62, 525, height - 38)
-        panel_rect = (548, 62, width - 28, height - 38)
+        map_rect, panel_rect = compute_review_gif_layout(self.canvas_size)
         self._draw_header(draw, frame_index, orchestrator, context, width)
         self._draw_map(draw, map_rect, orchestrator, context, args)
         self._draw_panel(draw, panel_rect, orchestrator, context)

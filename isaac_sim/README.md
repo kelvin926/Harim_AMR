@@ -1,5 +1,16 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Review GIF 가독성 보강
+
+- review GIF 기본 캔버스를 `720x420`에서 `960x540`으로 키워 `latest_review.gif`를 바로 열었을 때 상태 패널과 release clearance 정보를 더 쉽게 볼 수 있게 했습니다.
+- `compute_review_gif_layout()`으로 map 영역과 상태 패널 영역을 계산해, 우측 패널 폭을 280px 이상으로 보장합니다.
+- GIF export unittest에서 실제 저장된 GIF 크기가 `GIF_CANVAS_SIZE`와 일치하는지 확인합니다.
+- 검증 로그: `isaacsim_logs/harim_review_gif_layout_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_040949_9124.gif`
+- 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+- GIF 크기: `960x540`, `151` frames
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0046`, `max_release_vertical_clearance=1.0144`, `release_gripper_not_open=0`, `release_gripped_object_max=0`
+
 ## 2026-05-30 Infeed Feed Carton Visual 및 이동 검증
 
 - 컨베이어가 비어 보이지 않도록 pick station 상류 구간에서 계속 움직이는 visual-only feed carton 1개를 추가했습니다.
