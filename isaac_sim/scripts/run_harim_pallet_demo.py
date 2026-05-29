@@ -2579,6 +2579,7 @@ class DemoGifRecorder:
         left, top, right, bottom = rect
         draw.rectangle(rect, fill=(255, 255, 255), outline=(203, 213, 225))
         state_name = getattr(getattr(orchestrator, "state", None), "name", "UNKNOWN")
+        motion_phase = self._short_panel_value(getattr(context, "demo_motion_phase", "-"), max_chars=24)
         stack_count = len(getattr(context, "stacked_bins", []))
         total_stack = len(getattr(context, "stack_coordinates", []))
         lift_offset = float(getattr(orchestrator, "lift_offset", 0.0))
@@ -2586,6 +2587,7 @@ class DemoGifRecorder:
         lines = [
             "status",
             f"state: {state_name}",
+            f"phase: {motion_phase}",
             f"stack: {stack_count}/{total_stack}",
             f"cycles: {cycles}",
             f"lift: {lift_offset:.3f} m",
@@ -2649,6 +2651,12 @@ class DemoGifRecorder:
             return np.array(context.robot.arm.get_fk_p(), dtype=float)
         except Exception:
             return None
+
+    def _short_panel_value(self, value, max_chars=24):
+        text = str(value)
+        if len(text) <= max_chars:
+            return text
+        return f"{text[: max(0, max_chars - 1)]}~"
 
 
 class HarimTransferOrchestrator:

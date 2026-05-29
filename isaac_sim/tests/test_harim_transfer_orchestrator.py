@@ -784,6 +784,15 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(panel_rect[2] - panel_rect[0], 280)
         self.assertGreaterEqual(panel_rect[3] - panel_rect[1], 430)
 
+    def test_review_gif_panel_abbreviates_motion_phase(self):
+        recorder = self.demo.DemoGifRecorder(enabled=True)
+
+        self.assertEqual(recorder._short_panel_value("reach_place"), "reach_place")
+        self.assertEqual(
+            recorder._short_panel_value("post_release_joint_settle", max_chars=12),
+            "post_releas~",
+        )
+
     def test_review_gif_recorder_exports_per_run_gif(self):
         orchestrator, context, _world, _items = self.build_orchestrator(Args())
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1006,6 +1015,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("requested_enabled", source)
         self.assertIn("disabled_reason", source)
         self.assertIn("def _draw_fallback_frame", source)
+        self.assertIn("demo_motion_phase", source)
+        self.assertIn("phase:", source)
+        self.assertIn("def _short_panel_value", source)
         self.assertIn("PICK_READY_EE_POSITION", source)
         self.assertIn("class DemoTimedArmMoveTo", source)
         self.assertIn("class DemoTimedArmJointSettle", source)

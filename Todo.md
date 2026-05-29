@@ -1,5 +1,18 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Review GIF Motion Phase Panel 추가
+
+- [x] review GIF 오른쪽 상태 패널에 팔레타이저 내부 `demo_motion_phase`를 함께 표시하도록 했다. GIF만 열어도 `reach_pick`, `reach_place`, `scripted_place`, `release_retreat`, `return_ready` 등 현재 팔 동작 단계를 확인할 수 있다.
+- [x] 긴 phase 이름은 패널 폭을 넘지 않도록 `DemoGifRecorder._short_panel_value()`에서 축약한다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 81개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_review_gif_phase_panel_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_071655_34528.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `review_gif_frame_count=151`, `max_scripted_place_bin_frame_displacement=0.0303`, `max_released_bin_frame_displacement=0.0000`
+
 ## 2026-05-30 Scripted/Released Box Continuity Gate 및 실패 진단 강화
 
 - [x] 팔레타이징 후반의 `scripted_place_bin`, `released_bin` 단계도 별도 motion continuity group으로 계측하고 strict self-test 실패 조건에 연결했다.
