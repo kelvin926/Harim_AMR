@@ -488,6 +488,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if the safety fence AMR gate leaves less loaded-pallet side clearance than this distance in meters. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-min-amr-cell-gate-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the moving AMR/load deviates from the palletizer cell gate centerline enough to leave less clearance than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-safety-fence-infeed-gate-clearance",
         type=float,
         default=0.0,
@@ -1438,13 +1444,17 @@ def compute_safety_fence_metrics(pickup_y=DEFAULT_PICKUP_Y):
     specs = make_safety_fence_specs(pickup_y)
     return {
         "safety_fence_part_count": len(specs),
-        "safety_fence_amr_gate_clearance": float(
-            SAFETY_FENCE_AMR_GATE_WIDTH - SAFETY_FENCE_POST_SCALE[1] - PALLET_DECK_SCALE[1]
-        ),
+        "safety_fence_amr_gate_clearance": compute_amr_cell_gate_clearance(pickup_y, pickup_y),
         "safety_fence_infeed_gate_clearance": float(
             SAFETY_FENCE_INFEED_GATE_WIDTH - SAFETY_FENCE_POST_SCALE[0] - INFEED_CONVEYOR_WIDTH
         ),
     }
+
+
+def compute_amr_cell_gate_clearance(amr_y=DEFAULT_PICKUP_Y, pickup_y=DEFAULT_PICKUP_Y):
+    centered_clearance = float(SAFETY_FENCE_AMR_GATE_WIDTH - SAFETY_FENCE_POST_SCALE[1] - PALLET_DECK_SCALE[1])
+    lateral_error = abs(float(amr_y) - float(pickup_y))
+    return float(centered_clearance - 2.0 * lateral_error)
 
 
 def make_amr_safety_visual_specs():
@@ -2336,6 +2346,7 @@ class HarimTransferOrchestrator:
         self.min_lift_contact_gap_observed = initial_lift_contact_gap
         self.max_amr_safety_pose_error = 0.0
         self.max_amr_drive_pose_error = 0.0
+        self.min_amr_cell_gate_clearance = compute_amr_cell_gate_clearance(args.pickup_y, args.pickup_y)
         self.max_loaded_route_y_error = 0.0
         self.min_loaded_route_guard_clearance = compute_loaded_route_guard_clearance(
             args.pickup_y,
@@ -2476,10 +2487,21 @@ class HarimTransferOrchestrator:
         self.amr.set_world_pose(position=np.array(position, dtype=float), orientation=yaw_to_quat(self.amr_yaw))
         self._set_amr_safety_visual_pose()
         self._set_amr_drive_visual_pose()
+        self._record_amr_cell_gate_clearance()
 
     def get_amr_position(self):
         position, _orientation = self.amr.get_world_pose()
         return np.array(position, dtype=float)
+
+    def _record_amr_cell_gate_clearance(self):
+        try:
+            amr_pos = self.get_amr_position()
+        except Exception:
+            return
+        self.min_amr_cell_gate_clearance = min(
+            self.min_amr_cell_gate_clearance,
+            compute_amr_cell_gate_clearance(amr_pos[1], self.args.pickup_y),
+        )
 
     def _lift_plate_position(self, fork_offset=None):
         amr_pos = self.get_amr_position()
@@ -5152,6 +5174,7 @@ def main():
             safety_fence_part_count = safety_fence_metrics["safety_fence_part_count"]
             safety_fence_amr_gate_clearance = safety_fence_metrics["safety_fence_amr_gate_clearance"]
             safety_fence_infeed_gate_clearance = safety_fence_metrics["safety_fence_infeed_gate_clearance"]
+            amr_cell_gate_clearance = float(getattr(orchestrator, "min_amr_cell_gate_clearance", 0.0))
             if (
                 args.self_test_min_safety_fence_part_count > 0
                 and safety_fence_part_count < args.self_test_min_safety_fence_part_count
@@ -5167,6 +5190,14 @@ def main():
                 self_test_failures.append(
                     f"safety fence AMR gate clearance {safety_fence_amr_gate_clearance:.4f} m was below "
                     f"{args.self_test_min_safety_fence_amr_gate_clearance:.4f} m"
+                )
+            if (
+                args.self_test_min_amr_cell_gate_clearance > 0
+                and amr_cell_gate_clearance < args.self_test_min_amr_cell_gate_clearance
+            ):
+                self_test_failures.append(
+                    f"AMR cell gate clearance {amr_cell_gate_clearance:.4f} m was below "
+                    f"{args.self_test_min_amr_cell_gate_clearance:.4f} m"
                 )
             if (
                 args.self_test_min_safety_fence_infeed_gate_clearance > 0
@@ -5883,6 +5914,7 @@ def main():
                     f"infeed_motion_observed_travel={infeed_motion_observed_travel:.4f}; "
                     f"safety_fence_part_count={safety_fence_part_count}; "
                     f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "
+                    f"amr_cell_gate_clearance={amr_cell_gate_clearance:.4f}; "
                     f"safety_fence_infeed_gate_clearance={safety_fence_infeed_gate_clearance:.4f}; "
                     f"amr_safety_part_count={amr_safety_part_count}; "
                     f"amr_safety_beacon_height={amr_safety_beacon_height:.4f}; "

@@ -422,6 +422,14 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertLess(self.demo.SAFETY_FENCE_MIN_X, self.demo.PICK_STATION_BIN_POSITION[0])
         self.assertGreater(self.demo.SAFETY_FENCE_MAX_X, self.demo.DEFAULT_PICKUP_X)
 
+    def test_amr_cell_gate_clearance_accounts_for_lateral_error(self):
+        centered = self.demo.compute_amr_cell_gate_clearance(Args.pickup_y, Args.pickup_y)
+        shifted = self.demo.compute_amr_cell_gate_clearance(Args.pickup_y + 0.02, Args.pickup_y)
+
+        self.assertAlmostEqual(centered, self.demo.compute_safety_fence_metrics()["safety_fence_amr_gate_clearance"])
+        self.assertAlmostEqual(centered - shifted, 0.04)
+        self.assertGreaterEqual(shifted, 0.25)
+
     def test_amr_safety_visuals_have_beacon_and_scanner_clearance(self):
         metrics = self.demo.compute_amr_safety_visual_metrics()
         specs = self.demo.make_amr_safety_visual_specs()
@@ -749,6 +757,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertAlmostEqual(orchestrator.max_carried_pallet_pose_error, 0.0)
         self.assertAlmostEqual(orchestrator.max_carried_payload_pose_error, 0.0)
 
+    def test_amr_cell_gate_clearance_tracks_moving_amr_lateral_error(self):
+        orchestrator, _context, _world, _items = self.build_orchestrator(Args())
+
+        orchestrator.set_amr_pose(np.array([Args.pickup_x + 1.0, Args.pickup_y + 0.02, Args.amr_z]))
+
+        self.assertAlmostEqual(
+            orchestrator.min_amr_cell_gate_clearance,
+            self.demo.compute_amr_cell_gate_clearance(Args.pickup_y + 0.02, Args.pickup_y),
+        )
+
     def test_amr_lift_uses_eased_motion_and_settles_before_attach(self):
         orchestrator, context, _world, _items = self.build_orchestrator(Args())
         context.stack_complete = True
@@ -1029,6 +1047,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-infeed-motion-observed-travel", source)
         self.assertIn("--self-test-min-safety-fence-part-count", source)
         self.assertIn("--self-test-min-safety-fence-amr-gate-clearance", source)
+        self.assertIn("--self-test-min-amr-cell-gate-clearance", source)
         self.assertIn("--self-test-min-safety-fence-infeed-gate-clearance", source)
         self.assertIn("--self-test-min-amr-safety-part-count", source)
         self.assertIn("--self-test-min-amr-safety-beacon-height", source)
@@ -1121,6 +1140,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("infeed motion observed travel", source)
         self.assertIn("safety fence part count", source)
         self.assertIn("safety fence AMR gate clearance", source)
+        self.assertIn("AMR cell gate clearance", source)
         self.assertIn("safety fence infeed gate clearance", source)
         self.assertIn("AMR safety part count", source)
         self.assertIn("AMR safety beacon height", source)
@@ -1218,6 +1238,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("infeed_motion_observed_travel=", source)
         self.assertIn("safety_fence_part_count=", source)
         self.assertIn("safety_fence_amr_gate_clearance=", source)
+        self.assertIn("amr_cell_gate_clearance=", source)
         self.assertIn("safety_fence_infeed_gate_clearance=", source)
         self.assertIn("amr_safety_part_count=", source)
         self.assertIn("amr_safety_beacon_height=", source)
@@ -1339,6 +1360,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinInfeedMotionObservedTravel", source)
         self.assertIn("$SelfTestMinSafetyFencePartCount", source)
         self.assertIn("$SelfTestMinSafetyFenceAmrGateClearance", source)
+        self.assertIn("$SelfTestMinAmrCellGateClearance", source)
         self.assertIn("$SelfTestMinSafetyFenceInfeedGateClearance", source)
         self.assertIn("$SelfTestMinAmrSafetyPartCount", source)
         self.assertIn("$SelfTestMinAmrSafetyBeaconHeight", source)
@@ -1420,6 +1442,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-infeed-motion-observed-travel", source)
         self.assertIn("--self-test-min-safety-fence-part-count", source)
         self.assertIn("--self-test-min-safety-fence-amr-gate-clearance", source)
+        self.assertIn("--self-test-min-amr-cell-gate-clearance", source)
         self.assertIn("--self-test-min-safety-fence-infeed-gate-clearance", source)
         self.assertIn("--self-test-min-amr-safety-part-count", source)
         self.assertIn("--self-test-min-amr-safety-beacon-height", source)
@@ -1539,6 +1562,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinSafetyFencePartCount", source)
         self.assertIn("20", source)
         self.assertIn("SelfTestMinSafetyFenceAmrGateClearance", source)
+        self.assertIn("SelfTestMinAmrCellGateClearance", source)
         self.assertIn("0.25", source)
         self.assertIn("SelfTestMinSafetyFenceInfeedGateClearance", source)
         self.assertIn("SelfTestMinAmrSafetyPartCount", source)

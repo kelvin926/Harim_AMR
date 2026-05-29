@@ -42,6 +42,7 @@ $RunnerArgs = @{
     SelfTestMinInfeedMotionObservedTravel = 0.10
     SelfTestMinSafetyFencePartCount = 20
     SelfTestMinSafetyFenceAmrGateClearance = 0.25
+    SelfTestMinAmrCellGateClearance = 0.25
     SelfTestMinSafetyFenceInfeedGateClearance = 0.20
     SelfTestMinAmrSafetyPartCount = 8
     SelfTestMinAmrSafetyBeaconHeight = 0.60

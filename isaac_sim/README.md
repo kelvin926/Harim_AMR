@@ -1,5 +1,14 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 AMR Palletizer Cell Gate 동적 Clearance 검증
+
+- AMR이 팔레타이저 안전펜스 gate를 통과하는 동안 중심선에서 벗어나 설비를 뚫고 지나가는 문제를 잡기 위해 `amr_cell_gate_clearance`를 기록합니다.
+- 기존 정적 `safety_fence_amr_gate_clearance`에 더해, 실제 AMR pose의 lateral error를 반영한 동적 clearance를 self-test gate로 검증합니다.
+- strict self-test에 AMR cell gate clearance gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_amr_cell_gate_clearance_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_030601_24684.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `safety_fence_amr_gate_clearance=0.3050`, `amr_cell_gate_clearance=0.3050`
+
 ## 2026-05-30 Dropped Pallet Part 연결성 검증
 
 - 하역 후 팔레트 deck/runner/block/top support 및 load-restraint part가 deck 기준 offset을 유지하는지 `max_dropped_pallet_part_pose_error`로 기록합니다.
