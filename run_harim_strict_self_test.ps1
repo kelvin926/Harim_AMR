@@ -63,6 +63,10 @@ $RunnerArgs = @{
     SelfTestMaxDropDockStopGap = 0.05
     SelfTestMinDropDockGuideClearance = 0.10
     SelfTestMinDropDockForkClearance = 0.03
+    SelfTestMinCameraCount = 4
+    SelfTestMinCameraRoleCount = 4
+    SelfTestMinCameraHeight = 1.25
+    SelfTestMinCameraTargetDistance = 1.0
 }
 
 if (-not $ShowGui) {

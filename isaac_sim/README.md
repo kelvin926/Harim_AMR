@@ -1,5 +1,12 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-29 카메라 리그 보강
+
+- 영상 확인용 camera rig를 추가했습니다. `OverviewCamera`, `PalletizerCamera`, `AmrRouteCamera`, `DropDockCamera` 4개를 `/World/HarimDemo/Cameras` 아래에 만들고, GUI 실행 시 overview camera를 active viewport로 지정합니다.
+- strict self-test에 camera count/role/height/target-distance gate를 추가했습니다.
+- 최신 검증 로그: `isaacsim_logs/harim_camera_rig_strict_full_e2e_12000.log`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `camera_rig_count=4`, `camera_required_role_count=4`
+
 이 폴더는 `E:\Harim_AMR` 내부에 설치한 Isaac Sim 5.1.0 pip 환경만 사용합니다.
 기존 `E:\isaac-sim-5.1.0`, `E:\IsaacLab`, 기존 conda env는 사용하지 않습니다.
 

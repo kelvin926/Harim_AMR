@@ -1,5 +1,33 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-29 영상 확인용 카메라 리그 보강
+
+- [x] GUI에서 바로 장면을 확인할 수 있도록 `/World/HarimDemo/Cameras` 아래에 story camera 4개를 생성했다.
+  - `OverviewCamera`: 팔레타이저와 AMR 주행 경로 전체를 보는 와이드 컷
+  - `PalletizerCamera`: 컨베이어 유입, 흡착 pick, pallet place를 보는 팔레타이저 컷
+  - `AmrRouteCamera`: 적재 완료 뒤 `iw_hub`가 팔레트 밑으로 들어가 lift-up 후 이동하는 경로 컷
+  - `DropDockCamera`: 목표 위치의 슬라이드 작업대에 팔레트를 내려놓는 하역 컷
+- [x] 각 카메라는 `harim:cameraRole` 속성을 갖고, GUI 실행 시 active viewport를 `OverviewCamera`로 전환하도록 했다.
+- [x] self-test gate를 추가해 카메라 수, required role 수, 바닥 대비 최소 높이, target 거리까지 회귀 검증한다.
+  - Python: `--self-test-min-camera-count`
+  - Python: `--self-test-min-camera-role-count`
+  - Python: `--self-test-min-camera-height`
+  - Python: `--self-test-min-camera-target-distance`
+  - PowerShell: `-SelfTestMinCameraCount`
+  - PowerShell: `-SelfTestMinCameraRoleCount`
+  - PowerShell: `-SelfTestMinCameraHeight`
+  - PowerShell: `-SelfTestMinCameraTargetDistance`
+- [x] strict wrapper에 카메라 gate를 포함했다.
+  - `SelfTestMinCameraCount = 4`
+  - `SelfTestMinCameraRoleCount = 4`
+  - `SelfTestMinCameraHeight = 1.25`
+  - `SelfTestMinCameraTargetDistance = 1.0`
+- [x] 검증 완료
+  - unittest 51개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_camera_rig_strict_full_e2e_12000.log`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `camera_rig_count=4`, `camera_required_role_count=4`, `camera_min_height=2.3500`, `camera_min_target_distance=3.1016`
+
 ## 2026-05-29 GUI 확인 반영: 로봇팔 release 안정화
 
 - GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제를 줄이기 위해, `DemoScriptedPlaceBin.exit()` 시점에 박스가 목표 stack pose에 도달하면 즉시 `release_demo_bin_at_target()`을 호출하도록 변경한다.

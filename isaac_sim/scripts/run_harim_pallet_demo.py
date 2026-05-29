@@ -210,6 +210,10 @@ AMR_SAFETY_VISUAL_SPECS = (
 )
 AMR_WARNING_INDICATOR_NAMES = {"AmrBeaconDome", "AmrLeftWarningStrip", "AmrRightWarningStrip"}
 AMR_IDLE_INDICATOR_NAMES = {"AmrLeftStatusStrip", "AmrRightStatusStrip"}
+CAMERA_RIG_REQUIRED_ROLES = ("overview", "palletizer", "amr_route", "drop_dock")
+CAMERA_MIN_HEIGHT_ABOVE_FLOOR = 1.25
+CAMERA_MIN_TARGET_DISTANCE = 1.0
+CAMERA_DEFAULT_FOCAL_LENGTH = 30.0
 
 
 def parse_args():
@@ -510,6 +514,30 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if drop dock stop blocks are closer to AMR lift forks than this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-camera-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many story cameras are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-camera-role-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless at least this many required camera roles are configured. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-camera-height",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if any story camera is lower than this height above the floor. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-camera-target-distance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if any story camera is closer to its target than this distance in meters. 0 disables the check.",
     )
     return parser.parse_args()
 
@@ -1015,6 +1043,67 @@ def compute_amr_safety_visual_metrics():
         "amr_safety_scanner_clearance": float(min(scanner_bottoms)) if scanner_bottoms else 0.0,
         "amr_warning_indicator_count": warning_indicator_count,
         "amr_idle_indicator_count": idle_indicator_count,
+    }
+
+
+def make_camera_rig_specs(
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+    drop_x=DEFAULT_DROP_X,
+    drop_y=DEFAULT_DROP_Y,
+):
+    route_mid_x = (float(pickup_x) + float(drop_x)) * 0.5
+    route_mid_y = (float(pickup_y) + float(drop_y)) * 0.5
+    return [
+        (
+            "OverviewCamera",
+            "overview",
+            np.array([route_mid_x, route_mid_y - 7.0, WORLD_FLOOR_Z + 5.0], dtype=float),
+            np.array([route_mid_x, route_mid_y, WORLD_FLOOR_Z + 0.45], dtype=float),
+            24.0,
+        ),
+        (
+            "PalletizerCamera",
+            "palletizer",
+            np.array([float(pickup_x) - 1.65, float(pickup_y) - 2.15, WORLD_FLOOR_Z + 2.35], dtype=float),
+            np.array([float(pickup_x), float(pickup_y), PALLET_CENTER_Z + 0.28], dtype=float),
+            35.0,
+        ),
+        (
+            "AmrRouteCamera",
+            "amr_route",
+            np.array([route_mid_x, route_mid_y - 3.80, WORLD_FLOOR_Z + 2.75], dtype=float),
+            np.array([route_mid_x, route_mid_y, WORLD_FLOOR_Z + 0.35], dtype=float),
+            CAMERA_DEFAULT_FOCAL_LENGTH,
+        ),
+        (
+            "DropDockCamera",
+            "drop_dock",
+            np.array([float(drop_x) + 1.85, float(drop_y) - 2.15, WORLD_FLOOR_Z + 2.35], dtype=float),
+            np.array([float(drop_x), float(drop_y), PALLET_CENTER_Z + 0.18], dtype=float),
+            35.0,
+        ),
+    ]
+
+
+def compute_camera_rig_metrics(
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+    drop_x=DEFAULT_DROP_X,
+    drop_y=DEFAULT_DROP_Y,
+):
+    specs = make_camera_rig_specs(pickup_x, pickup_y, drop_x, drop_y)
+    roles = {role for _name, role, _eye, _target, _focal_length in specs}
+    heights = [float(eye[2] - WORLD_FLOOR_Z) for _name, _role, eye, _target, _focal_length in specs]
+    target_distances = [
+        float(np.linalg.norm(np.array(eye, dtype=float) - np.array(target, dtype=float)))
+        for _name, _role, eye, target, _focal_length in specs
+    ]
+    return {
+        "camera_rig_count": len(specs),
+        "camera_required_role_count": len(roles.intersection(CAMERA_RIG_REQUIRED_ROLES)),
+        "camera_min_height": min(heights) if heights else 0.0,
+        "camera_min_target_distance": min(target_distances) if target_distances else 0.0,
     }
 
 
@@ -1683,6 +1772,7 @@ def main():
     from isaacsim.core.utils.prims import get_prim_at_path, is_prim_path_valid
     from isaacsim.core.utils.stage import add_reference_to_stage
     from isaacsim.core.utils.nucleus import get_assets_root_path
+    from isaacsim.core.utils.viewports import set_active_viewport_camera, set_camera_view
     import isaacsim.cortex.framework.math_util as cortex_math_util
     from isaacsim.cortex.framework.cortex_world import CortexWorld
     from isaacsim.cortex.framework.cortex_rigid_prim import CortexRigidPrim
@@ -1700,7 +1790,7 @@ def main():
     from isaacsim.cortex.framework.motion_commander import MotionCommand
     from isaacsim.cortex.framework.robot import CortexUr10
     from isaacsim.cortex.behaviors.ur10 import bin_stacking_behavior as behavior
-    from pxr import UsdGeom, UsdPhysics
+    from pxr import Sdf, UsdGeom, UsdPhysics
 
     assets_root = get_assets_root_path()
     if assets_root is None:
@@ -2624,6 +2714,41 @@ def main():
 
     harim_root = "/World/HarimDemo"
     omni.kit.commands.execute("CreatePrim", prim_path=harim_root, prim_type="Xform")
+
+    def create_camera_rig():
+        camera_root = f"{harim_root}/Cameras"
+        omni.kit.commands.execute("CreatePrim", prim_path=camera_root, prim_type="Xform")
+        created_camera_paths = []
+        stage = usd_context.get_stage()
+
+        for camera_name, camera_role, camera_eye, camera_target, focal_length in make_camera_rig_specs(
+            args.pickup_x,
+            args.pickup_y,
+            args.drop_x,
+            args.drop_y,
+        ):
+            camera_path = f"{camera_root}/{camera_name}"
+            omni.kit.commands.execute("CreatePrim", prim_path=camera_path, prim_type="Camera")
+            camera_prim = stage.GetPrimAtPath(camera_path)
+            if camera_prim and camera_prim.IsValid():
+                camera = UsdGeom.Camera(camera_prim)
+                camera.CreateFocalLengthAttr().Set(float(focal_length))
+                camera_prim.CreateAttribute("harim:cameraRole", Sdf.ValueTypeNames.String).Set(camera_role)
+            try:
+                set_camera_view(eye=camera_eye, target=camera_target, camera_prim_path=camera_path)
+            except Exception as exc:
+                print(f"[HarimDemo] camera view setup failed for {camera_name}: {exc}", flush=True)
+            created_camera_paths.append(camera_path)
+
+        if created_camera_paths:
+            try:
+                set_active_viewport_camera(created_camera_paths[0])
+            except Exception as exc:
+                print(f"[HarimDemo] active viewport camera setup skipped: {exc}", flush=True)
+        print(f"[HarimDemo] camera rig ready: {len(created_camera_paths)} cameras", flush=True)
+        return created_camera_paths
+
+    create_camera_rig()
 
     def create_infeed_conveyor_visual():
         visual_parts = []
@@ -3670,6 +3795,36 @@ def main():
                     f"drop dock fork clearance {drop_dock_fork_clearance:.4f} m was below "
                     f"{args.self_test_min_drop_dock_fork_clearance:.4f} m"
                 )
+            camera_metrics = compute_camera_rig_metrics(args.pickup_x, args.pickup_y, args.drop_x, args.drop_y)
+            camera_rig_count = camera_metrics["camera_rig_count"]
+            camera_required_role_count = camera_metrics["camera_required_role_count"]
+            camera_min_height = camera_metrics["camera_min_height"]
+            camera_min_target_distance = camera_metrics["camera_min_target_distance"]
+            if args.self_test_min_camera_count > 0 and camera_rig_count < args.self_test_min_camera_count:
+                self_test_failures.append(
+                    f"camera rig count {camera_rig_count} was below {args.self_test_min_camera_count}"
+                )
+            if (
+                args.self_test_min_camera_role_count > 0
+                and camera_required_role_count < args.self_test_min_camera_role_count
+            ):
+                self_test_failures.append(
+                    f"camera role count {camera_required_role_count} was below "
+                    f"{args.self_test_min_camera_role_count}"
+                )
+            if args.self_test_min_camera_height > 0 and camera_min_height < args.self_test_min_camera_height:
+                self_test_failures.append(
+                    f"camera height {camera_min_height:.4f} m was below "
+                    f"{args.self_test_min_camera_height:.4f} m"
+                )
+            if (
+                args.self_test_min_camera_target_distance > 0
+                and camera_min_target_distance < args.self_test_min_camera_target_distance
+            ):
+                self_test_failures.append(
+                    f"camera target distance {camera_min_target_distance:.4f} m was below "
+                    f"{args.self_test_min_camera_target_distance:.4f} m"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -3733,7 +3888,11 @@ def main():
                     f"drop_dock_stop_gap={drop_dock_stop_gap:.4f}; "
                     f"drop_dock_guide_clearance={drop_dock_guide_clearance:.4f}; "
                     f"drop_dock_fork_clearance={drop_dock_fork_clearance:.4f}; "
-                    f"drop_dock_runner_clearance={drop_dock_runner_clearance:.4f}",
+                    f"drop_dock_runner_clearance={drop_dock_runner_clearance:.4f}; "
+                    f"camera_rig_count={camera_rig_count}; "
+                    f"camera_required_role_count={camera_required_role_count}; "
+                    f"camera_min_height={camera_min_height:.4f}; "
+                    f"camera_min_target_distance={camera_min_target_distance:.4f}",
                     flush=True,
                 )
         else:
