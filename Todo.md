@@ -1228,3 +1228,58 @@ headless transfer self-test 확인 로그:
 - [x] `[HarimDemo] state -> SLIDE_OUT_FROM_PALLET`
 - [x] `[HarimDemo] completed transfer cycle 1`
 - [x] `[HarimDemo] self-test completed after 260 frames`
+
+---
+
+## 2026-05-29 GUI 로봇팔 흡착 해제/다중 박스 적재 보강
+
+사용자가 GUI에서 확인했을 때 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제가 있었다. headless 로그상으로는 1번째 박스에 대해 `<open gripper>`와 `demo-placed`가 출력되었지만, 2번째 박스 적재가 이어지지 않아 GUI에서는 시퀀스가 멈춘 것처럼 보일 수 있었다.
+
+원인:
+
+- `DemoPickAndPlaceBin` state machine이 1회 완료된 뒤 같은 decider branch에 계속 머물면 내부 state가 `None`인 상태로 재시작되지 않았다.
+- 1번째 박스 완료 직후 다음 박스가 이미 active로 잡히면 parent decider가 `pick_place_bin`에서 다른 branch로 빠졌다가 재진입하지 않아 2번째 pick/place가 시작되지 않았다.
+- 컨베이어가 로봇팔 작업 중에도 새 박스를 계속 흘려 보내 `bin_1`, `bin_2` 등이 지나가고, 나중에 잡힌 active bin으로 인해 pick 동작이 늦어졌다.
+- `DemoReleaseBin`이 한 프레임에서만 `open()`을 호출하면 surface gripper 제약이 늦게 풀리는 경우 GUI에서 계속 붙어 보일 수 있었다.
+
+수정:
+
+- [x] `DemoPickAndPlaceBin.decide()`에서 내부 state가 `None`이면 `enter()`를 다시 호출해 다음 active bin에 대해 pick/place sequence를 재시작하도록 수정
+- [x] active bin이 없을 때는 `go_home`으로 긴 동작을 타지 않고 `DemoWaitForNextBin`에서 대기하도록 수정
+- [x] `BinStackingTask`가 decider context를 참조하도록 연결하고, active bin 또는 carried bin이 있을 때는 새 박스를 스폰하지 않도록 수정
+- [x] 컨베이어 속도를 `-0.30`에서 `-0.45`로 조정해 박스 유입 속도를 조금 높임
+- [x] active bin이 잡히면 `PICK_STATION_BIN_POSITION`으로 정렬하고 정지시켜 픽업 스테이션에서 집는 장면이 되도록 수정
+- [x] `DemoReleaseBin`을 0.35초 동안 유지되는 state로 바꿔 `open()`을 반복 호출하고, 박스를 목표 stack 좌표에 고정하도록 수정
+- [x] `ReachToPick`에도 `DemoTimedState`를 적용해 접근이 오래 걸려도 시퀀스가 무한 대기하지 않도록 수정
+- [x] self-test 실패가 `simulation_app.close()`에 가려지지 않도록 `[HarimDemo] self-test failed: ...` 로그와 `SystemExit(1)`을 추가
+- [x] `-SelfTestDebugBins` 옵션을 Python script와 PowerShell wrapper에 추가해 bin spawn, active-bin, stack-count 전환을 추적할 수 있게 함
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 4200 -SelfTestMinPlacedBins 2 -SelfTestDebugBins -Cycles 1
+```
+
+확인된 핵심 로그:
+
+- [x] `[HarimDemo] spawned bin_0`
+- [x] `[HarimDemo] active-bin -> bin_0`
+- [x] `[HarimDemo] reach_pick start`
+- [x] `<close gripper>`
+- [x] `[HarimDemo] demo-attached bin_0`
+- [x] `<open gripper>`
+- [x] `[HarimDemo] demo-placed bin_0 at [1.05, -0.62, -0.51]`
+- [x] `[HarimDemo] stack-count 1/8 after bin_0`
+- [x] `[HarimDemo] spawned bin_1`
+- [x] `[HarimDemo] active-bin -> bin_1`
+- [x] `[HarimDemo] demo-placed bin_1 at [0.8400000000000001, -0.62, -0.51]`
+- [x] `[HarimDemo] stack-count 2/8 after bin_1`
+- [x] `[HarimDemo] self-test completed after 4200 frames; placed_bins=4`
+
+남은 주의점:
+
+- 2번째 이후 일부 박스에서 Isaac Sim surface gripper가 실제 물리 close 판정을 못 받아 warning을 출력할 수 있다. 데모 로직은 `demo_carried_bin` 기반 fallback attach/release로 진행되므로 적재 시퀀스는 계속 동작한다.
+- GUI 시각 품질을 더 높이려면 후속 작업에서 pick station 위치, UR10 중간 경유 자세, suction gripper의 실제 grip threshold를 추가로 튜닝하면 된다.

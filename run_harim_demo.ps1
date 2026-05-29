@@ -7,6 +7,7 @@ param(
     [int]$StackLayers = 2,
     [int]$SelfTestFrames = 0,
     [switch]$SelfTestForceStackComplete,
+    [switch]$SelfTestDebugBins,
     [int]$SelfTestMinPlacedBins = 0,
     [double]$MoveSpeed = 0.65,
     [double]$PickupX = 0.82,
@@ -56,6 +57,10 @@ if ($Headless) {
 
 if ($SelfTestForceStackComplete) {
     $ArgsList += "--self-test-force-stack-complete"
+}
+
+if ($SelfTestDebugBins) {
+    $ArgsList += "--self-test-debug-bins"
 }
 
 & $PythonExe -u @ArgsList

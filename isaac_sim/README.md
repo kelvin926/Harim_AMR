@@ -137,3 +137,24 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 - `<open gripper>`
 - `[HarimDemo] demo-placed bin_0 at [1.05, -0.62, -0.51]`
 - `[HarimDemo] self-test completed after 1800 frames`
+
+## 2026-05-29 다중 박스 적재와 GUI release 보강
+
+GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제를 줄이기 위해 release를 한 프레임 명령이 아니라 0.35초 동안 유지되는 state로 바꿨습니다. 이 동안 suction gripper `open()`을 반복 호출하고 박스를 목표 적재 좌표에 고정합니다.
+
+또한 1번째 박스 완료 직후 다음 active bin이 이미 잡혀도 `DemoPickAndPlaceBin` state machine이 다시 시작되도록 수정했습니다. 컨베이어는 로봇팔이 active/carried bin을 처리 중일 때 추가 박스를 계속 흘려 보내지 않고, active bin은 고정 픽업 스테이션에 정렬됩니다.
+
+다중 박스 확인:
+
+```powershell
+cd E:\Harim_AMR
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 4200 -SelfTestMinPlacedBins 2 -SelfTestDebugBins -Cycles 1
+```
+
+확인된 결과:
+
+- `bin_0`, `bin_1`이 순차적으로 active bin이 됨
+- 각 박스에 대해 `reach_pick`, `demo-attached`, `reach_place`, `<open gripper>`, `demo-placed` 로그가 이어짐
+- 4200프레임 검증에서 `placed_bins=4`까지 확인됨
+
+참고: 일부 박스에서 Isaac Sim surface gripper의 실제 물리 close 판정 warning이 나올 수 있습니다. 데모는 `demo_carried_bin` fallback attach/release로 계속 진행되도록 구성했습니다.
