@@ -1,5 +1,19 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Carried Pallet Motion Continuity Gate 추가
+
+- [x] AMR가 팔레트를 실어 이동하는 동안 팔레트 deck/runner/block/load-restraint part 각각을 `carried_pallet` motion continuity group으로 샘플링하도록 했다.
+- [x] strict self-test에 `--self-test-max-carried-pallet-frame-displacement`를 추가하고, PowerShell wrapper에 `SelfTestMaxCarriedPalletFrameDisplacement`를 연결했다.
+- [x] strict 기준은 `SelfTestMaxCarriedPalletFrameDisplacement = 0.05`로 설정했다. AMR 정상 프레임 이동량은 약 `0.0163 m/frame`이라, 팔레트 조각이 순간적으로 분리되거나 튀는 경우를 잡는다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 82개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_carried_pallet_continuity_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_073455_6120.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `carried_pallet_motion_sample_count=21402`, `max_carried_pallet_frame_displacement=0.0163`, `max_carried_pallet_pose_error=0.0000`, `dropped_pallet_part_count=18`
+
 ## 2026-05-30 AMR Lift Offset Continuity Gate 추가
 
 - [x] AMR lift-up/lift-down 중 리프트 높이가 한 프레임에 튀는지 `lift_offset_motion_sample_count`, `max_lift_offset_frame_step`으로 계측하도록 했다.

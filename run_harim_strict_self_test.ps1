@@ -61,6 +61,7 @@ $RunnerArgs = @{
     SelfTestMaxScriptedPlaceBinFrameDisplacement = 0.08
     SelfTestMaxReleasedBinFrameDisplacement = 0.02
     SelfTestMaxCarriedPayloadFrameDisplacement = 0.05
+    SelfTestMaxCarriedPalletFrameDisplacement = 0.05
     SelfTestMinSafetyFencePartCount = 20
     SelfTestMinSafetyFenceAmrGateClearance = 0.25
     SelfTestMinAmrCellGateClearance = 0.25

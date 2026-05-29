@@ -643,6 +643,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if any carried pallet payload part moves farther than this distance between sampled frames. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-carried-pallet-frame-displacement",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if any carried pallet part moves farther than this distance between sampled frames. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-min-safety-fence-part-count",
         type=int,
         default=0,
@@ -5618,6 +5624,18 @@ def main():
                     )
                 except Exception:
                     pass
+            for part in getattr(orchestrator, "pallet_parts", []):
+                try:
+                    position, _orientation = part.get_world_pose()
+                    motion_continuity.sample(
+                        "carried_pallet",
+                        getattr(part, "name", str(id(part))),
+                        position,
+                        phase,
+                        demo_frame_index,
+                    )
+                except Exception:
+                    pass
 
     def step_demo_frame():
         nonlocal demo_frame_index
@@ -6014,6 +6032,7 @@ def main():
             scripted_place_bin_motion_sample_count = motion_continuity.sample_count("scripted_place_bin")
             released_bin_motion_sample_count = motion_continuity.sample_count("released_bin")
             carried_payload_motion_sample_count = motion_continuity.sample_count("carried_payload")
+            carried_pallet_motion_sample_count = motion_continuity.sample_count("carried_pallet")
             arm_ee_motion_sample_count = motion_continuity.sample_count("arm_ee")
             max_amr_frame_displacement = motion_continuity.max_displacement("amr")
             max_arm_ee_frame_displacement = motion_continuity.max_displacement("arm_ee")
@@ -6022,6 +6041,7 @@ def main():
             max_scripted_place_bin_frame_displacement = motion_continuity.max_displacement("scripted_place_bin")
             max_released_bin_frame_displacement = motion_continuity.max_displacement("released_bin")
             max_carried_payload_frame_displacement = motion_continuity.max_displacement("carried_payload")
+            max_carried_pallet_frame_displacement = motion_continuity.max_displacement("carried_pallet")
             amr_motion_detail = motion_continuity.max_detail("amr")
             arm_ee_motion_detail = motion_continuity.max_detail("arm_ee")
             active_bin_motion_detail = motion_continuity.max_detail("active_bin")
@@ -6029,6 +6049,7 @@ def main():
             scripted_place_bin_motion_detail = motion_continuity.max_detail("scripted_place_bin")
             released_bin_motion_detail = motion_continuity.max_detail("released_bin")
             carried_payload_motion_detail = motion_continuity.max_detail("carried_payload")
+            carried_pallet_motion_detail = motion_continuity.max_detail("carried_pallet")
 
             def format_motion_detail(detail):
                 if not detail:
@@ -6118,6 +6139,15 @@ def main():
                         f"carried payload frame displacement {max_carried_payload_frame_displacement:.4f} m exceeded "
                         f"{args.self_test_max_carried_payload_frame_displacement:.4f} m"
                         f"{format_motion_detail(carried_payload_motion_detail)}"
+                    )
+            if args.self_test_max_carried_pallet_frame_displacement > 0:
+                if carried_pallet_motion_sample_count <= 0:
+                    self_test_failures.append("carried pallet motion continuity was not sampled")
+                elif max_carried_pallet_frame_displacement > args.self_test_max_carried_pallet_frame_displacement:
+                    self_test_failures.append(
+                        f"carried pallet frame displacement {max_carried_pallet_frame_displacement:.4f} m exceeded "
+                        f"{args.self_test_max_carried_pallet_frame_displacement:.4f} m"
+                        f"{format_motion_detail(carried_pallet_motion_detail)}"
                     )
             safety_fence_metrics = compute_safety_fence_metrics(args.pickup_y)
             safety_fence_part_count = safety_fence_metrics["safety_fence_part_count"]
@@ -6992,6 +7022,7 @@ def main():
                     f"scripted_place_bin_motion_sample_count={scripted_place_bin_motion_sample_count}; "
                     f"released_bin_motion_sample_count={released_bin_motion_sample_count}; "
                     f"carried_payload_motion_sample_count={carried_payload_motion_sample_count}; "
+                    f"carried_pallet_motion_sample_count={carried_pallet_motion_sample_count}; "
                     f"max_amr_frame_displacement={max_amr_frame_displacement:.4f}; "
                     f"max_arm_ee_frame_displacement={max_arm_ee_frame_displacement:.4f}; "
                     f"max_active_bin_frame_displacement={max_active_bin_frame_displacement:.4f}; "
@@ -6999,6 +7030,7 @@ def main():
                     f"max_scripted_place_bin_frame_displacement={max_scripted_place_bin_frame_displacement:.4f}; "
                     f"max_released_bin_frame_displacement={max_released_bin_frame_displacement:.4f}; "
                     f"max_carried_payload_frame_displacement={max_carried_payload_frame_displacement:.4f}; "
+                    f"max_carried_pallet_frame_displacement={max_carried_pallet_frame_displacement:.4f}; "
                     f"safety_fence_part_count={safety_fence_part_count}; "
                     f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "
                     f"amr_cell_gate_clearance={amr_cell_gate_clearance:.4f}; "
