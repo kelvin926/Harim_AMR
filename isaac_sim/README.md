@@ -181,6 +181,8 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
 
 최신 full 검증 결과: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0046`, `max_return_ready_error=0.0399`, `max_release_drift=0.0000`, `release_gripper_samples=8`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `release_gripper_probe_failures=0`, `joint_settle_count=8`, `max_payload_lift=0.1100`, `max_dropped_payload_drift=0.0000`.
 
+stack geometry gate도 추가했습니다. `-SelfTestMaxStackLateralGap`은 인접 박스 간 X/Y air gap을 제한하고, `-SelfTestMaxStackSupportGap`은 박스가 팔레트 또는 아래층 박스 위에서 과도하게 떠 있는지 제한합니다. 최신 full 검증에서는 `max_stack_lateral_gap=0.0200`, `min_stack_lateral_gap=0.0100`, `max_stack_support_gap=0.0100`, `min_stack_support_gap=0.0025`로 통과했습니다.
+
 ## 2026-05-29 pre-grip 정렬 추가 보강
 
 `ReachToPick` 직후 `DemoSettleBinAtGripper`가 active bin의 grasp frame을 UR10 end-effector frame에 맞춰 최소 0.30초 동안 보간합니다. GUI에서 박스가 그리퍼에 계속 붙어 보이거나 release 뒤 다시 끌려가는 현상을 줄이기 위해 실제 surface gripper close는 기본 경로에서 제외하고 scripted attach/release만 사용합니다.

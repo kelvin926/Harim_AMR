@@ -229,7 +229,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         cloned[0][0] += 1.0
 
         self.assertNotAlmostEqual(original[0][0], cloned[0][0])
-        np.testing.assert_allclose(original[0], np.array([1.05, -0.62, -0.51]))
+
+    def test_stack_geometry_has_close_non_overlapping_clearances(self):
+        coordinates = self.demo.make_stack_coordinates(2, 2, 2)
+        metrics = self.demo.compute_stack_geometry_metrics(coordinates, 2, 2, 2)
+
+        self.assertGreaterEqual(metrics["min_stack_lateral_gap"], 0.0)
+        self.assertLessEqual(metrics["max_stack_lateral_gap"], 0.03)
+        self.assertGreaterEqual(metrics["min_stack_support_gap"], -0.005)
+        self.assertLessEqual(metrics["max_stack_support_gap"], 0.02)
+        np.testing.assert_allclose(coordinates[0], np.array([1.05, -0.62, -0.51]))
 
     def test_amr_starts_far_from_table_side_and_approaches_from_drop_side(self):
         orchestrator, _context, _world, _items = self.build_orchestrator(Args())
@@ -344,6 +353,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("clone_stack_coordinates", source)
         self.assertIn("get_demo_stack_coordinate", source)
         self.assertIn("demo_stack_coordinates", source)
+        self.assertIn("compute_stack_geometry_metrics", source)
         self.assertIn("get_demo_time", source)
         self.assertIn("demo_sim_time", source)
         self.assertIn('getattr(self.context, "demo_pre_grip_bin", None) is not None', source)
@@ -391,6 +401,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-return-ready-error", source)
         self.assertIn("--self-test-max-release-drift", source)
         self.assertIn("--self-test-require-gripper-open-after-release", source)
+        self.assertIn("--self-test-max-stack-lateral-gap", source)
+        self.assertIn("--self-test-max-stack-support-gap", source)
         self.assertIn("--self-test-min-payload-lift", source)
         self.assertIn("--self-test-max-dropped-payload-drift", source)
         self.assertIn("UR10 placed", source)
@@ -400,6 +412,9 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("max release drift", source)
         self.assertIn("release gripper was not open", source)
         self.assertIn("release gripper still reported", source)
+        self.assertIn("max stack lateral gap", source)
+        self.assertIn("max stack support gap", source)
+        self.assertIn("stack vertical overlap", source)
         self.assertIn("payload lift", source)
         self.assertIn("max dropped payload drift", source)
         self.assertIn("max_pre_grip_offset=", source)
@@ -408,6 +423,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("release_gripper_not_open=", source)
         self.assertIn("release_gripped_object_max=", source)
         self.assertIn("joint_settle_count=", source)
+        self.assertIn("max_stack_lateral_gap=", source)
+        self.assertIn("max_stack_support_gap=", source)
         self.assertIn("max_payload_lift=", source)
         self.assertIn("max_dropped_payload_drift=", source)
         self.assertIn("demo_max_return_ready_error", source)
@@ -423,6 +440,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertIn("$SelfTestRequireGripperOpenAfterRelease", source)
         self.assertIn("--self-test-require-gripper-open-after-release", source)
+        self.assertIn("$SelfTestMaxStackLateralGap", source)
+        self.assertIn("$SelfTestMaxStackSupportGap", source)
+        self.assertIn("--self-test-max-stack-lateral-gap", source)
+        self.assertIn("--self-test-max-stack-support-gap", source)
 
     def test_drop_slide_workstation_is_created(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
@@ -440,6 +461,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("harim_pallet_connected_top_deck", source)
         self.assertIn("PalletRunner", source)
         self.assertIn("PalletTopSupport", source)
+        self.assertIn("PALLET_TOP_SUPPORT_SCALE", source)
 
     def test_asset_lift_hides_floating_visual_lift_plate(self):
         source = DEMO_PATH.read_text(encoding="utf-8")

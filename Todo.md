@@ -1860,3 +1860,62 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `joint_settle_count=8`
   - `max_payload_lift=0.1100`
   - `max_dropped_payload_drift=0.0000`
+
+---
+
+## 2026-05-29 stack gap / support gap 현실성 gate 추가
+
+release와 AMR 하역은 검증됐지만, 박스가 팔레트 위에서 너무 떠 있거나 서로 크게 벌어져 보이는지는 별도 지표가 없었다. 이번 보강에서는 적재 좌표 자체의 lateral gap과 vertical support gap을 계산해 self-test에서 확인한다.
+
+수정 내용:
+
+- [x] `compute_stack_geometry_metrics()` 추가
+  - 인접 박스 사이 X/Y air gap을 계산한다.
+  - 1층 박스 bottom과 팔레트 top support 사이 gap을 계산한다.
+  - 상층 박스 bottom과 하층 박스 top 사이 gap을 계산한다.
+- [x] self-test gate 추가
+  - Python 옵션: `--self-test-max-stack-lateral-gap`
+  - Python 옵션: `--self-test-max-stack-support-gap`
+  - PowerShell 옵션: `-SelfTestMaxStackLateralGap`
+  - PowerShell 옵션: `-SelfTestMaxStackSupportGap`
+- [x] 완료 로그에 stack geometry 지표 추가
+  - `max_stack_lateral_gap`
+  - `min_stack_lateral_gap`
+  - `max_stack_support_gap`
+  - `min_stack_support_gap`
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim\scripts\run_harim_pallet_demo.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 5600 -SelfTestMinPlacedBins 4 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestRequireGripperOpenAfterRelease -SelfTestMaxStackLateralGap 0.03 -SelfTestMaxStackSupportGap 0.02 -SelfTestDebugBins -Cycles 1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 12000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestMaxPreGripOffset 0.05 -SelfTestMaxReturnReadyError 0.05 -SelfTestMaxReleaseDrift 0.005 -SelfTestRequireGripperOpenAfterRelease -SelfTestMaxStackLateralGap 0.03 -SelfTestMaxStackSupportGap 0.02 -SelfTestMinPayloadLift 0.10 -SelfTestMaxDroppedPayloadDrift 0.005 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 33개 통과
+- [x] Python compile 통과
+- [x] 5600-frame stack gap gate 통과
+  - `placed_bins=8`
+  - `max_stack_lateral_gap=0.0200`
+  - `min_stack_lateral_gap=0.0100`
+  - `max_stack_support_gap=0.0100`
+  - `min_stack_support_gap=0.0025`
+- [x] 12000-frame full end-to-end self-test 통과
+  - `placed_bins=8`
+  - `transfer_cycles=1`
+  - `max_pre_grip_offset=0.0046`
+  - `max_return_ready_error=0.0399`
+  - `max_release_drift=0.0000`
+  - `release_gripper_not_open=0`
+  - `release_gripped_object_max=0`
+  - `joint_settle_count=8`
+  - `max_stack_lateral_gap=0.0200`
+  - `min_stack_lateral_gap=0.0100`
+  - `max_stack_support_gap=0.0100`
+  - `min_stack_support_gap=0.0025`
+  - `max_payload_lift=0.1100`
+  - `max_dropped_payload_drift=0.0000`

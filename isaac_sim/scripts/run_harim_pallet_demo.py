@@ -39,6 +39,7 @@ PALLET_TUNNEL_HALF_WIDTH = 0.42
 DROP_WORKSTATION_Z = -0.73
 PALLET_CENTER_Z = -0.62
 PALLET_TOP_SUPPORT_OFFSET = np.array([0.0, 0.0, 0.02], dtype=float)
+PALLET_TOP_SUPPORT_SCALE = np.array([1.20, 1.08, 0.035], dtype=float)
 UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
 PALLET_DECK_OFFSETS = (
     np.array([0.0, 0.0, 0.02], dtype=float),
@@ -137,6 +138,18 @@ def parse_args():
         "--self-test-require-gripper-open-after-release",
         action="store_true",
         help="Fail the fixed-frame self-test if the surface gripper is not open or still reports gripped objects after a scripted release.",
+    )
+    parser.add_argument(
+        "--self-test-max-stack-lateral-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if adjacent boxes have a lateral air gap larger than this distance in meters, or overlap by more than 5 mm. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-stack-support-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if boxes float above the pallet or lower layer by more than this distance in meters, or overlap vertically by more than 5 mm. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-payload-lift",
@@ -275,6 +288,53 @@ def make_stack_coordinates(cols, rows, layers):
             for col in range(cols):
                 coords.append(np.array([x0 + dx * col, y0 + dy * row, z0 + dz * layer], dtype=float))
     return coords
+
+
+def compute_stack_geometry_metrics(stack_coordinates, cols, rows, layers):
+    coords = clone_stack_coordinates(stack_coordinates)
+    cols = max(1, cols)
+    rows = max(1, rows)
+    layers = max(1, layers)
+
+    def coord(layer, row, col):
+        return coords[(layer * rows * cols) + (row * cols) + col]
+
+    lateral_gaps = []
+    support_gaps = []
+
+    for layer in range(layers):
+        for row in range(rows):
+            for col in range(max(0, cols - 1)):
+                gap = abs(coord(layer, row, col + 1)[0] - coord(layer, row, col)[0]) - CARTON_BODY_SCALE[0]
+                lateral_gaps.append(float(gap))
+
+    for layer in range(layers):
+        for row in range(max(0, rows - 1)):
+            for col in range(cols):
+                gap = abs(coord(layer, row + 1, col)[1] - coord(layer, row, col)[1]) - CARTON_BODY_SCALE[1]
+                lateral_gaps.append(float(gap))
+
+    pallet_support_top_z = PALLET_CENTER_Z + PALLET_TOP_SUPPORT_OFFSET[2] + PALLET_TOP_SUPPORT_SCALE[2] * 0.5
+    for row in range(rows):
+        for col in range(cols):
+            bottom_z = coord(0, row, col)[2] - CARTON_BODY_SCALE[2] * 0.5
+            support_gaps.append(float(bottom_z - pallet_support_top_z))
+
+    for layer in range(max(0, layers - 1)):
+        for row in range(rows):
+            for col in range(cols):
+                upper_bottom_z = coord(layer + 1, row, col)[2] - CARTON_BODY_SCALE[2] * 0.5
+                lower_top_z = coord(layer, row, col)[2] + CARTON_BODY_SCALE[2] * 0.5
+                support_gaps.append(float(upper_bottom_z - lower_top_z))
+
+    lateral_gaps = lateral_gaps or [0.0]
+    support_gaps = support_gaps or [0.0]
+    return {
+        "max_stack_lateral_gap": float(max(lateral_gaps)),
+        "min_stack_lateral_gap": float(min(lateral_gaps)),
+        "max_stack_support_gap": float(max(support_gaps)),
+        "min_stack_support_gap": float(min(support_gaps)),
+    }
 
 
 def clone_stack_coordinates(stack_coordinates):
@@ -1716,7 +1776,7 @@ def main():
             FixedCuboid(
                 f"{harim_root}/PalletTopSupport",
                 name="harim_pallet_top_support",
-                scale=np.array([1.20, 1.08, 0.035]),
+                scale=PALLET_TOP_SUPPORT_SCALE,
                 visible=False,
                 color=plank_color,
             )
@@ -1853,6 +1913,36 @@ def main():
                     self_test_failures.append(
                         f"release gripper state probe failed {release_gripper_probe_failures} times"
                     )
+            stack_geometry = compute_stack_geometry_metrics(
+                stack_coordinates,
+                args.stack_cols,
+                args.stack_rows,
+                args.stack_layers,
+            )
+            max_stack_lateral_gap = stack_geometry["max_stack_lateral_gap"]
+            min_stack_lateral_gap = stack_geometry["min_stack_lateral_gap"]
+            max_stack_support_gap = stack_geometry["max_stack_support_gap"]
+            min_stack_support_gap = stack_geometry["min_stack_support_gap"]
+            if args.self_test_max_stack_lateral_gap > 0:
+                if max_stack_lateral_gap > args.self_test_max_stack_lateral_gap:
+                    self_test_failures.append(
+                        f"max stack lateral gap {max_stack_lateral_gap:.4f} m exceeded "
+                        f"{args.self_test_max_stack_lateral_gap:.4f} m"
+                    )
+                if min_stack_lateral_gap < -0.005:
+                    self_test_failures.append(
+                        f"stack lateral overlap {-min_stack_lateral_gap:.4f} m exceeded 0.0050 m"
+                    )
+            if args.self_test_max_stack_support_gap > 0:
+                if max_stack_support_gap > args.self_test_max_stack_support_gap:
+                    self_test_failures.append(
+                        f"max stack support gap {max_stack_support_gap:.4f} m exceeded "
+                        f"{args.self_test_max_stack_support_gap:.4f} m"
+                    )
+                if min_stack_support_gap < -0.005:
+                    self_test_failures.append(
+                        f"stack vertical overlap {-min_stack_support_gap:.4f} m exceeded 0.0050 m"
+                    )
             max_payload_lift = float(getattr(orchestrator, "max_payload_lift_observed", 0.0))
             if args.self_test_min_payload_lift > 0 and max_payload_lift < args.self_test_min_payload_lift:
                 self_test_failures.append(
@@ -1885,6 +1975,10 @@ def main():
                     f"release_gripped_object_max={release_gripped_object_max}; "
                     f"release_gripper_probe_failures={release_gripper_probe_failures}; "
                     f"joint_settle_count={joint_settle_count}; "
+                    f"max_stack_lateral_gap={max_stack_lateral_gap:.4f}; "
+                    f"min_stack_lateral_gap={min_stack_lateral_gap:.4f}; "
+                    f"max_stack_support_gap={max_stack_support_gap:.4f}; "
+                    f"min_stack_support_gap={min_stack_support_gap:.4f}; "
                     f"max_payload_lift={max_payload_lift:.4f}; "
                     f"max_dropped_payload_drift={max_dropped_payload_drift:.4f}",
                     flush=True,
