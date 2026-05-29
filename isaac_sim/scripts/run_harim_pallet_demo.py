@@ -21,6 +21,7 @@ DEFAULT_MOVE_SPEED = 0.65
 PICK_STATION_BIN_POSITION = np.array([0.0, 0.42, -0.15], dtype=float)
 CONVEYOR_PICK_WINDOW_Y = 0.68
 PICK_READY_EE_POSITION = np.array([0.16, 0.22, -0.02], dtype=float)
+POST_RELEASE_CLEARANCE_LIFT = 0.22
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
 AMR_LIFT_PLATE_OFFSET_Z = 0.48
@@ -57,6 +58,10 @@ PALLET_PART_OFFSETS = (
     + PALLET_GROOVE_OFFSETS
     + PALLET_SUPPORT_OFFSETS
 )
+CARTON_BODY_SCALE = np.array([0.20, 0.29, 0.14], dtype=float)
+CARTON_TAPE_TOP_SCALE = np.array([0.205, 0.030, 0.008], dtype=float)
+CARTON_BODY_COLOR = np.array([0.72, 0.48, 0.26], dtype=float)
+CARTON_TAPE_COLOR = np.array([0.86, 0.10, 0.08], dtype=float)
 
 
 def parse_args():
@@ -701,6 +706,22 @@ def main():
             if args.self_test_debug_bins:
                 print(f"[HarimDemo] spawned {rigid_bin.name} at {position.tolist()}", flush=True)
 
+        def _add_carton_visual(self, prim_path, name):
+            VisualCuboid(
+                f"{prim_path}/HarimCartonBody",
+                name=f"{name}_carton_body",
+                translation=np.array([0.0, 0.0, 0.0], dtype=float),
+                scale=CARTON_BODY_SCALE,
+                color=CARTON_BODY_COLOR,
+            )
+            VisualCuboid(
+                f"{prim_path}/HarimCartonTopTape",
+                name=f"{name}_carton_top_tape",
+                translation=np.array([0.0, 0.0, 0.074], dtype=float),
+                scale=CARTON_TAPE_TOP_SCALE,
+                color=CARTON_TAPE_COLOR,
+            )
+
         def post_reset(self) -> None:
             if len(self.bins) > 0:
                 for rigid_bin in self.bins:
@@ -715,6 +736,7 @@ def main():
                 getattr(self.context, "active_bin", None) is not None
                 or getattr(self.context, "demo_pre_grip_bin", None) is not None
                 or getattr(self.context, "demo_carried_bin", None) is not None
+                or getattr(self.context, "demo_released_bin", None) is not None
             ):
                 return
 
@@ -731,6 +753,7 @@ def main():
                 name = f"bin_{len(self.bins)}"
                 prim_path = f"{self.env_path}/bins/{name}"
                 add_reference_to_stage(usd_path=self.assets.small_klt_usd, prim_path=prim_path)
+                self._add_carton_visual(prim_path, name)
                 self.on_conveyor = self.scene.add(CortexRigidPrim(name=name, prim_path=prim_path))
                 self._spawn_bin(self.on_conveyor)
                 self.bins.append(self.on_conveyor)
@@ -766,6 +789,12 @@ def main():
 
     def get_demo_pre_grip_bin(context):
         return getattr(context, "demo_pre_grip_bin", None)
+
+    def clear_demo_carry_context(context):
+        context.active_bin = None
+        context.demo_carried_bin = None
+        context.demo_pre_grip_bin = None
+        context.demo_pre_grip_initial_offset = None
 
     def get_demo_time(context):
         return float(getattr(context, "demo_sim_time", time.time()))
@@ -943,7 +972,8 @@ def main():
             active_bin.demo_attached = False
             active_bin.demo_attach_T = None
             active_bin.is_attached = False
-            self.context.active_bin = active_bin
+            self.context.demo_released_bin = active_bin
+            clear_demo_carry_context(self.context)
             stop_dynamic_prim(active_bin.bin_obj)
             set_kinematic_for_demo(active_bin.bin_obj, True)
             print(f"[HarimDemo] demo-placed {active_bin.bin_obj.name} at {self.target_p.tolist()}", flush=True)
@@ -958,6 +988,8 @@ def main():
             self.released_bin.demo_attached = False
             self.released_bin.demo_attach_T = None
             self.released_bin.is_attached = False
+            clear_demo_carry_context(self.context)
+            self.context.demo_released_bin = self.released_bin
             self.released_bin.bin_obj.set_world_pose(position=self.target_p, orientation=UPSIDE_DOWN_BIN_QUAT)
             stop_dynamic_prim(self.released_bin.bin_obj)
             if get_demo_time(self.context) - self.entry_time < self.release_duration:
@@ -1050,7 +1082,11 @@ def main():
 
     class DemoMarkCarriedBinComplete(DfState):
         def enter(self):
-            active_bin = get_demo_carried_bin(self.context) or self.context.active_bin
+            active_bin = (
+                getattr(self.context, "demo_released_bin", None)
+                or get_demo_carried_bin(self.context)
+                or self.context.active_bin
+            )
             if active_bin is not None and active_bin not in self.context.stacked_bins:
                 self.context.stacked_bins.append(active_bin)
                 print(
@@ -1058,10 +1094,8 @@ def main():
                     f"{len(self.context.stack_coordinates)} after {active_bin.bin_obj.name}",
                     flush=True,
                 )
-            self.context.active_bin = None
-            self.context.demo_carried_bin = None
-            self.context.demo_pre_grip_bin = None
-            self.context.demo_pre_grip_initial_offset = None
+            clear_demo_carry_context(self.context)
+            self.context.demo_released_bin = None
 
     class DemoWaitForNextBin(DfState):
         def enter(self):
@@ -1083,7 +1117,7 @@ def main():
                         DemoTimedState(behavior.ReachToPlace(), max_duration=3.00, label="reach_place"),
                         DfWaitState(wait_time=0.15),
                         DemoReleaseBin(),
-                        DemoTimedArmLift(height=0.10, duration=0.25),
+                        DemoTimedArmLift(height=POST_RELEASE_CLEARANCE_LIFT, duration=0.35),
                         DemoTimedArmMoveTo(PICK_READY_EE_POSITION, duration=0.90, label="return_ready"),
                         DemoMarkCarriedBinComplete(),
                         DfSetLockState(set_locked_to=False, decider=self),

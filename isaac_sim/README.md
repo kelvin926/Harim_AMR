@@ -254,3 +254,20 @@ AMR waypoint 이동은 이제 시작점과 목표점을 저장한 뒤 `smoothste
 - Python compile 통과
 - 7000-frame full end-to-end self-test 통과
 - `bin_0`부터 `bin_7`까지 모두 canonical grid 좌표에 place됨
+
+## 2026-05-29 GUI release 상태 정리 및 박스 외형 보강
+
+GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 경로를 줄이기 위해 `DemoReleaseBin`이 place 직후 carry 상태를 즉시 끊도록 보강했습니다.
+
+- release 직후 `active_bin`, `demo_carried_bin`, `demo_pre_grip_bin`을 비웁니다.
+- 완료 마킹용으로만 `demo_released_bin`을 잠시 보존하고, `DemoMarkCarriedBinComplete` 이후 비웁니다.
+- `demo_released_bin`이 남아 있는 동안 새 박스 스폰을 막아 arm retreat 전에 다음 박스가 끼어들지 않게 했습니다.
+- release 후 팔을 `POST_RELEASE_CLEARANCE_LIFT = 0.22` m 올려 GUI에서 분리가 더 명확히 보이게 했습니다.
+- KLT collision/grasp는 유지하고 child `VisualCuboid` 2개로 `HarimCartonBody`, `HarimCartonTopTape` carton overlay를 추가했습니다.
+
+확인 결과:
+
+- unittest 24개 통과
+- Python compile 통과
+- 7000-frame full end-to-end self-test 통과: `placed_bins=8; transfer_cycles=1`
+- 로그에서 `bin_0`부터 `bin_7`까지 `demo-placed`, `stack-count 8/8 after bin_7`, `active-bin -> None` 확인

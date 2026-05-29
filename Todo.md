@@ -1496,3 +1496,46 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptE
   - `attached 8 stacked items and 12 pallet parts`
   - `completed transfer cycle 1`
   - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`
+
+---
+
+## 2026-05-29 GUI release 상태 정리 및 박스 외형 보강 메모
+
+GUI 확인에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제를 다시 줄이기 위해 release 순간의 Cortex context 상태를 더 명확히 정리했다. 핵심은 박스를 목표 좌표에 스냅한 직후 `active_bin`, `demo_carried_bin`, `demo_pre_grip_bin`을 즉시 비우고, 완료 마킹용으로만 `demo_released_bin`을 잠시 보존하는 것이다. 이 상태가 남아 있으면 GUI 프레임에서 원본 Cortex monitor가 여전히 같은 박스를 active/carry 대상으로 해석할 여지가 있었다.
+
+수정 내용:
+
+- [x] `clear_demo_carry_context()` helper 추가
+  - release 직후 `active_bin`, `demo_carried_bin`, `demo_pre_grip_bin`, `demo_pre_grip_initial_offset`을 한번에 비운다.
+- [x] `DemoReleaseBin`에서 박스 place 직후 `demo_released_bin`만 남기고 carry context를 즉시 해제
+  - release 중에는 계속 `suction_gripper.open()`을 호출한다.
+  - place 좌표는 기존처럼 canonical `demo_stack_coordinates` 기준으로 고정한다.
+- [x] `DemoMarkCarriedBinComplete`는 `demo_released_bin`을 우선 사용해 stack count를 올린 뒤 해당 값을 비운다.
+- [x] 새 박스 스폰 조건에 `demo_released_bin`을 포함
+  - release 후 arm이 빠져나가고 stack count 마킹이 끝나기 전까지 다음 박스가 너무 빨리 스폰되지 않게 한다.
+- [x] release 후 팔을 `POST_RELEASE_CLEARANCE_LIFT = 0.22` m 만큼 올리도록 조정
+  - GUI에서 흡착 컵과 박스 사이의 분리가 더 명확하게 보이도록 했다.
+- [x] KLT bin 위에 lightweight carton visual overlay 추가
+  - 기존 grasp/collision 로직은 그대로 두고, child `VisualCuboid` 2개(`HarimCartonBody`, `HarimCartonTopTape`)만 붙여 박스처럼 보이게 했다.
+
+검증 명령:
+
+```powershell
+cd E:\Harim_AMR
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile isaac_sim/scripts/run_harim_pallet_demo.py isaac_sim/tests/test_harim_transfer_orchestrator.py
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 7000 -SelfTestMinPlacedBins 8 -SelfTestMinTransferCycles 1 -SelfTestDebugBins -Cycles 1
+```
+
+확인 결과:
+
+- [x] unittest 24개 통과
+- [x] Python compile 통과
+- [x] 7000-frame end-to-end self-test 통과
+  - `bin_0`부터 `bin_7`까지 모두 `demo-placed`
+  - `stack-count 8/8 after bin_7`
+  - `active-bin -> None`
+  - `attached 8 stacked items and 12 pallet parts`
+  - `slide-released pallet assembly at drop pose`
+  - `completed transfer cycle 1`
+  - `self-test completed after 7000 frames; placed_bins=8; transfer_cycles=1`

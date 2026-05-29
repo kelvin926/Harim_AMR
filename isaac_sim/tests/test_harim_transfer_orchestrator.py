@@ -154,6 +154,16 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def test_default_drop_distance_is_over_ten_meters(self):
         self.assertGreaterEqual(self.demo.DEFAULT_DROP_X - self.demo.DEFAULT_PICKUP_X, 10.0)
 
+    def test_carton_visual_dimensions_are_box_like(self):
+        body = self.demo.CARTON_BODY_SCALE
+        tape = self.demo.CARTON_TAPE_TOP_SCALE
+
+        self.assertGreater(body[1], body[0])
+        self.assertGreater(body[0], body[2])
+        self.assertLess(tape[1], body[1])
+        self.assertLess(tape[2], body[2])
+        self.assertGreater(self.demo.CARTON_TAPE_COLOR[0], self.demo.CARTON_TAPE_COLOR[1])
+
     def test_stack_coordinate_clone_preserves_canonical_grid(self):
         original = self.demo.make_stack_coordinates(2, 2, 2)
         cloned = self.demo.clone_stack_coordinates(original)
@@ -209,6 +219,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("class DemoPickAndPlaceBin", source)
         self.assertIn("PICK_READY_EE_POSITION", source)
         self.assertIn("class DemoTimedArmMoveTo", source)
+        self.assertIn("CARTON_BODY_SCALE", source)
+        self.assertIn("HarimCartonBody", source)
+        self.assertIn("HarimCartonTopTape", source)
+        self.assertIn("_add_carton_visual", source)
         self.assertIn("target_position=self.target_position", source)
         self.assertIn("posture_config=self.context.robot.default_config", source)
         self.assertIn("move_start_pose", source)
@@ -224,6 +238,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("compute_active_bin_grasp_pose_at_effector", source)
         self.assertIn("place_active_bin_grasp_at_effector", source)
         self.assertIn("get_demo_pre_grip_bin", source)
+        self.assertIn("clear_demo_carry_context", source)
         self.assertIn("clone_stack_coordinates", source)
         self.assertIn("get_demo_stack_coordinate", source)
         self.assertIn("demo_stack_coordinates", source)
@@ -244,8 +259,10 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("class DemoWaitForNextBin", source)
         self.assertIn("sync_demo_attached_bin", source)
         self.assertIn("demo_carried_bin", source)
+        self.assertIn("demo_released_bin", source)
         self.assertIn("task.context = decider_network.context", source)
         self.assertIn("release_duration=0.35", source)
+        self.assertIn("POST_RELEASE_CLEARANCE_LIFT", source)
         self.assertIn("self.context.robot.suction_gripper.open()", source)
         self.assertIn('"wait_next_bin"', source)
         self.assertIn('return DfDecision("wait_next_bin")', source)
