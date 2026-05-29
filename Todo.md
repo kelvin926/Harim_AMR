@@ -1,5 +1,25 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-29 상태 기반 카메라 컷 전환 보강
+
+- [x] AMR/팔레타이저 상태에 맞춰 GUI active viewport가 자동 전환되도록 camera director를 추가했다.
+  - `WAIT_STACK_COMPLETE`: `PalletizerCamera`
+  - `ARM_SETTLE`, `RESET_CYCLE`, `DONE_IDLE`: `OverviewCamera`
+  - `MOVE_TO_APPROACH`, `MOVE_UNDER_PALLET`, `LIFT_UP`, `ATTACH`, `MOVE_TO_DROP`: `AmrRouteCamera`
+  - `LIFT_DOWN`, `DETACH`, `SLIDE_OUT_FROM_PALLET`: `DropDockCamera`
+- [x] `HarimTransferOrchestrator._transition()`에서 상태 전환마다 camera role을 요청하고, 같은 role이 반복될 때는 중복 전환하지 않도록 했다.
+- [x] strict self-test gate를 추가했다.
+  - Python: `--self-test-min-camera-director-switch-count`
+  - Python: `--self-test-min-camera-director-role-count`
+  - PowerShell: `-SelfTestMinCameraDirectorSwitchCount`
+  - PowerShell: `-SelfTestMinCameraDirectorRoleCount`
+- [x] 검증 완료
+  - unittest 52개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_camera_director_strict_full_e2e_12000.log`
+  - 카메라 전환 로그: `palletizer -> overview -> amr_route -> drop_dock -> overview`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `camera_director_switch_count=5`, `camera_director_role_count=4`
+
 ## 2026-05-29 영상 확인용 카메라 리그 보강
 
 - [x] GUI에서 바로 장면을 확인할 수 있도록 `/World/HarimDemo/Cameras` 아래에 story camera 4개를 생성했다.

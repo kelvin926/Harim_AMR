@@ -146,6 +146,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         amr_safety_parts=None,
         amr_safety_offsets=None,
         amr_safety_roles=None,
+        camera_director=None,
     ):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
         context = FakeContext(items)
@@ -168,6 +169,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             stack_coordinates=self.demo.make_stack_coordinates(2, 2, 1),
             args=args,
             completion_signal=completion_signal,
+            camera_director=camera_director,
         )
         return orchestrator, context, world, items
 
@@ -382,6 +384,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         metrics = self.demo.compute_camera_rig_metrics()
         specs = self.demo.make_camera_rig_specs()
         roles = {role for _name, role, _eye, _target, _focal_length in specs}
+        director_metrics = self.demo.compute_camera_director_metrics()
 
         self.assertEqual(metrics["camera_rig_count"], len(specs))
         self.assertGreaterEqual(metrics["camera_rig_count"], 4)
@@ -389,6 +392,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(metrics["camera_required_role_count"], 4)
         self.assertGreaterEqual(metrics["camera_min_height"], 1.25)
         self.assertGreaterEqual(metrics["camera_min_target_distance"], 1.0)
+        self.assertEqual(self.demo.camera_role_for_transfer_state(self.demo.TransferState.WAIT_STACK_COMPLETE), "palletizer")
+        self.assertEqual(self.demo.camera_role_for_transfer_state(self.demo.TransferState.MOVE_TO_APPROACH), "amr_route")
+        self.assertEqual(self.demo.camera_role_for_transfer_state(self.demo.TransferState.LIFT_DOWN), "drop_dock")
+        self.assertGreaterEqual(director_metrics["camera_director_role_count"], 4)
+        self.assertGreaterEqual(director_metrics["camera_director_planned_switch_count"], 4)
 
     def test_lift_plate_sits_just_below_pallet_underside(self):
         contact_gap = self.demo.compute_lift_contact_gap(self.demo.DEFAULT_AMR_Z)
@@ -574,6 +582,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("DropDockCamera", source)
         self.assertIn("set_camera_view", source)
         self.assertIn("set_active_viewport_camera", source)
+        self.assertIn("CAMERA_DIRECTOR_ROLE_BY_STATE_NAME", source)
+        self.assertIn("camera_role_for_transfer_state", source)
+        self.assertIn("compute_camera_director_metrics", source)
+        self.assertIn("_request_camera_for_state", source)
+        self.assertIn("camera director ->", source)
         self.assertIn('add_zone_outline("Pickup"', source)
         self.assertIn('add_zone_outline("Drop"', source)
         self.assertIn("Zone{edge_name}", source)
@@ -726,6 +739,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-camera-role-count", source)
         self.assertIn("--self-test-min-camera-height", source)
         self.assertIn("--self-test-min-camera-target-distance", source)
+        self.assertIn("--self-test-min-camera-director-switch-count", source)
+        self.assertIn("--self-test-min-camera-director-role-count", source)
         self.assertIn("UR10 placed", source)
         self.assertIn("AMR completed", source)
         self.assertIn("max pre-grip offset", source)
@@ -777,6 +792,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("camera role count", source)
         self.assertIn("camera height", source)
         self.assertIn("camera target distance", source)
+        self.assertIn("camera director switch count", source)
+        self.assertIn("camera director role count", source)
         self.assertIn("max_pre_grip_offset=", source)
         self.assertIn("max_return_ready_error=", source)
         self.assertIn("max_release_drift=", source)
@@ -831,6 +848,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("camera_required_role_count=", source)
         self.assertIn("camera_min_height=", source)
         self.assertIn("camera_min_target_distance=", source)
+        self.assertIn("camera_director_switch_count=", source)
+        self.assertIn("camera_director_role_count=", source)
         self.assertIn("demo_max_return_ready_error", source)
         self.assertIn("demo_max_release_drift", source)
         self.assertIn("demo_max_release_retreat_lift", source)
@@ -886,6 +905,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinCameraRoleCount", source)
         self.assertIn("$SelfTestMinCameraHeight", source)
         self.assertIn("$SelfTestMinCameraTargetDistance", source)
+        self.assertIn("$SelfTestMinCameraDirectorSwitchCount", source)
+        self.assertIn("$SelfTestMinCameraDirectorRoleCount", source)
         self.assertIn("--self-test-max-stack-lateral-gap", source)
         self.assertIn("--self-test-max-stack-support-gap", source)
         self.assertIn("--self-test-min-stack-pallet-margin", source)
@@ -923,6 +944,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-min-camera-role-count", source)
         self.assertIn("--self-test-min-camera-height", source)
         self.assertIn("--self-test-min-camera-target-distance", source)
+        self.assertIn("--self-test-min-camera-director-switch-count", source)
+        self.assertIn("--self-test-min-camera-director-role-count", source)
         self.assertIn("--self-test-min-release-retreat-lift", source)
         self.assertIn("--self-test-min-scripted-place-count", source)
         self.assertIn("--self-test-max-scripted-place-error", source)
@@ -1008,6 +1031,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinCameraHeight", source)
         self.assertIn("1.25", source)
         self.assertIn("SelfTestMinCameraTargetDistance", source)
+        self.assertIn("SelfTestMinCameraDirectorSwitchCount", source)
+        self.assertIn("SelfTestMinCameraDirectorRoleCount", source)
         self.assertIn('if (-not $ShowGui)', source)
         self.assertIn("Headless = $true", source)
 
@@ -1098,6 +1123,24 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreater(orchestrator.amr_warning_indicator_on_observed, 0)
         self.assertGreater(orchestrator.amr_idle_indicator_on_observed, 0)
         self.assertEqual(orchestrator.amr_indicator_visibility_mismatch_count, 0)
+
+    def test_camera_director_tracks_transfer_state_story(self):
+        requested_roles = []
+        orchestrator, _context, _world, _items = self.build_orchestrator(
+            Args(),
+            camera_director=requested_roles.append,
+        )
+
+        self.assertEqual(requested_roles, ["palletizer"])
+        orchestrator._transition(self.demo.TransferState.ARM_SETTLE)
+        orchestrator._transition(self.demo.TransferState.MOVE_TO_APPROACH)
+        orchestrator._transition(self.demo.TransferState.MOVE_UNDER_PALLET)
+        orchestrator._transition(self.demo.TransferState.LIFT_DOWN)
+        orchestrator._transition(self.demo.TransferState.RESET_CYCLE)
+
+        self.assertEqual(requested_roles, ["palletizer", "overview", "amr_route", "drop_dock", "overview"])
+        self.assertEqual(orchestrator.camera_director_switch_count, 5)
+        self.assertEqual(orchestrator.camera_director_requested_roles, {"palletizer", "overview", "amr_route", "drop_dock"})
 
     def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
         block_offsets = self.demo.PALLET_BLOCK_OFFSETS

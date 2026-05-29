@@ -539,6 +539,18 @@ def parse_args():
         default=0.0,
         help="Fail the fixed-frame self-test if any story camera is closer to its target than this distance in meters. 0 disables the check.",
     )
+    parser.add_argument(
+        "--self-test-min-camera-director-switch-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless the story camera director switches at least this many times. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-camera-director-role-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless the story camera director visits at least this many roles. 0 disables the check.",
+    )
     return parser.parse_args()
 
 
@@ -588,6 +600,41 @@ class TransferState(Enum):
     SLIDE_OUT_FROM_PALLET = auto()
     RESET_CYCLE = auto()
     DONE_IDLE = auto()
+
+
+CAMERA_DIRECTOR_ROLE_BY_STATE_NAME = {
+    "WAIT_STACK_COMPLETE": "palletizer",
+    "ARM_SETTLE": "overview",
+    "MOVE_TO_APPROACH": "amr_route",
+    "MOVE_UNDER_PALLET": "amr_route",
+    "LIFT_UP": "amr_route",
+    "ATTACH": "amr_route",
+    "MOVE_TO_DROP": "amr_route",
+    "LIFT_DOWN": "drop_dock",
+    "DETACH": "drop_dock",
+    "SLIDE_OUT_FROM_PALLET": "drop_dock",
+    "RESET_CYCLE": "overview",
+    "DONE_IDLE": "overview",
+}
+
+
+def camera_role_for_transfer_state(state):
+    state_name = state.name if hasattr(state, "name") else str(state)
+    return CAMERA_DIRECTOR_ROLE_BY_STATE_NAME.get(state_name, "overview")
+
+
+def compute_camera_director_metrics():
+    ordered_roles = [camera_role_for_transfer_state(state) for state in TransferState]
+    switch_count = 0
+    previous_role = None
+    for role in ordered_roles:
+        if role != previous_role:
+            switch_count += 1
+            previous_role = role
+    return {
+        "camera_director_role_count": len(set(ordered_roles)),
+        "camera_director_planned_switch_count": switch_count,
+    }
 
 
 class CompletionSignalController:
@@ -1235,6 +1282,7 @@ class HarimTransferOrchestrator:
         amr_safety_offsets=None,
         amr_safety_roles=None,
         completion_signal=None,
+        camera_director=None,
     ):
         self.world = world
         self.context = context
@@ -1260,6 +1308,7 @@ class HarimTransferOrchestrator:
         self.stack_coordinates = stack_coordinates
         self.args = args
         self.completion_signal = completion_signal
+        self.camera_director = camera_director
 
         self.state = TransferState.WAIT_STACK_COMPLETE
         self.state_time = 0.0
@@ -1285,6 +1334,9 @@ class HarimTransferOrchestrator:
         self.amr_warning_indicator_on_observed = 0
         self.amr_idle_indicator_on_observed = 0
         self.amr_indicator_visibility_mismatch_count = 0
+        self.camera_director_switch_count = 0
+        self.camera_director_requested_roles = set()
+        self.camera_director_last_role = None
         self.pallet_tunnel_clearance = compute_pallet_tunnel_clearance()
         self.lift_fork_inner_gap = compute_lift_fork_inner_gap()
         self.amr_lift_base_offset = None
@@ -1327,6 +1379,7 @@ class HarimTransferOrchestrator:
             self.move_duration = 0.0
         print(f"[HarimDemo] state -> {state.name}")
         self._set_amr_indicator_visibility()
+        self._request_camera_for_state()
 
     def reset_visual_state(self):
         self.carrying = False
@@ -1343,8 +1396,23 @@ class HarimTransferOrchestrator:
         self._reset_pallet_pose()
         self._set_load_restraint_visibility(False)
         self._set_amr_indicator_visibility()
+        self._request_camera_for_state()
         if self.completion_signal is not None:
             self.completion_signal.set_completed(False)
+
+    def _request_camera_for_state(self):
+        role = camera_role_for_transfer_state(self.state)
+        self.camera_director_requested_roles.add(role)
+        if role == self.camera_director_last_role:
+            return
+        self.camera_director_last_role = role
+        self.camera_director_switch_count += 1
+        if self.camera_director is None:
+            return
+        try:
+            self.camera_director(role)
+        except Exception as exc:
+            print(f"[HarimDemo] camera director skipped for role {role}: {exc}", flush=True)
 
     def _set_load_restraint_visibility(self, visible):
         for part in self.load_restraint_parts:
@@ -2719,6 +2787,7 @@ def main():
         camera_root = f"{harim_root}/Cameras"
         omni.kit.commands.execute("CreatePrim", prim_path=camera_root, prim_type="Xform")
         created_camera_paths = []
+        camera_paths_by_role = {}
         stage = usd_context.get_stage()
 
         for camera_name, camera_role, camera_eye, camera_target, focal_length in make_camera_rig_specs(
@@ -2739,16 +2808,26 @@ def main():
             except Exception as exc:
                 print(f"[HarimDemo] camera view setup failed for {camera_name}: {exc}", flush=True)
             created_camera_paths.append(camera_path)
+            camera_paths_by_role[camera_role] = camera_path
 
-        if created_camera_paths:
+        if "overview" in camera_paths_by_role:
             try:
-                set_active_viewport_camera(created_camera_paths[0])
+                set_active_viewport_camera(camera_paths_by_role["overview"])
             except Exception as exc:
                 print(f"[HarimDemo] active viewport camera setup skipped: {exc}", flush=True)
         print(f"[HarimDemo] camera rig ready: {len(created_camera_paths)} cameras", flush=True)
-        return created_camera_paths
+        return camera_paths_by_role
 
-    create_camera_rig()
+    camera_paths_by_role = create_camera_rig()
+
+    def set_story_camera(role):
+        camera_path = camera_paths_by_role.get(role)
+        if camera_path is None:
+            camera_path = camera_paths_by_role.get("overview")
+        if camera_path is None:
+            return
+        set_active_viewport_camera(camera_path)
+        print(f"[HarimDemo] camera director -> {role} ({camera_path})", flush=True)
 
     def create_infeed_conveyor_visual():
         visual_parts = []
@@ -3303,6 +3382,7 @@ def main():
         stack_coordinates=stack_coordinates,
         args=args,
         completion_signal=completion_signal,
+        camera_director=set_story_camera,
     )
 
     world.reset()
@@ -3825,6 +3905,24 @@ def main():
                     f"camera target distance {camera_min_target_distance:.4f} m was below "
                     f"{args.self_test_min_camera_target_distance:.4f} m"
                 )
+            camera_director_switch_count = int(getattr(orchestrator, "camera_director_switch_count", 0))
+            camera_director_role_count = len(getattr(orchestrator, "camera_director_requested_roles", set()))
+            if (
+                args.self_test_min_camera_director_switch_count > 0
+                and camera_director_switch_count < args.self_test_min_camera_director_switch_count
+            ):
+                self_test_failures.append(
+                    f"camera director switch count {camera_director_switch_count} was below "
+                    f"{args.self_test_min_camera_director_switch_count}"
+                )
+            if (
+                args.self_test_min_camera_director_role_count > 0
+                and camera_director_role_count < args.self_test_min_camera_director_role_count
+            ):
+                self_test_failures.append(
+                    f"camera director role count {camera_director_role_count} was below "
+                    f"{args.self_test_min_camera_director_role_count}"
+                )
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
                 print(f"[HarimDemo] self-test failed: {self_test_failure_message}", flush=True)
@@ -3892,7 +3990,9 @@ def main():
                     f"camera_rig_count={camera_rig_count}; "
                     f"camera_required_role_count={camera_required_role_count}; "
                     f"camera_min_height={camera_min_height:.4f}; "
-                    f"camera_min_target_distance={camera_min_target_distance:.4f}",
+                    f"camera_min_target_distance={camera_min_target_distance:.4f}; "
+                    f"camera_director_switch_count={camera_director_switch_count}; "
+                    f"camera_director_role_count={camera_director_role_count}",
                     flush=True,
                 )
         else:

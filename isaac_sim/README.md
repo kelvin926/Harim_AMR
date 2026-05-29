@@ -1,5 +1,13 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-29 상태 기반 카메라 컷 전환
+
+- GUI active viewport가 공정 상태에 맞춰 자동 전환됩니다.
+- 전환 순서: `PalletizerCamera` -> `OverviewCamera` -> `AmrRouteCamera` -> `DropDockCamera` -> `OverviewCamera`
+- strict self-test에 camera director switch/role gate를 추가했습니다.
+- 최신 검증 로그: `isaacsim_logs/harim_camera_director_strict_full_e2e_12000.log`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `release_gripper_not_open=0`, `release_gripped_object_max=0`, `camera_director_switch_count=5`, `camera_director_role_count=4`
+
 ## 2026-05-29 카메라 리그 보강
 
 - 영상 확인용 camera rig를 추가했습니다. `OverviewCamera`, `PalletizerCamera`, `AmrRouteCamera`, `DropDockCamera` 4개를 `/World/HarimDemo/Cameras` 아래에 만들고, GUI 실행 시 overview camera를 active viewport로 지정합니다.

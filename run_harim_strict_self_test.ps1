@@ -67,6 +67,8 @@ $RunnerArgs = @{
     SelfTestMinCameraRoleCount = 4
     SelfTestMinCameraHeight = 1.25
     SelfTestMinCameraTargetDistance = 1.0
+    SelfTestMinCameraDirectorSwitchCount = 4
+    SelfTestMinCameraDirectorRoleCount = 4
 }
 
 if (-not $ShowGui) {
