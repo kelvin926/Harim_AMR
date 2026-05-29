@@ -179,6 +179,11 @@ INFEED_FEED_CARTON_MIN_Y = float(INFEED_STOP_LINE_Y + CARTON_BODY_SCALE[1] * 0.5
 INFEED_FEED_CARTON_MAX_Y = float(INFEED_CONVEYOR_END_Y - CARTON_BODY_SCALE[1] * 0.5 - 0.02)
 INFEED_FEED_CARTON_PATH_LENGTH = INFEED_FEED_CARTON_MAX_Y - INFEED_FEED_CARTON_MIN_Y
 INFEED_FEED_CARTON_TAPE_OFFSET_Z = float(CARTON_BODY_SCALE[2] * 0.5 + CARTON_TAPE_TOP_SCALE[2] * 0.5)
+ACTIVE_BIN_CONVEYOR_APPROACH_DURATION = 0.60
+ACTIVE_BIN_CONVEYOR_START_POSITION = np.array(
+    [PICK_STATION_BIN_POSITION[0], CONVEYOR_PICK_WINDOW_Y, PICK_STATION_BIN_POSITION[2]],
+    dtype=float,
+)
 SAFETY_FENCE_MIN_X = -0.82
 SAFETY_FENCE_MAX_X = 1.76
 SAFETY_FENCE_MIN_Y = -1.18
@@ -545,6 +550,36 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if upstream infeed carton visuals float above the belt by more than this distance. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-active-bin-conveyor-approach-count",
+        type=int,
+        default=0,
+        help="Fail the fixed-frame self-test unless this many picked cartons completed the scripted conveyor approach into the pick station. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-min-active-bin-conveyor-observed-travel",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test unless each active carton conveyor approach visibly travels at least this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-active-bin-conveyor-final-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if a carton finishes its conveyor approach farther than this distance from the pick station. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-active-bin-conveyor-lateral-error",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if a carton drifts laterally from the conveyor centerline during the scripted approach. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-active-bin-conveyor-belt-support-gap",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the active carton visual floats above the infeed belt by more than this distance. 0 disables the check.",
     )
     parser.add_argument(
         "--self-test-min-safety-fence-part-count",
@@ -1417,6 +1452,28 @@ def compute_infeed_conveyor_metrics():
         "infeed_feed_carton_guide_clearance": float(INFEED_GUIDE_INNER_WIDTH - CARTON_BODY_SCALE[0]),
         "infeed_feed_carton_belt_support_gap": float(carton_bottom_z - INFEED_CONVEYOR_TOP_Z),
     }
+
+
+def compute_active_bin_conveyor_metrics():
+    carton_bottom_z = float(PICK_STATION_BIN_POSITION[2] - CARTON_BODY_SCALE[2] * 0.5)
+    travel = float(np.linalg.norm(PICK_STATION_BIN_POSITION - ACTIVE_BIN_CONVEYOR_START_POSITION))
+    return {
+        "active_bin_conveyor_travel_distance": travel,
+        "active_bin_conveyor_duration": float(ACTIVE_BIN_CONVEYOR_APPROACH_DURATION),
+        "active_bin_conveyor_nominal_speed": float(travel / max(ACTIVE_BIN_CONVEYOR_APPROACH_DURATION, 1e-6)),
+        "active_bin_conveyor_start_y": float(ACTIVE_BIN_CONVEYOR_START_POSITION[1]),
+        "active_bin_conveyor_pick_y": float(PICK_STATION_BIN_POSITION[1]),
+        "active_bin_conveyor_lateral_error": float(
+            abs(ACTIVE_BIN_CONVEYOR_START_POSITION[0] - PICK_STATION_BIN_POSITION[0])
+        ),
+        "active_bin_conveyor_belt_support_gap": float(carton_bottom_z - INFEED_CONVEYOR_TOP_Z),
+    }
+
+
+def compute_active_bin_conveyor_approach_position(start_position, elapsed):
+    start_position = np.array(start_position, dtype=float)
+    t = smoothstep(float(elapsed) / max(ACTIVE_BIN_CONVEYOR_APPROACH_DURATION, 1e-6))
+    return lerp(start_position, PICK_STATION_BIN_POSITION, t)
 
 
 def compute_infeed_motion_marker_y(base_y, sim_time):
@@ -2390,6 +2447,7 @@ class DemoGifRecorder:
             getattr(context, "demo_released_bin", None)
             or getattr(context, "demo_carried_bin", None)
             or getattr(context, "active_bin", None)
+            or getattr(context, "demo_infeed_active_bin", None)
         )
         active_position = self._world_position(getattr(active_bin, "bin_obj", None))
         if active_position is not None and active_bin not in getattr(context, "stacked_bins", []):
@@ -3782,6 +3840,64 @@ def main():
             return np.array(canonical_coordinates[index], dtype=float)
         return np.array(context.stack_coordinates[index], dtype=float)
 
+    def advance_active_bin_from_conveyor(context, active_bin):
+        current_time = get_demo_time(context)
+        if not getattr(active_bin, "demo_conveyor_approach_started", False):
+            start_position, start_orientation = active_bin.bin_obj.get_world_pose()
+            active_bin.demo_conveyor_approach_started = True
+            active_bin.demo_conveyor_start_position = np.array(start_position, dtype=float)
+            active_bin.demo_conveyor_orientation = np.array(start_orientation, dtype=float)
+            active_bin.demo_conveyor_start_time = current_time
+            context.demo_active_bin_conveyor_approach_count = int(
+                getattr(context, "demo_active_bin_conveyor_approach_count", 0)
+            ) + 1
+
+        start_position = np.array(
+            getattr(active_bin, "demo_conveyor_start_position", ACTIVE_BIN_CONVEYOR_START_POSITION),
+            dtype=float,
+        )
+        orientation = np.array(
+            getattr(active_bin, "demo_conveyor_orientation", UPSIDE_DOWN_BIN_QUAT),
+            dtype=float,
+        )
+        elapsed = current_time - float(getattr(active_bin, "demo_conveyor_start_time", current_time))
+        position = compute_active_bin_conveyor_approach_position(start_position, elapsed)
+        set_kinematic_for_demo(active_bin.bin_obj, True)
+        active_bin.bin_obj.set_world_pose(position=position, orientation=orientation)
+        stop_dynamic_prim(active_bin.bin_obj)
+        context.demo_infeed_active_bin = active_bin
+        context.demo_active_bin_conveyor_observed_travel = max(
+            float(getattr(context, "demo_active_bin_conveyor_observed_travel", 0.0)),
+            float(np.linalg.norm(position - start_position)),
+        )
+        context.demo_active_bin_conveyor_lateral_error = max(
+            float(getattr(context, "demo_active_bin_conveyor_lateral_error", 0.0)),
+            float(abs(position[0] - PICK_STATION_BIN_POSITION[0])),
+        )
+        if elapsed < ACTIVE_BIN_CONVEYOR_APPROACH_DURATION:
+            context.active_bin = None
+            return False
+
+        active_bin.bin_obj.set_world_pose(position=PICK_STATION_BIN_POSITION, orientation=orientation)
+        stop_dynamic_prim(active_bin.bin_obj)
+        final_position, _ = active_bin.bin_obj.get_world_pose()
+        context.demo_active_bin_conveyor_final_error = max(
+            float(getattr(context, "demo_active_bin_conveyor_final_error", 0.0)),
+            float(np.linalg.norm(np.array(final_position, dtype=float) - PICK_STATION_BIN_POSITION)),
+        )
+        context.demo_active_bin_conveyor_observed_travel = max(
+            float(getattr(context, "demo_active_bin_conveyor_observed_travel", 0.0)),
+            float(np.linalg.norm(PICK_STATION_BIN_POSITION - start_position)),
+        )
+        if not getattr(active_bin, "demo_conveyor_completion_recorded", False):
+            context.demo_active_bin_conveyor_completed_count = int(
+                getattr(context, "demo_active_bin_conveyor_completed_count", 0)
+            ) + 1
+            active_bin.demo_conveyor_completion_recorded = True
+        active_bin.demo_pick_stationed = True
+        context.active_bin = None
+        return False
+
     def hold_active_bin_for_pick(context):
         active_bin = get_demo_pre_grip_bin(context) or getattr(context, "active_bin", None)
         if active_bin is None:
@@ -3798,12 +3914,13 @@ def main():
             return
         context.active_bin = active_bin
         if not getattr(active_bin, "demo_pick_stationed", False):
+            advance_active_bin_from_conveyor(context, active_bin)
+            return
+        else:
+            context.demo_infeed_active_bin = None
             _position, orientation = active_bin.bin_obj.get_world_pose()
             set_kinematic_for_demo(active_bin.bin_obj, True)
             active_bin.bin_obj.set_world_pose(position=PICK_STATION_BIN_POSITION, orientation=orientation)
-            active_bin.demo_pick_stationed = True
-        else:
-            set_kinematic_for_demo(active_bin.bin_obj, True)
         stop_dynamic_prim(active_bin.bin_obj)
 
     def compute_active_bin_grasp_pose_at_effector(context, active_bin=None):
@@ -5236,6 +5353,12 @@ def main():
     decider_network.context.demo_release_gripped_object_max = 0
     decider_network.context.demo_release_gripper_probe_failures = 0
     decider_network.context.demo_joint_settle_count = 0
+    decider_network.context.demo_infeed_active_bin = None
+    decider_network.context.demo_active_bin_conveyor_approach_count = 0
+    decider_network.context.demo_active_bin_conveyor_completed_count = 0
+    decider_network.context.demo_active_bin_conveyor_observed_travel = 0.0
+    decider_network.context.demo_active_bin_conveyor_final_error = 0.0
+    decider_network.context.demo_active_bin_conveyor_lateral_error = 0.0
     orchestrator.reset_visual_state()
     gif_recorder = DemoGifRecorder(
         enabled=not args.no_gif,
@@ -5563,6 +5686,70 @@ def main():
                 if infeed_feed_carton_belt_support_gap < -0.005:
                     self_test_failures.append(
                         f"infeed feed carton overlapped belt {-infeed_feed_carton_belt_support_gap:.4f} m exceeded 0.0050 m"
+                    )
+            active_bin_conveyor_metrics = compute_active_bin_conveyor_metrics()
+            active_bin_conveyor_travel_distance = active_bin_conveyor_metrics["active_bin_conveyor_travel_distance"]
+            active_bin_conveyor_duration = active_bin_conveyor_metrics["active_bin_conveyor_duration"]
+            active_bin_conveyor_nominal_speed = active_bin_conveyor_metrics["active_bin_conveyor_nominal_speed"]
+            active_bin_conveyor_belt_support_gap = active_bin_conveyor_metrics[
+                "active_bin_conveyor_belt_support_gap"
+            ]
+            active_bin_conveyor_approach_count = int(
+                getattr(decider_network.context, "demo_active_bin_conveyor_approach_count", 0)
+            )
+            active_bin_conveyor_completed_count = int(
+                getattr(decider_network.context, "demo_active_bin_conveyor_completed_count", 0)
+            )
+            active_bin_conveyor_observed_travel = float(
+                getattr(decider_network.context, "demo_active_bin_conveyor_observed_travel", 0.0)
+            )
+            active_bin_conveyor_final_error = float(
+                getattr(decider_network.context, "demo_active_bin_conveyor_final_error", 0.0)
+            )
+            active_bin_conveyor_lateral_error = float(
+                getattr(decider_network.context, "demo_active_bin_conveyor_lateral_error", 0.0)
+            )
+            if (
+                args.self_test_min_active_bin_conveyor_approach_count > 0
+                and active_bin_conveyor_completed_count < args.self_test_min_active_bin_conveyor_approach_count
+            ):
+                self_test_failures.append(
+                    f"active bin conveyor approach count {active_bin_conveyor_completed_count} was below "
+                    f"{args.self_test_min_active_bin_conveyor_approach_count}"
+                )
+            if (
+                args.self_test_min_active_bin_conveyor_observed_travel > 0
+                and active_bin_conveyor_observed_travel < args.self_test_min_active_bin_conveyor_observed_travel
+            ):
+                self_test_failures.append(
+                    f"active bin conveyor observed travel {active_bin_conveyor_observed_travel:.4f} m was below "
+                    f"{args.self_test_min_active_bin_conveyor_observed_travel:.4f} m"
+                )
+            if (
+                args.self_test_max_active_bin_conveyor_final_error > 0
+                and active_bin_conveyor_final_error > args.self_test_max_active_bin_conveyor_final_error
+            ):
+                self_test_failures.append(
+                    f"active bin conveyor final error {active_bin_conveyor_final_error:.4f} m exceeded "
+                    f"{args.self_test_max_active_bin_conveyor_final_error:.4f} m"
+                )
+            if (
+                args.self_test_max_active_bin_conveyor_lateral_error > 0
+                and active_bin_conveyor_lateral_error > args.self_test_max_active_bin_conveyor_lateral_error
+            ):
+                self_test_failures.append(
+                    f"active bin conveyor lateral error {active_bin_conveyor_lateral_error:.4f} m exceeded "
+                    f"{args.self_test_max_active_bin_conveyor_lateral_error:.4f} m"
+                )
+            if args.self_test_max_active_bin_conveyor_belt_support_gap > 0:
+                if active_bin_conveyor_belt_support_gap > args.self_test_max_active_bin_conveyor_belt_support_gap:
+                    self_test_failures.append(
+                        f"active bin conveyor belt support gap {active_bin_conveyor_belt_support_gap:.4f} m exceeded "
+                        f"{args.self_test_max_active_bin_conveyor_belt_support_gap:.4f} m"
+                    )
+                if active_bin_conveyor_belt_support_gap < -0.005:
+                    self_test_failures.append(
+                        f"active bin conveyor overlapped belt {-active_bin_conveyor_belt_support_gap:.4f} m exceeded 0.0050 m"
                     )
             safety_fence_metrics = compute_safety_fence_metrics(args.pickup_y)
             safety_fence_part_count = safety_fence_metrics["safety_fence_part_count"]
@@ -6408,6 +6595,15 @@ def main():
                     f"infeed_feed_carton_stop_clearance={infeed_feed_carton_stop_clearance:.4f}; "
                     f"infeed_feed_carton_guide_clearance={infeed_feed_carton_guide_clearance:.4f}; "
                     f"infeed_feed_carton_belt_support_gap={infeed_feed_carton_belt_support_gap:.4f}; "
+                    f"active_bin_conveyor_approach_count={active_bin_conveyor_approach_count}; "
+                    f"active_bin_conveyor_completed_count={active_bin_conveyor_completed_count}; "
+                    f"active_bin_conveyor_travel_distance={active_bin_conveyor_travel_distance:.4f}; "
+                    f"active_bin_conveyor_duration={active_bin_conveyor_duration:.4f}; "
+                    f"active_bin_conveyor_nominal_speed={active_bin_conveyor_nominal_speed:.4f}; "
+                    f"active_bin_conveyor_observed_travel={active_bin_conveyor_observed_travel:.4f}; "
+                    f"active_bin_conveyor_final_error={active_bin_conveyor_final_error:.4f}; "
+                    f"active_bin_conveyor_lateral_error={active_bin_conveyor_lateral_error:.4f}; "
+                    f"active_bin_conveyor_belt_support_gap={active_bin_conveyor_belt_support_gap:.4f}; "
                     f"safety_fence_part_count={safety_fence_part_count}; "
                     f"safety_fence_amr_gate_clearance={safety_fence_amr_gate_clearance:.4f}; "
                     f"amr_cell_gate_clearance={amr_cell_gate_clearance:.4f}; "

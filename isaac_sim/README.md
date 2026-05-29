@@ -1,5 +1,17 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Active Bin Conveyor Approach 보강
+
+- 로봇팔이 실제로 집는 active bin이 spawn 위치에서 pick station으로 순간 이동해 보이지 않도록 scripted conveyor approach를 추가했습니다.
+- active bin은 `CONVEYOR_PICK_WINDOW_Y`에서 `PICK_STATION_BIN_POSITION`까지 `0.60`초 동안 smoothstep 보간으로 이동한 뒤 다음 frame부터 pick 대상으로 허용됩니다.
+- 접근 중인 active bin은 `demo_infeed_active_bin`으로 review GIF top view에도 표시됩니다.
+- strict self-test에 active bin approach count, observed travel, final error, lateral error, belt support gap gate를 추가했습니다.
+- 검증 로그: `isaacsim_logs/harim_active_bin_conveyor_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_043239_36036.gif`
+- 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+- GIF 크기: `960x540`, `151` frames
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `active_bin_conveyor_approach_count=8`, `active_bin_conveyor_completed_count=8`, `active_bin_conveyor_observed_travel=0.2600`, `active_bin_conveyor_final_error=0.0000`, `active_bin_conveyor_lateral_error=0.0000`
+
 ## 2026-05-30 Review GIF 저장 Strict Gate 추가
 
 - strict self-test에서 review GIF 저장을 필수 gate로 승격했습니다.
