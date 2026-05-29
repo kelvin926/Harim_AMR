@@ -909,3 +909,22 @@ cd E:\Harim_AMR
 
 - [x] custom orchestrator unittest 3개 통과
 - [x] Python compile 통과
+
+---
+
+## 2026-05-29 extension 로딩 순서 보강 메모
+
+설치된 Isaac Sim 5.1.0 소스를 확인한 결과 `CortexUr10` import 경로가 `isaacsim.robot.manipulators.grippers.surface_gripper.SurfaceGripper`를 즉시 import한다.
+따라서 `CortexUr10`을 import하기 전에 `isaacsim.robot.surface_gripper` extension을 먼저 enable하도록 순서를 수정했다.
+
+- [x] `SimulationApp` 생성 직후 `isaacsim.robot.surface_gripper` extension enable
+- [x] 필수 extension enable 실패 시 명확한 `RuntimeError` 발생
+- [x] `isaacsim.anim.robot`은 optional extension으로 enable 시도 후 실패해도 visual/asset 기반 AMR 데모는 계속 가능하게 처리
+- [x] extension enable 이후 `simulation_app.update()` 호출
+- [x] `CortexUr10` import 전에 surface gripper extension을 enable하는 source-order unittest 추가
+- [x] `iw_hub/chassis/lift`가 Xformable prim일 때만 `SingleXFormPrim`으로 wrapping하도록 보강
+
+검증 결과:
+
+- [x] custom orchestrator unittest 4개 통과
+- [x] Python compile 통과

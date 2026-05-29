@@ -147,6 +147,13 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         lifted_z = lift_prim.get_world_pose()[0][2]
         self.assertAlmostEqual(lifted_z, initial_lift_z + Args.lift_height, places=6)
 
+    def test_surface_gripper_extension_is_enabled_before_cortex_ur10_import(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+        enable_index = source.index('enable_extension("isaacsim.robot.surface_gripper")')
+        cortex_import_index = source.index("from isaacsim.cortex.framework.robot import CortexUr10")
+
+        self.assertLess(enable_index, cortex_import_index)
+
 
 if __name__ == "__main__":
     unittest.main()

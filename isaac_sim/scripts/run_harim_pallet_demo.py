@@ -413,22 +413,27 @@ def main():
     )
 
     import omni
+    from isaacsim.core.utils.extensions import enable_extension
+
+    if not enable_extension("isaacsim.robot.surface_gripper"):
+        raise RuntimeError("Failed to enable required extension: isaacsim.robot.surface_gripper")
+    if not enable_extension("isaacsim.anim.robot"):
+        print("[HarimDemo] optional extension not enabled: isaacsim.anim.robot")
+    simulation_app.update()
+
     from isaacsim.core.api.objects.cuboid import VisualCuboid
     from isaacsim.core.api.objects.capsule import VisualCapsule
     from isaacsim.core.api.objects.sphere import VisualSphere
     from isaacsim.core.prims import SingleXFormPrim
-    from isaacsim.core.utils.extensions import enable_extension
     from isaacsim.core.utils import math as math_util
-    from isaacsim.core.utils.prims import is_prim_path_valid
+    from isaacsim.core.utils.prims import get_prim_at_path, is_prim_path_valid
     from isaacsim.core.utils.stage import add_reference_to_stage
     from isaacsim.core.utils.nucleus import get_assets_root_path
     from isaacsim.cortex.framework.cortex_world import CortexWorld
     from isaacsim.cortex.framework.robot import CortexUr10
     from isaacsim.cortex.behaviors.ur10 import bin_stacking_behavior as behavior
     from isaacsim.examples.interactive.ur10_palletizing.ur10_palletizing import BinStackingTask, Ur10Assets
-
-    enable_extension("isaacsim.robot.surface_gripper")
-    enable_extension("isaacsim.anim.robot")
+    from pxr import UsdGeom
 
     assets_root = get_assets_root_path()
     if assets_root is None:
@@ -512,11 +517,18 @@ def main():
     amr = SingleXFormPrim(f"{harim_root}/iw_hub", name="harim_iw_hub")
     amr_lift_path = f"{harim_root}/iw_hub/chassis/lift"
     amr_lift = None
-    if is_prim_path_valid(amr_lift_path):
+    amr_lift_prim = get_prim_at_path(amr_lift_path) if is_prim_path_valid(amr_lift_path) else None
+    amr_lift_xformable = UsdGeom.Xformable(amr_lift_prim) if amr_lift_prim is not None else None
+    if (
+        amr_lift_prim is not None
+        and amr_lift_prim.IsValid()
+        and amr_lift_xformable is not None
+        and amr_lift_xformable.GetPrim().IsValid()
+    ):
         amr_lift = SingleXFormPrim(amr_lift_path, name="harim_iw_hub_asset_lift", reset_xform_properties=False)
         print(f"[HarimDemo] using iw_hub lift prim: {amr_lift_path}")
     else:
-        print(f"[HarimDemo] iw_hub lift prim not found, using visual lift plate only: {amr_lift_path}")
+        print(f"[HarimDemo] xformable iw_hub lift prim not found, using visual lift plate only: {amr_lift_path}")
 
     lift_plate = world.scene.add(
         VisualCuboid(
