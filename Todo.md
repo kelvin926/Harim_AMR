@@ -1,5 +1,31 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 실제 Joint-State FK 기반 Grasp/Arm Continuity 안정화
+
+- [x] 반복 strict에서 `reach_place` 중 `MotionCommander.get_fk_p()`가 latest applied action 기준으로 순간 점프하면서 attached box grasp gap과 arm EE continuity gate가 실패하는 문제를 확인했다.
+  - 실패 로그: `isaacsim_logs/harim_smooth_reach_place_repeat_strict_full_e2e_12000.log`
+  - 실패 GIF: `isaacsim_outputs/harim_amr_review_20260530_090721_37672.gif`
+  - 실패 핵심값: `max_attached_grasp_error=0.3894`, `max_arm_ee_frame_displacement=0.3405`
+- [x] smooth waypoint로 `reach_place`를 대체하는 실험은 1회 통과했지만 반복 run에서 timeout/점프가 재발해 폐기했다.
+  - 1회 통과 로그: `isaacsim_logs/harim_smooth_reach_place_strict_full_e2e_12000.log`
+  - 1회 통과 GIF: `isaacsim_outputs/harim_amr_review_20260530_090027_37676.gif`
+- [x] 최종 수정은 `get_measured_arm_fk_T()`, `get_measured_arm_fk_p()`를 추가해서 실제 articulation joint position 기반 FK를 사용하도록 했다.
+  - review GIF의 TCP 위치
+  - attached carton follow pose
+  - release visual separation
+  - arm end-effector motion continuity sample
+  - return-ready/release-retreat error 계측
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 84개 통과
+  - 12000-frame strict full end-to-end self-test 2회 연속 통과
+  - 1차 로그: `isaacsim_logs/harim_measured_arm_fk_strict_full_e2e_12000.log`
+  - 1차 GIF: `isaacsim_outputs/harim_amr_review_20260530_091831_18204.gif`
+  - 2차 로그: `isaacsim_logs/harim_measured_arm_fk_repeat_strict_full_e2e_12000.log`
+  - 2차 GIF: `isaacsim_outputs/harim_amr_review_20260530_092538_28668.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 반복 통과 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_attached_grasp_error=0.0321`, `max_arm_ee_frame_displacement=0.0508`, `max_attached_bin_frame_displacement=0.0500`, `review_gif_frame_count=151`
+
 ## 2026-05-30 Review GIF Grasp Gap Panel 추가
 
 - [x] 사용자가 매번 실행 결과를 눈으로 확인할 수 있도록 저장되는 review GIF의 status panel에 흡착 중 최대 grasp alignment 오차를 `grasp max: N.NNN m` 형태로 표시하도록 했다.

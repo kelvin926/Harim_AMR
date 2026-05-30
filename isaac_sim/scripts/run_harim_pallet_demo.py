@@ -1329,6 +1329,24 @@ def quat_angular_error(q1, q2):
     return float(2.0 * math.acos(clamp(dot, -1.0, 1.0)))
 
 
+def get_measured_arm_fk_T(context):
+    arm = getattr(getattr(context, "robot", None), "arm", None)
+    if arm is None:
+        raise RuntimeError("Robot arm is not available")
+    try:
+        joint_indices = np.array(arm.aji, dtype=int)
+        positions = np.array(arm.robot.get_joint_positions(joint_indices=joint_indices), dtype=float)
+        if positions.size > 0:
+            return arm.get_fk_T(positions)
+    except Exception:
+        pass
+    return arm.get_fk_T()
+
+
+def get_measured_arm_fk_p(context):
+    return np.array(get_measured_arm_fk_T(context)[:3, 3], dtype=float)
+
+
 def make_stack_coordinates(cols, rows, layers):
     cols = max(1, cols)
     rows = max(1, rows)
@@ -2707,7 +2725,7 @@ class DemoGifRecorder:
 
     def _arm_position(self, context):
         try:
-            return np.array(context.robot.arm.get_fk_p(), dtype=float)
+            return get_measured_arm_fk_p(context)
         except Exception:
             return None
 
@@ -4041,7 +4059,7 @@ def main():
         if arm is None:
             return
         try:
-            eff_p = np.array(arm.get_fk_p(), dtype=float)
+            eff_p = get_measured_arm_fk_p(context)
             bin_p, _ = released_bin.bin_obj.get_world_pose()
             bin_p = np.array(bin_p, dtype=float)
         except Exception:
@@ -4218,7 +4236,7 @@ def main():
         if grasp_T is None:
             return None
 
-        eff_T = context.robot.arm.get_fk_T()
+        eff_T = get_measured_arm_fk_T(context)
         bin_T = cortex_math_util.pq2T(*active_bin.bin_obj.get_world_pose())
         grasp_to_bin_T = cortex_math_util.invert_T(grasp_T).dot(bin_T)
         desired_bin_T = eff_T.dot(grasp_to_bin_T)
@@ -4326,7 +4344,7 @@ def main():
                     )
 
             place_active_bin_grasp_at_effector(self.context, active_bin)
-            eff_T = self.context.robot.arm.get_fk_T()
+            eff_T = get_measured_arm_fk_T(self.context)
             bin_T = cortex_math_util.pq2T(*active_bin.bin_obj.get_world_pose())
             active_bin.demo_attached = True
             active_bin.demo_attach_T = cortex_math_util.invert_T(eff_T).dot(bin_T)
@@ -4452,7 +4470,7 @@ def main():
             target_index = len(self.context.stacked_bins)
             self.target_p = get_demo_stack_coordinate(self.context, target_index)
             self.released_bin = active_bin
-            current_fk_p = np.array(self.context.robot.arm.get_fk_p(), dtype=float)
+            current_fk_p = get_measured_arm_fk_p(self.context)
             self.release_start_arm_z = float(current_fk_p[2])
             self.retreat_position = np.array(self.target_p, dtype=float) + POST_RELEASE_RETREAT_OFFSET
             self.retreat_position[2] = max(
@@ -4476,7 +4494,7 @@ def main():
             self._send_retreat_command()
             record_release_visual_separation(self.context, self.released_bin)
             if self.release_start_arm_z is not None:
-                current_arm_z = float(self.context.robot.arm.get_fk_p()[2])
+                current_arm_z = float(get_measured_arm_fk_p(self.context)[2])
                 self.context.demo_max_release_retreat_lift = max(
                     float(getattr(self.context, "demo_max_release_retreat_lift", 0.0)),
                     current_arm_z - self.release_start_arm_z,
@@ -4586,7 +4604,7 @@ def main():
             self.context.robot.arm.send(
                 MotionCommand(target_position=self.target_position, posture_config=self.context.robot.default_config)
             )
-            current_position = np.array(self.context.robot.arm.get_fk_p(), dtype=float)
+            current_position = get_measured_arm_fk_p(self.context)
             position_error = float(np.linalg.norm(current_position - self.target_position))
             elapsed = get_demo_time(self.context) - self.entry_time
             if position_error <= self.position_threshold:
@@ -4723,7 +4741,7 @@ def main():
         if attach_T is None:
             return
         context.active_bin = active_bin
-        bin_T = context.robot.arm.get_fk_T().dot(attach_T)
+        bin_T = get_measured_arm_fk_T(context).dot(attach_T)
         position, orientation = cortex_math_util.T2pq(bin_T)
         set_attached_active_bin_pose(context, active_bin, position, orientation)
         stop_dynamic_prim(active_bin.bin_obj)
@@ -5681,7 +5699,7 @@ def main():
             motion_continuity.sample(
                 "arm_ee",
                 "ur10_ee",
-                decider_network.context.robot.arm.get_fk_p(),
+                get_measured_arm_fk_p(decider_network.context),
                 phase,
                 demo_frame_index,
             )
