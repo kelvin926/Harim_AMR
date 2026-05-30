@@ -413,6 +413,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if the pre-grip attach guard rejects more than this many cartons. -1 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-reach-pick-timed-release-count",
+        type=int,
+        default=-1,
+        help="Fail the fixed-frame self-test if reach_pick times out more than this many times. -1 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-return-ready-error",
         type=float,
         default=0.0,
@@ -4909,6 +4915,14 @@ def main():
             if next_state is None:
                 return None
             if get_demo_time(self.context) - self.entry_time >= self.max_duration:
+                if self.label == "reach_pick":
+                    self.context.demo_reach_pick_timed_release_count = int(
+                        getattr(self.context, "demo_reach_pick_timed_release_count", 0)
+                    ) + 1
+                elif self.label == "reach_place":
+                    self.context.demo_reach_place_timed_release_count = int(
+                        getattr(self.context, "demo_reach_place_timed_release_count", 0)
+                    ) + 1
                 print(f"[HarimDemo] {self.label} timed release", flush=True)
                 return None
             return self
@@ -5912,6 +5926,8 @@ def main():
     decider_network.context.demo_attach_rejected = False
     decider_network.context.demo_rejected_attach_count = 0
     decider_network.context.demo_max_rejected_attach_offset = 0.0
+    decider_network.context.demo_reach_pick_timed_release_count = 0
+    decider_network.context.demo_reach_place_timed_release_count = 0
     decider_network.context.demo_max_return_ready_error = 0.0
     decider_network.context.demo_max_release_drift = 0.0
     decider_network.context.demo_max_release_retreat_lift = 0.0
@@ -6085,6 +6101,20 @@ def main():
                 self_test_failures.append(
                     f"rejected attach count {rejected_attach_count} exceeded "
                     f"{args.self_test_max_rejected_attach_count}"
+                )
+            reach_pick_timed_release_count = int(
+                getattr(decider_network.context, "demo_reach_pick_timed_release_count", 0)
+            )
+            reach_place_timed_release_count = int(
+                getattr(decider_network.context, "demo_reach_place_timed_release_count", 0)
+            )
+            if (
+                args.self_test_max_reach_pick_timed_release_count >= 0
+                and reach_pick_timed_release_count > args.self_test_max_reach_pick_timed_release_count
+            ):
+                self_test_failures.append(
+                    f"reach_pick timed release count {reach_pick_timed_release_count} exceeded "
+                    f"{args.self_test_max_reach_pick_timed_release_count}"
                 )
             max_return_ready_error = float(getattr(decider_network.context, "demo_max_return_ready_error", 0.0))
             if (
@@ -7476,6 +7506,8 @@ def main():
                     f"max_pre_grip_offset={max_pre_grip_offset:.4f}; "
                     f"rejected_attach_count={rejected_attach_count}; "
                     f"max_rejected_attach_offset={max_rejected_attach_offset:.4f}; "
+                    f"reach_pick_timed_release_count={reach_pick_timed_release_count}; "
+                    f"reach_place_timed_release_count={reach_place_timed_release_count}; "
                     f"max_return_ready_error={max_return_ready_error:.4f}; "
                     f"max_release_drift={max_release_drift:.4f}; "
                     f"max_release_retreat_lift={max_release_retreat_lift:.4f}; "

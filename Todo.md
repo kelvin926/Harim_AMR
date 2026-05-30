@@ -40,10 +40,32 @@
     - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0049`, `rejected_attach_count=0`, `max_rejected_attach_offset=0.0000`, `max_return_ready_error=0.0399`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0305`, `min_arm_tcp_amr_route_clearance=0.2787`, `review_gif_frame_count=151`
   - 통과 로그에서 `reach_pick timed release`, `attach rejected`, `self-test failed`가 검출되지 않았다.
 
+- [x] `ReachToPick` timeout을 strict gate로 고정했다.
+  - 지난 실패에서 4번째 박스부터 `reach_pick timed release`가 발생하면 pre-grip offset이 0.21m 이상으로 벌어지고, 이후 scripted attach가 현실성을 망가뜨릴 수 있음이 확인됐다.
+  - `DemoTimedState`가 `reach_pick`/`reach_place` timeout을 각각 `demo_reach_pick_timed_release_count`, `demo_reach_place_timed_release_count`로 기록하도록 했다.
+  - Python 옵션: `--self-test-max-reach-pick-timed-release-count`
+  - PowerShell wrapper: `SelfTestMaxReachPickTimedReleaseCount`
+  - strict 기준: `SelfTestMaxReachPickTimedReleaseCount = 0`
+  - `reach_place_timed_release_count`는 아직 정상 경로에서도 발생하므로 관찰용 completion log로만 둔다. 최종 box pose는 `DemoScriptedPlaceBin`과 release snap gate가 검증한다.
+
+- [x] `ReachToPick` timeout gate 검증 완료.
+  - py_compile 통과
+  - unittest 86개 통과
+  - 900-frame smoke self-test 통과
+    - 로그: `isaacsim_logs/harim_reach_pick_timeout_gate_smoke_900.log`
+    - GIF: `isaacsim_outputs/harim_amr_review_20260530_125832_38008.gif`
+    - 핵심값: `placed_bins=1`, `rejected_attach_count=0`, `reach_pick_timed_release_count=0`, `reach_place_timed_release_count=1`, `review_gif_frame_count=13`
+  - 12000-frame strict full end-to-end self-test 통과
+    - 로그: `isaacsim_logs/harim_reach_pick_timeout_gate_strict_full_e2e_12000.log`
+    - GIF: `isaacsim_outputs/harim_amr_review_20260530_130518_17248.gif`
+    - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+    - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0049`, `rejected_attach_count=0`, `reach_pick_timed_release_count=0`, `reach_place_timed_release_count=8`, `max_return_ready_error=0.0398`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0301`, `min_arm_tcp_amr_route_clearance=0.2788`, `review_gif_frame_count=151`
+  - 통과 로그에서 `reach_pick timed release`, `attach rejected`, `self-test failed`가 검출되지 않았다.
+
 - [ ] 다음 개선 후보.
   - `return_ready`는 현재 position-only command라, 더 현실적으로 만들려면 ready pose의 orientation/joint posture까지 명시적으로 수렴하는 상태로 분리할 수 있다.
   - attach guard가 실제로 발동했을 때 rejected carton을 별도 reject lane으로 빼는 시각 연출을 추가할 수 있다.
-  - 현재 guard는 teleport를 막는 안전장치이며, 장기적으로는 `ReachToPick` timeout 자체를 metric으로 기록해 strict에서 0회 요구하는 방향도 검토할 수 있다.
+  - 현재 guard는 teleport를 막는 안전장치이며, 추후 실제 reject flow가 필요하면 거부된 carton을 conveyor reject lane으로 이동시키는 별도 상태를 추가한다.
 
 ## 2026-05-30 UR10 Place Target 안정화
 
