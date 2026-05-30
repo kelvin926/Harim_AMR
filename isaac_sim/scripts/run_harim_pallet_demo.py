@@ -4658,6 +4658,58 @@ def main():
             self.target_R = None
             self.target_ax = None
 
+    class DemoStableReachToPlace(DfState):
+        def __init__(self, p_thresh=0.005, r_thresh=2.0):
+            self.p_thresh = p_thresh
+            self.r_thresh = r_thresh
+            self.target_p = None
+            self.target_R = None
+
+        def enter(self):
+            target_index = len(self.context.stacked_bins)
+            self.target_p = get_demo_stack_coordinate(self.context, target_index).copy()
+            target_ax = np.array([0.0, 0.0, -1.0])
+            target_az = np.array([0.0, -1.0, 0.0])
+            target_ay = np.cross(target_az, target_ax)
+            target_R = cortex_math_util.pack_R(target_ax, target_ay, target_az)
+            eff_R = get_measured_arm_fk_T(self.context)[:3, :3]
+            self.target_R = behavior.adjust_about_x_if_opposite(eff_R, target_R)
+            try:
+                self.context.navigation_obs_monitor.activate_autotoggle()
+            except Exception:
+                pass
+
+        def step(self):
+            restore_demo_carried_active_bin(self.context)
+            if self.target_p is None or self.target_R is None:
+                return None
+
+            current_p = get_measured_arm_fk_p(self.context)
+            approach_length = min(0.35, float(np.linalg.norm(self.target_p - current_p)))
+            command = MotionCommand(
+                target_pose=PosePq(self.target_p, cortex_math_util.matrix_to_quat(self.target_R)),
+                approach_params=ApproachParams(direction=approach_length * np.array([0.0, 0.0, -1.0]), std_dev=0.005),
+                posture_config=self.context.robot.default_config,
+            )
+            self.context.robot.arm.send(command)
+            fk_T = get_measured_arm_fk_T(self.context)
+            if cortex_math_util.transforms_are_close(
+                command.target_pose.to_T(),
+                fk_T,
+                p_thresh=self.p_thresh,
+                R_thresh=self.r_thresh,
+            ):
+                return None
+            return self
+
+        def exit(self):
+            try:
+                self.context.navigation_obs_monitor.deactivate_autotoggle()
+            except Exception:
+                pass
+            self.target_p = None
+            self.target_R = None
+
     class DemoTimedArmJointSettle(DfState):
         def __init__(self, duration=POST_RELEASE_JOINT_SETTLE_DURATION):
             self.duration = duration
@@ -4818,7 +4870,11 @@ def main():
                         DfSetLockState(set_locked_to=True, decider=self),
                         DemoAttachBin(),
                         DemoTimedArmLift(height=0.24, duration=0.35),
-                        DemoTimedState(behavior.ReachToPlace(), max_duration=REACH_PLACE_MAX_DURATION, label="reach_place"),
+                        DemoTimedState(
+                            DemoStableReachToPlace(),
+                            max_duration=REACH_PLACE_MAX_DURATION,
+                            label="reach_place",
+                        ),
                         DfWaitState(wait_time=0.15),
                         DemoScriptedPlaceBin(),
                         DemoReleaseBin(),

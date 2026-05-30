@@ -1,5 +1,25 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 UR10 Place Target 안정화
+
+- [x] `ReachToPlace`도 deterministic target state로 교체했다.
+  - 변경: `DemoStableReachToPlace` 추가.
+  - 기존 `behavior.ReachToPlace()`처럼 매 step 중 stack target 배열을 직접 참조하거나 수정하지 않고, 진입 시 `get_demo_stack_coordinate(...).copy()`로 목표 좌표를 고정한다.
+  - 최종 적재 pose는 기존 `DemoScriptedPlaceBin`이 계속 보정하므로, 이번 변경은 팔 경로 target jitter와 stack coordinate mutation 가능성을 줄이는 목적이다.
+
+- [x] 검증 완료.
+  - py_compile 통과
+  - unittest 86개 통과
+  - route clearance gate 기본 적용 12000-frame strict full end-to-end self-test 통과
+  - 로그: `isaacsim_logs/harim_stable_pick_place_route_gate_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_121213_31816.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0049`, `max_return_ready_error=0.0399`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0290`, `max_scripted_place_bin_frame_displacement=0.0403`, `min_arm_tcp_amr_route_clearance=0.2814`, `review_gif_frame_count=151`
+
+- [ ] 다음 개선 후보.
+  - 현재 `reach_place timed release`는 여전히 정상 경로에서 발생한다. 최종 적재는 scripted place가 정확히 수행하지만, arm이 place target에 더 자연스럽게 도달하도록 `DemoStableReachToPlace`의 duration/threshold/approach pose를 추가 조정할 수 있다.
+  - pre-grip offset이 threshold를 넘을 경우 attach를 거부하는 guard는 여전히 안전장치 후보로 남긴다.
+
 ## 2026-05-30 UR10 Pick Target 안정화 및 Route Clearance Gate 재승격
 
 - [x] 4번째 박스 이후 `reach_pick timed release`가 발생하며 pre-grip offset이 0.8m~1.3m까지 커지던 문제를 우선 처리했다.
@@ -25,10 +45,8 @@
   - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
   - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0050`, `max_return_ready_error=0.0398`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0264`, `min_arm_tcp_amr_route_clearance=0.2808`, `review_gif_frame_count=151`
 
-- [ ] 다음 개선 후보.
-  - 같은 deterministic pick 방식으로 `ReachToPlace`도 target pose를 더 보수적으로 고정할지 검토한다.
-  - 현재는 scripted place가 최종 적재 pose를 보정하지만, 실제 로봇팔 경로 자체의 자세 변화를 더 자연스럽게 만들 여지가 있다.
-  - pre-grip offset이 threshold를 넘을 경우 attach를 거부하는 guard는 여전히 안전장치 후보로 남긴다.
+- [x] 후속으로 같은 deterministic 방식의 `ReachToPlace` 안정화도 진행했다.
+  - 상세 기록은 위 `UR10 Place Target 안정화` 섹션에 남겼다.
 
 ## 2026-05-30 AMR Route/TCP Clearance Strict 승격 실험 및 보류
 
