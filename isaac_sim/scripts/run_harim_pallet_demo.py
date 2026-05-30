@@ -306,6 +306,7 @@ AMR_LIFT_GUIDE_VISUAL_SPECS = tuple(
     for x_idx, x_offset in enumerate((-0.48, 0.48))
     for y_idx, y_offset in enumerate((-0.34, 0.34))
 )
+FULL_SHOT_GIF_CAMERA_ROLE = "full_shot"
 CAMERA_RIG_REQUIRED_ROLES = ("overview", "palletizer", "amr_route", "drop_dock")
 CAMERA_MIN_HEIGHT_ABOVE_FLOOR = 1.25
 CAMERA_MIN_TARGET_DISTANCE = 1.0
@@ -2023,7 +2024,22 @@ def make_camera_rig_specs(
 ):
     route_mid_x = (float(pickup_x) + float(drop_x)) * 0.5
     route_mid_y = (float(pickup_y) + float(drop_y)) * 0.5
+    route_span_x = abs(float(drop_x) - float(pickup_x))
     return [
+        (
+            "FullShotCamera",
+            FULL_SHOT_GIF_CAMERA_ROLE,
+            np.array(
+                [
+                    route_mid_x,
+                    route_mid_y - max(5.6, route_span_x * 0.48),
+                    WORLD_FLOOR_Z + max(6.2, route_span_x * 0.58),
+                ],
+                dtype=float,
+            ),
+            np.array([route_mid_x, route_mid_y + 0.15, WORLD_FLOOR_Z + 0.35], dtype=float),
+            10.0,
+        ),
         (
             "OverviewCamera",
             "overview",
@@ -2507,6 +2523,7 @@ class StoryCameraFrameProvider:
         self.resolution = tuple(int(v) for v in resolution)
         self.cameras_by_role = {}
         self.initialized = False
+        self.last_captured_role = None
 
     def initialize(self):
         if self.initialized:
@@ -2533,9 +2550,11 @@ class StoryCameraFrameProvider:
 
         if not self.initialized:
             self.initialize()
-        camera = self.cameras_by_role.get(role) or self.cameras_by_role.get("overview")
+        actual_role = role if role in self.cameras_by_role else "overview"
+        camera = self.cameras_by_role.get(actual_role)
         if camera is None:
             raise RuntimeError("no story camera is available for GUI camera GIF capture")
+        self.last_captured_role = actual_role
         rgba = camera.get_rgba()
         if rgba is None:
             return None
@@ -2568,6 +2587,7 @@ class DemoGifRecorder:
         frame_duration_ms=GIF_FRAME_DURATION_MS,
         canvas_size=GIF_CANVAS_SIZE,
         camera_frame_provider=None,
+        camera_capture_role=FULL_SHOT_GIF_CAMERA_ROLE,
     ):
         self.requested_enabled = bool(enabled)
         self.enabled = self.requested_enabled
@@ -2577,12 +2597,14 @@ class DemoGifRecorder:
         self.frame_duration_ms = max(20, int(frame_duration_ms))
         self.canvas_size = tuple(canvas_size)
         self.camera_frame_provider = camera_frame_provider
+        self.camera_capture_role = camera_capture_role
         self.frames = []
         self.saved_path = None
         self.latest_path = None
         self.last_captured_frame = None
         self.disabled_reason = None
         self.captured_source = None
+        self.captured_camera_role = None
 
     def wants_capture(self, frame_index, force=False):
         if not self.enabled:
@@ -2655,11 +2677,10 @@ class DemoGifRecorder:
 
     def _capture_frame(self, frame_index, orchestrator, context, args):
         if self.camera_frame_provider is not None:
-            role = getattr(orchestrator, "camera_director_last_role", None)
-            if role is None:
-                role = camera_role_for_transfer_state(getattr(orchestrator, "state", None))
+            role = self.camera_capture_role or FULL_SHOT_GIF_CAMERA_ROLE
             frame = self.camera_frame_provider.capture(role)
             self.captured_source = "camera"
+            self.captured_camera_role = getattr(self.camera_frame_provider, "last_captured_role", None) or role
             return frame
         self.captured_source = self.captured_source or "diagram"
         return self._draw_frame(frame_index, orchestrator, context, args)
@@ -5241,9 +5262,9 @@ def main():
             created_camera_paths.append(camera_path)
             camera_paths_by_role[camera_role] = camera_path
 
-        if "overview" in camera_paths_by_role:
+        if FULL_SHOT_GIF_CAMERA_ROLE in camera_paths_by_role:
             try:
-                set_active_viewport_camera(camera_paths_by_role["overview"])
+                set_active_viewport_camera(camera_paths_by_role[FULL_SHOT_GIF_CAMERA_ROLE])
             except Exception as exc:
                 print(f"[HarimDemo] active viewport camera setup skipped: {exc}", flush=True)
         print(f"[HarimDemo] camera rig ready: {len(created_camera_paths)} cameras", flush=True)
@@ -5253,13 +5274,21 @@ def main():
     camera_frame_provider = StoryCameraFrameProvider(camera_paths_by_role, resolution=CAMERA_GIF_RESOLUTION)
 
     def set_story_camera(role):
-        camera_path = camera_paths_by_role.get(role)
+        viewport_role = FULL_SHOT_GIF_CAMERA_ROLE
+        camera_path = camera_paths_by_role.get(viewport_role)
         if camera_path is None:
-            camera_path = camera_paths_by_role.get("overview")
+            camera_path = camera_paths_by_role.get(role) or camera_paths_by_role.get("overview")
+            viewport_role = role if camera_paths_by_role.get(role) is not None else "overview"
         if camera_path is None:
             return
         set_active_viewport_camera(camera_path)
-        print(f"[HarimDemo] camera director -> {role} ({camera_path})", flush=True)
+        if viewport_role == role:
+            print(f"[HarimDemo] camera director -> {role} ({camera_path})", flush=True)
+        else:
+            print(
+                f"[HarimDemo] camera director -> {role}; viewport fixed to {viewport_role} ({camera_path})",
+                flush=True,
+            )
 
     def create_warehouse_lighting():
         lighting_root = f"{harim_root}/Lighting"
@@ -6046,6 +6075,7 @@ def main():
         frame_stride=args.gif_frame_stride,
         max_frames=args.gif_max_frames,
         camera_frame_provider=camera_frame_provider,
+        camera_capture_role=FULL_SHOT_GIF_CAMERA_ROLE,
     )
     motion_continuity = MotionContinuityTracker()
     demo_frame_index = 0
@@ -7579,6 +7609,7 @@ def main():
             review_gif_width = int(gif_recorder.canvas_size[0])
             review_gif_height = int(gif_recorder.canvas_size[1])
             review_gif_source = getattr(gif_recorder, "captured_source", None) or ""
+            review_gif_camera_role = getattr(gif_recorder, "captured_camera_role", None) or ""
             if args.self_test_require_review_gif:
                 if not review_gif_path or not Path(review_gif_path).exists():
                     self_test_failures.append("review GIF was not saved")
@@ -7588,6 +7619,8 @@ def main():
                     self_test_failures.append("review GIF captured no simulation frames")
                 if review_gif_source != "camera":
                     self_test_failures.append("review GIF did not capture GUI camera frames")
+                if review_gif_camera_role != FULL_SHOT_GIF_CAMERA_ROLE:
+                    self_test_failures.append("review GIF did not use the full-shot GUI camera")
 
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
@@ -7779,6 +7812,7 @@ def main():
                     f"review_gif_canvas_height={review_gif_height}; "
                     f"review_gif_frame_count={review_gif_frame_count}; "
                     f"review_gif_source={review_gif_source}; "
+                    f"review_gif_camera_role={review_gif_camera_role}; "
                     f"review_gif_path={review_gif_path or ''}; "
                     f"latest_review_gif_path={review_gif_latest_path or ''}",
                     flush=True,

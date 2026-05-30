@@ -1715,6 +1715,29 @@ AMR 대기 위치
 
 ---
 
+## 2026-05-30 GUI camera GIF full-shot 고정
+
+- [x] 사용자가 요청한 대로 review GIF를 컷 전환형 카메라가 아니라 전체 샷 카메라에서 고정 캡처하도록 변경했다.
+  - 추가 카메라: `FullShotCamera`
+  - GIF 전용 role: `full_shot`
+  - GIF 저장 metric: `review_gif_camera_role=full_shot`
+  - GUI viewport도 director 요청과 별개로 `FullShotCamera`에 고정되도록 변경했다.
+  - 기존 story/director metric은 유지하되, 저장 GIF는 항상 전체 셀 구도를 사용한다.
+
+- [x] 첫 full-shot 시도에서 카메라가 너무 뒤로 빠져 벽/바닥만 잡히는 문제가 확인되어, 작업셀 내부의 높은 광각 oblique 샷으로 재조정했다.
+  - 팔레타이저, pickup pallet, AMR route, drop workstation이 한 프레임에 들어오는 구도 확인.
+  - 최신 GIF: `isaacsim_outputs/latest_review.gif`
+  - 실제 산출물: `isaacsim_outputs/harim_amr_camera_20260530_152136_25120.gif`
+
+- [x] 검증 완료.
+  - py_compile 통과
+  - unittest 86개 통과
+  - 600-frame full-shot GIF smoke 통과
+    - 로그: `isaacsim_logs/harim_full_shot_gif_smoke_600.log`
+    - 주요 metric: `camera_rig_count=5`, `review_gif_source=camera`, `review_gif_camera_role=full_shot`, `review_gif_frame_count=10`
+
+---
+
 ## 2026-05-29 진행 메모
 
 현재 1차 구현은 `방식 B: Python FSM에서 직접 transform/controller 제어`로 진행한다.
