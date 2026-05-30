@@ -3,14 +3,15 @@
 ## 2026-05-30 Measured Arm FK 및 Strict Continuity 기준 강화
 
 - review GIF, attached carton follow, release separation, arm EE motion continuity가 이제 `MotionCommander`의 latest applied action FK가 아니라 실제 articulation joint position 기반 FK를 사용합니다.
+- strict wrapper는 `SelfTestMaxMeasuredArmFkFallbacks = 0`도 요구해, measured FK가 실패해서 command FK로 되돌아가는 경우를 즉시 실패 처리합니다.
 - 반복 strict 기준을 최신 안정값에 맞춰 강화했습니다.
   - `SelfTestMaxAttachedGraspError = 0.06`
   - `SelfTestMaxArmEeFrameDisplacement = 0.08`
   - `SelfTestMaxAttachedBinFrameDisplacement = 0.06`
-- 검증 로그: `isaacsim_logs/harim_measured_arm_fk_repeat_strict_full_e2e_12000.log`
-- GIF: `isaacsim_outputs/harim_amr_review_20260530_092538_28668.gif`
+- 검증 로그: `isaacsim_logs/harim_measured_arm_fk_fallback_gate_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_094526_38360.gif`
 - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
-- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_attached_grasp_error=0.0321`, `max_arm_ee_frame_displacement=0.0508`, `max_attached_bin_frame_displacement=0.0500`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `measured_arm_fk_fallback_count=0`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0353`, `max_attached_bin_frame_displacement=0.0392`
 
 ## 2026-05-30 Attached Grasp Alignment Gate 및 Motion Group 분리
 

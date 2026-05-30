@@ -613,6 +613,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if the robot arm end-effector moves farther than this distance between sampled frames. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-max-measured-arm-fk-fallbacks",
+        type=int,
+        default=-1,
+        help="Fail the fixed-frame self-test if measured joint-state FK falls back to command FK more than this many times. -1 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-active-bin-frame-displacement",
         type=float,
         default=0.0,
@@ -1337,9 +1343,15 @@ def get_measured_arm_fk_T(context):
         joint_indices = np.array(arm.aji, dtype=int)
         positions = np.array(arm.robot.get_joint_positions(joint_indices=joint_indices), dtype=float)
         if positions.size > 0:
+            context.demo_measured_arm_fk_sample_count = int(
+                getattr(context, "demo_measured_arm_fk_sample_count", 0)
+            ) + 1
             return arm.get_fk_T(positions)
     except Exception:
         pass
+    context.demo_measured_arm_fk_fallback_count = int(
+        getattr(context, "demo_measured_arm_fk_fallback_count", 0)
+    ) + 1
     return arm.get_fk_T()
 
 
@@ -5659,6 +5671,8 @@ def main():
     decider_network.context.demo_attached_grasp_sample_count = 0
     decider_network.context.demo_max_attached_grasp_error = 0.0
     decider_network.context.demo_max_attached_bin_sync_gap = 0.0
+    decider_network.context.demo_measured_arm_fk_sample_count = 0
+    decider_network.context.demo_measured_arm_fk_fallback_count = 0
     decider_network.context.demo_joint_settle_count = 0
     decider_network.context.demo_infeed_active_bin = None
     decider_network.context.demo_active_bin_conveyor_approach_count = 0
@@ -6169,6 +6183,12 @@ def main():
             max_released_bin_frame_displacement = motion_continuity.max_displacement("released_bin")
             max_carried_payload_frame_displacement = motion_continuity.max_displacement("carried_payload")
             max_carried_pallet_frame_displacement = motion_continuity.max_displacement("carried_pallet")
+            measured_arm_fk_sample_count = int(
+                getattr(decider_network.context, "demo_measured_arm_fk_sample_count", 0)
+            )
+            measured_arm_fk_fallback_count = int(
+                getattr(decider_network.context, "demo_measured_arm_fk_fallback_count", 0)
+            )
             amr_motion_detail = motion_continuity.max_detail("amr")
             arm_ee_motion_detail = motion_continuity.max_detail("arm_ee")
             active_bin_motion_detail = motion_continuity.max_detail("active_bin")
@@ -6218,6 +6238,12 @@ def main():
                         f"arm end-effector frame displacement {max_arm_ee_frame_displacement:.4f} m exceeded "
                         f"{args.self_test_max_arm_ee_frame_displacement:.4f} m"
                         f"{format_motion_detail(arm_ee_motion_detail)}"
+                    )
+            if args.self_test_max_measured_arm_fk_fallbacks >= 0:
+                if measured_arm_fk_fallback_count > args.self_test_max_measured_arm_fk_fallbacks:
+                    self_test_failures.append(
+                        f"measured arm FK fallback count {measured_arm_fk_fallback_count} exceeded "
+                        f"{args.self_test_max_measured_arm_fk_fallbacks}"
                     )
             if args.self_test_max_active_bin_frame_displacement > 0:
                 if active_bin_motion_sample_count <= 0:
@@ -7223,6 +7249,8 @@ def main():
                     f"carried_pallet_motion_sample_count={carried_pallet_motion_sample_count}; "
                     f"max_amr_frame_displacement={max_amr_frame_displacement:.4f}; "
                     f"max_arm_ee_frame_displacement={max_arm_ee_frame_displacement:.4f}; "
+                    f"measured_arm_fk_sample_count={measured_arm_fk_sample_count}; "
+                    f"measured_arm_fk_fallback_count={measured_arm_fk_fallback_count}; "
                     f"max_active_bin_frame_displacement={max_active_bin_frame_displacement:.4f}; "
                     f"max_attached_bin_frame_displacement={max_attached_bin_frame_displacement:.4f}; "
                     f"max_scripted_place_bin_frame_displacement={max_scripted_place_bin_frame_displacement:.4f}; "

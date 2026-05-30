@@ -56,6 +56,7 @@ $RunnerArgs = @{
     SelfTestMinMotionContinuitySampleCount = 1000
     SelfTestMaxAmrFrameDisplacement = 0.05
     SelfTestMaxArmEeFrameDisplacement = 0.08
+    SelfTestMaxMeasuredArmFkFallbacks = 0
     SelfTestMaxActiveBinFrameDisplacement = 0.08
     SelfTestMaxAttachedBinFrameDisplacement = 0.06
     SelfTestMaxScriptedPlaceBinFrameDisplacement = 0.08

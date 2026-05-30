@@ -1,5 +1,18 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Measured Arm FK Fallback Gate 추가
+
+- [x] 실제 articulation joint-state FK helper가 실패해서 command/applied-action FK로 fallback되는 경우를 `measured_arm_fk_fallback_count`로 기록하도록 했다.
+- [x] strict wrapper에서 `SelfTestMaxMeasuredArmFkFallbacks = 0`을 요구하도록 추가했다. measured FK가 깨지면 예전 grasp/arm continuity 문제가 다시 숨어들 수 있으므로 fallback을 허용하지 않는다.
+- [x] 검증 완료
+  - py_compile 통과
+  - unittest 84개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_measured_arm_fk_fallback_gate_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_094526_38360.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `measured_arm_fk_sample_count=16402`, `measured_arm_fk_fallback_count=0`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0353`, `max_attached_bin_frame_displacement=0.0392`, `review_gif_frame_count=151`
+
 ## 2026-05-30 Strict Grasp/Arm Continuity 기준 재조정
 
 - [x] 실제 joint-state FK 적용 후 반복 strict에서 안정적으로 낮아진 metric을 기준으로 strict wrapper의 허용치를 더 좁혔다.
