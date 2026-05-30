@@ -1056,7 +1056,41 @@ headless transfer self-test 로그 확인:
 
 ---
 
+## 2026-05-30 예제 에셋 전용 구성 정리 메모
+
+사용자 확인 결과, 이전 구현에서 설명을 쉽게 하기 위해 추가했던 커스텀 시각 에셋들이 오히려 씬을 어색하게 만들었다.
+따라서 현재 1차 데모는 커스텀으로 만든 팔레트, 리프트판, 드롭 작업대를 제거하고 Isaac Sim 예제/공식 샘플 에셋만 사용하도록 방향을 바꾼다.
+
+정리 원칙:
+
+- [x] UR10 Bin Stacking 예제의 기본 팔레트를 제거하지 않고 그대로 사용한다.
+- [x] 별도로 만들었던 `PalletDeck_*`, `PalletBlock_*` 커스텀 팔레트 visual cuboid를 제거한다.
+- [x] 별도로 만들었던 `IwHubLiftPlate` visual cuboid를 제거하고, `iw_hub` USD 내부의 실제 lift prim이 있으면 그것만 움직인다.
+- [x] 별도로 만들었던 `DropSlideRail_*`, `DropSlideRoller_*`, `DropSlideLeg_*` 목표 위치 작업대를 제거한다.
+- [x] self-test용 임시 박스도 `VisualCuboid`가 아니라 UR10 예제에서 쓰는 `small_KLT.usd`를 reference해서 사용한다.
+- [x] 예제 씬의 `pallet_holder`와 `flip` 관련 prim은 기존 no-flip 흐름에 맞춰 비활성화하되, `pallet` 자체는 비활성화하지 않는다.
+- [x] 예제 팔레트 prim을 stage에서 찾아 AMR lift-up, 이동, lift-down 동작에 맞춰 위치만 갱신한다.
+- [x] 예제 팔레트 prim에 orientation xformOp가 없는 경우를 고려해, 팔레트는 translate op만 직접 갱신한다.
+
+검증 결과:
+
+- [x] Python compile 통과
+- [x] orchestrator unittest 16개 통과
+- [x] Isaac Sim headless 2-frame 초기화 스모크 통과
+- [x] Isaac Sim headless 260-frame 강제 이송 스모크 통과
+- [x] 로그에서 `[HarimDemo] using 1 example pallet prims` 확인
+- [x] 로그에서 `MOVE_TO_DROP`, `LIFT_DOWN`, `DETACH`, `SLIDE_OUT_FROM_PALLET`, `DONE_IDLE` 상태 전환 확인
+
+남은 확인:
+
+- [ ] GUI에서 사용자가 직접 볼 때, 예제 팔레트와 `iw_hub` lift prim의 시각적 정렬이 충분히 자연스러운지 확인한다.
+- [ ] 목표 위치 작업대를 다시 추가해야 한다면, 임의 cuboid 생성이 아니라 Isaac Sim 공식 warehouse/industrial 샘플 에셋 중 적절한 테이블/컨베이어/랙 에셋을 찾아 reference하는 방식으로만 추가한다.
+
+---
+
 ## 2026-05-29 AMR 경로/팔레트 중복/드롭 작업대 수정 메모
+
+참고: 아래 항목은 당시 구현 기록이다. 2026-05-30 기준으로 `DropSlide*`, `IwHubLiftPlate`, `PalletDeck*`, `PalletBlock*` 커스텀 visual 에셋은 폐기했고, 최신 구현은 위의 "예제 에셋 전용 구성 정리 메모"를 따른다.
 
 사용자 추가 요구사항:
 

@@ -119,8 +119,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             task=None,
             amr_prim=FakePosePrim("iw_hub"),
             amr_lift_prim=amr_lift_prim,
-            lift_plate=FakePosePrim("lift_plate"),
-            pallet_parts=[FakePosePrim(f"pallet_{idx}") for idx in range(9)],
+            lift_plate=None,
+            pallet_parts=[FakePosePrim("example_pallet", (Args.pickup_x, Args.pickup_y, -0.60))],
             stack_coordinates=self.demo.make_stack_coordinates(2, 2, 1),
             args=args,
         )
@@ -171,24 +171,34 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("make_no_flip_decider_network", source)
         self.assertIn("deactivate_stage_prims_containing", source)
         self.assertIn('"pallet_holder"', source)
+        self.assertNotIn('("flip", "pallet", "pallet_holder")', source)
         self.assertNotIn('add_child("flip_bin"', source)
         self.assertNotIn("behavior.make_decider_network", source)
 
-    def test_drop_slide_workstation_is_created(self):
+    def test_demo_uses_example_assets_without_custom_visual_props(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("create_drop_slide_workstation", source)
-        self.assertIn("DropSlideRail", source)
-        self.assertIn("DropSlideRoller", source)
-        self.assertIn("DropSlideLeg", source)
+        self.assertIn("collect_example_pallet_parts", source)
+        self.assertIn("using {len(pallet_parts)} example pallet prims", source)
+        self.assertIn("custom pallet creation is disabled", source)
+        self.assertNotIn("VisualCuboid", source)
+        self.assertNotIn("create_drop_slide_workstation", source)
+        self.assertNotIn("DropSlideRail", source)
+        self.assertNotIn("DropSlideRoller", source)
+        self.assertNotIn("DropSlideLeg", source)
+        self.assertNotIn("IwHubLiftPlate", source)
+        self.assertNotIn("PalletDeck", source)
+        self.assertNotIn("PalletBlock", source)
 
-    def test_pallet_layout_leaves_center_tunnel_for_under_ride(self):
-        block_offsets = self.demo.PALLET_BLOCK_OFFSETS
-        tunnel_half_width = self.demo.PALLET_TUNNEL_HALF_WIDTH
+    def test_lift_up_moves_example_pallet_from_initial_pose(self):
+        orchestrator, context, _world, _items = self.build_orchestrator(Args())
+        pallet = orchestrator.pallet_parts[0]
+        initial_z = pallet.get_world_pose()[0][2]
+        context.stack_complete = True
 
-        self.assertGreater(tunnel_half_width, 0.0)
-        for offset in block_offsets:
-            self.assertGreaterEqual(abs(offset[1]), tunnel_half_width)
+        self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.MOVE_TO_DROP)
+
+        self.assertAlmostEqual(pallet.get_world_pose()[0][2], initial_z + Args.lift_height, places=6)
 
     def test_slide_out_keeps_dropped_payload_stationary(self):
         orchestrator, context, _world, items = self.build_orchestrator(Args())

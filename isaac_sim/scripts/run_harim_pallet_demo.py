@@ -20,23 +20,7 @@ DEFAULT_MOVE_SPEED = 0.65
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
 SLIDE_EXIT_DISTANCE = 1.8
-PALLET_TUNNEL_HALF_WIDTH = 0.42
-DROP_WORKSTATION_Z = -0.73
 UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
-PALLET_DECK_OFFSETS = (
-    np.array([0.0, -0.44, 0.0], dtype=float),
-    np.array([0.0, 0.0, 0.0], dtype=float),
-    np.array([0.0, 0.44, 0.0], dtype=float),
-)
-PALLET_BLOCK_OFFSETS = (
-    np.array([-0.38, -0.56, -0.075], dtype=float),
-    np.array([0.0, -0.56, -0.075], dtype=float),
-    np.array([0.38, -0.56, -0.075], dtype=float),
-    np.array([-0.38, 0.56, -0.075], dtype=float),
-    np.array([0.0, 0.56, -0.075], dtype=float),
-    np.array([0.38, 0.56, -0.075], dtype=float),
-)
-PALLET_PART_OFFSETS = PALLET_DECK_OFFSETS + PALLET_BLOCK_OFFSETS
 
 
 def parse_args():
@@ -205,6 +189,7 @@ class HarimTransferOrchestrator:
         self.pallet_base_offsets = {}
         self.dropped_item_poses = {}
         self.dropped_pallet_poses = {}
+        self.initial_pallet_poses = self._capture_pallet_poses()
 
         self.stack_center = self._compute_stack_center()
         self.amr_yaw = 0.0
@@ -264,7 +249,8 @@ class HarimTransferOrchestrator:
         return amr_pos + np.array([0.0, 0.0, 0.33 + self.lift_offset], dtype=float)
 
     def _set_lift_plate_pose(self):
-        self.lift_plate.set_world_pose(position=self._lift_plate_position(), orientation=yaw_to_quat(self.amr_yaw))
+        if self.lift_plate is not None:
+            self.lift_plate.set_world_pose(position=self._lift_plate_position(), orientation=yaw_to_quat(self.amr_yaw))
         self._set_actual_lift_pose()
 
     def _set_actual_lift_pose(self):
@@ -279,9 +265,12 @@ class HarimTransferOrchestrator:
         self.amr_lift.set_world_pose(position=target, orientation=self.amr_lift_orientation)
 
     def _reset_pallet_pose(self):
-        center = np.array([self.args.pickup_x, self.args.pickup_y, -0.60 + self.lift_offset], dtype=float)
-        for part, offset in zip(self.pallet_parts, PALLET_PART_OFFSETS):
-            part.set_world_pose(position=center + offset, orientation=yaw_to_quat(0.0))
+        for part in self.pallet_parts:
+            data = self.initial_pallet_poses.get(part.name)
+            if data is None:
+                continue
+            position, orientation = data
+            self._set_pallet_position(part, position)
 
     def _move_amr_toward_target(self, dt):
         if self.move_target is None:
@@ -333,6 +322,25 @@ class HarimTransferOrchestrator:
             except Exception as exc:
                 print(f"[HarimDemo] could not lift stacked item: {exc}")
 
+    def _capture_pallet_poses(self):
+        poses = {}
+        for part in self.pallet_parts:
+            position, orientation = part.get_world_pose()
+            poses[part.name] = (np.array(position, dtype=float), orientation)
+        return poses
+
+    def _apply_lift_delta_to_pallet(self, dz):
+        if abs(dz) <= 1e-6:
+            return
+        for part in self.pallet_parts:
+            position, orientation = part.get_world_pose()
+            lifted = np.array(position, dtype=float)
+            lifted[2] += dz
+            self._set_pallet_position(part, lifted)
+
+    def _set_pallet_position(self, part, position):
+        part.set_world_pose(position=np.array(position, dtype=float))
+
     def _attach_assembly(self):
         amr_pos = self.get_amr_position()
         self.attached_items = self._get_stacked_items()
@@ -372,7 +380,7 @@ class HarimTransferOrchestrator:
             if data is None:
                 continue
             offset, orient = data
-            part.set_world_pose(position=amr_pos + offset, orientation=orient)
+            self._set_pallet_position(part, amr_pos + offset)
 
     def _record_dropped_assembly(self):
         self.dropped_item_poses = {}
@@ -396,7 +404,7 @@ class HarimTransferOrchestrator:
             except Exception as exc:
                 print(f"[HarimDemo] could not hold dropped item: {exc}")
         for part, pos, orient in self.dropped_pallet_poses.values():
-            part.set_world_pose(position=pos, orientation=orient)
+            self._set_pallet_position(part, pos)
 
     def _sync_payload_pose(self):
         if self.carrying:
@@ -467,8 +475,8 @@ class HarimTransferOrchestrator:
             self.lift_offset = lerp(0.0, self.args.lift_height, t)
             dz = self.lift_offset - previous_offset
             self._set_lift_plate_pose()
-            self._reset_pallet_pose()
             self._apply_lift_delta_to_stack(dz)
+            self._apply_lift_delta_to_pallet(dz)
             if t >= 1.0:
                 self._transition(TransferState.ATTACH)
 
@@ -530,7 +538,6 @@ def main():
         raise RuntimeError("Failed to enable required extension: isaacsim.robot.surface_gripper")
     simulation_app.update()
 
-    from isaacsim.core.api.objects.cuboid import VisualCuboid
     from isaacsim.core.api.objects.capsule import VisualCapsule
     from isaacsim.core.api.objects.sphere import VisualSphere
     from isaacsim.core.api.tasks.base_task import BaseTask
@@ -545,7 +552,7 @@ def main():
     from isaacsim.cortex.framework.dfb import make_go_home
     from isaacsim.cortex.framework.robot import CortexUr10
     from isaacsim.cortex.behaviors.ur10 import bin_stacking_behavior as behavior
-    from pxr import UsdGeom
+    from pxr import Gf, Usd, UsdGeom
 
     assets_root = get_assets_root_path()
     if assets_root is None:
@@ -628,7 +635,7 @@ def main():
     add_reference_to_stage(ur10_assets.ur10_table_usd, "/World/Ur10Table")
     add_reference_to_stage(ur10_assets.background_usd, "/World/Background")
     wait_for_stage_loading(simulation_app, usd_context, "UR10 palletizing scene")
-    deactivate_stage_prims_containing(usd_context.get_stage(), "/World/Ur10Table", ("flip", "pallet", "pallet_holder"))
+    deactivate_stage_prims_containing(usd_context.get_stage(), "/World/Ur10Table", ("flip", "pallet_holder"))
     SingleXFormPrim("/World/Background", position=[10.00, 2.00, -1.18180], orientation=[0.7071, 0, 0, 0.7071])
 
     robot = world.add_robot(CortexUr10(name="robot", prim_path="/World/Ur10Table/ur10"))
@@ -714,95 +721,57 @@ def main():
         amr_lift = SingleXFormPrim(amr_lift_path, name="harim_iw_hub_asset_lift", reset_xform_properties=False)
         print(f"[HarimDemo] using iw_hub lift prim: {amr_lift_path}")
     else:
-        print(f"[HarimDemo] xformable iw_hub lift prim not found, using visual lift plate only: {amr_lift_path}")
+        print(f"[HarimDemo] xformable iw_hub lift prim not found; using iw_hub asset body only: {amr_lift_path}")
 
-    def create_drop_slide_workstation():
-        workstation_parts = []
-        rail_color = np.array([0.18, 0.20, 0.21])
-        roller_color = np.array([0.62, 0.66, 0.68])
-        leg_color = np.array([0.12, 0.13, 0.14])
+    class ExampleStagePalletPrim:
+        def __init__(self, prim, name):
+            self.prim = prim
+            self.name = name
+            self.xformable = UsdGeom.Xformable(prim)
+            self.translate_op = None
+            for op in self.xformable.GetOrderedXformOps():
+                if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                    self.translate_op = op
+                    break
+            if self.translate_op is None:
+                self.translate_op = self.xformable.AddTranslateOp()
 
-        for side_idx, y_offset in enumerate((-0.58, 0.58)):
-            workstation_parts.append(
-                world.scene.add(
-                    VisualCuboid(
-                        f"{harim_root}/DropSlideRail_{side_idx}",
-                        name=f"harim_drop_slide_rail_{side_idx}",
-                        position=np.array([args.drop_x, args.drop_y + y_offset, DROP_WORKSTATION_Z], dtype=float),
-                        scale=np.array([1.80, 0.10, 0.09]),
-                        color=rail_color,
-                    )
-                )
-            )
-            for roller_idx, x_offset in enumerate((-0.62, -0.22, 0.22, 0.62)):
-                workstation_parts.append(
-                    world.scene.add(
-                        VisualCuboid(
-                            f"{harim_root}/DropSlideRoller_{side_idx}_{roller_idx}",
-                            name=f"harim_drop_slide_roller_{side_idx}_{roller_idx}",
-                            position=np.array(
-                                [args.drop_x + x_offset, args.drop_y + y_offset, DROP_WORKSTATION_Z + 0.07],
-                                dtype=float,
-                            ),
-                            scale=np.array([0.12, 0.24, 0.035]),
-                            color=roller_color,
-                        )
-                    )
-                )
-            for leg_idx, x_offset in enumerate((-0.78, 0.78)):
-                workstation_parts.append(
-                    world.scene.add(
-                        VisualCuboid(
-                            f"{harim_root}/DropSlideLeg_{side_idx}_{leg_idx}",
-                            name=f"harim_drop_slide_leg_{side_idx}_{leg_idx}",
-                            position=np.array(
-                                [args.drop_x + x_offset, args.drop_y + y_offset, DROP_WORKSTATION_Z - 0.18],
-                                dtype=float,
-                            ),
-                            scale=np.array([0.10, 0.10, 0.36]),
-                            color=leg_color,
-                        )
-                    )
-                )
-        return workstation_parts
+        def get_world_pose(self):
+            matrix = self.xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+            translation = matrix.ExtractTranslation()
+            return np.array([translation[0], translation[1], translation[2]], dtype=float), yaw_to_quat(0.0)
 
-    create_drop_slide_workstation()
+        def set_world_pose(self, position=None, orientation=None):
+            if position is None:
+                return
+            position = np.array(position, dtype=float)
+            self.translate_op.Set(Gf.Vec3d(float(position[0]), float(position[1]), float(position[2])))
 
-    lift_plate = world.scene.add(
-        VisualCuboid(
-            f"{harim_root}/IwHubLiftPlate",
-            name="harim_iw_hub_lift_plate",
-            position=np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z + 0.33]),
-            scale=np.array([1.10, 0.72, 0.035]),
-            color=np.array([0.10, 0.12, 0.13]),
-        )
-    )
+    def collect_example_pallet_parts():
+        stage = usd_context.get_stage()
+        root = stage.GetPrimAtPath("/World/Ur10Table")
+        pallet_parts = []
+        selected_paths = []
+        if not root.IsValid():
+            return pallet_parts
+        for prim in Usd.PrimRange(root):
+            name = prim.GetName().lower()
+            path = str(prim.GetPath())
+            if "pallet" not in name or "pallet_holder" in name:
+                continue
+            if any(path.startswith(selected_path + "/") for selected_path in selected_paths):
+                continue
+            if not UsdGeom.Xformable(prim).GetPrim().IsValid():
+                continue
+            pallet_parts.append(ExampleStagePalletPrim(prim, name=f"harim_example_pallet_{len(pallet_parts)}"))
+            selected_paths.append(path)
+        return pallet_parts
 
-    pallet_parts = []
-    plank_color = np.array([0.62, 0.44, 0.23])
-    block_color = np.array([0.42, 0.29, 0.15])
-    for idx in range(3):
-        pallet_parts.append(
-            world.scene.add(
-                VisualCuboid(
-                    f"{harim_root}/PalletDeck_{idx}",
-                    name=f"harim_pallet_deck_{idx}",
-                    scale=np.array([1.10, 0.12, 0.055]),
-                    color=plank_color,
-                )
-            )
-        )
-    for idx in range(6):
-        pallet_parts.append(
-            world.scene.add(
-                VisualCuboid(
-                    f"{harim_root}/PalletBlock_{idx}",
-                    name=f"harim_pallet_block_{idx}",
-                    scale=np.array([0.16, 0.14, 0.09]),
-                    color=block_color,
-                )
-            )
-        )
+    lift_plate = None
+    pallet_parts = collect_example_pallet_parts()
+    if not pallet_parts:
+        raise RuntimeError("No pallet prim was found in the UR10 example scene; custom pallet creation is disabled.")
+    print(f"[HarimDemo] using {len(pallet_parts)} example pallet prims")
 
     class SelfTestBinState:
         def __init__(self, bin_obj):
@@ -810,18 +779,20 @@ def main():
 
     self_test_payload = []
     if args.self_test_force_stack_complete:
+        payload_specs = []
         for idx, coord in enumerate(stack_coordinates[: max(1, min(4, len(stack_coordinates)))]):
-            self_test_payload.append(
-                world.scene.add(
-                    VisualCuboid(
-                        f"{harim_root}/SelfTestPayload_{idx}",
-                        name=f"harim_self_test_payload_{idx}",
-                        position=np.array(coord, dtype=float),
-                        scale=np.array([0.18, 0.26, 0.12]),
-                        color=np.array([0.78, 0.42, 0.16]),
-                    )
-                )
+            payload_path = f"{harim_root}/SelfTestPayload_{idx}"
+            add_reference_to_stage(usd_path=ur10_assets.small_klt_usd, prim_path=payload_path)
+            payload_specs.append((idx, payload_path, coord))
+        wait_for_stage_loading(simulation_app, usd_context, "self-test KLT payload")
+        for idx, payload_path, coord in payload_specs:
+            payload = world.scene.add(
+                CortexRigidPrim(name=f"harim_self_test_payload_{idx}", prim_path=payload_path)
             )
+            payload.set_world_pose(position=np.array(coord, dtype=float), orientation=UPSIDE_DOWN_BIN_QUAT)
+            payload.set_linear_velocity(np.zeros(3))
+            payload.set_angular_velocity(np.zeros(3))
+            self_test_payload.append(payload)
 
     orchestrator = HarimTransferOrchestrator(
         world=world,
