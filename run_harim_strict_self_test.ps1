@@ -2,7 +2,6 @@ param(
     [switch]$AcceptEula,
     [switch]$ShowGui,
     [switch]$SelfTestDebugBins,
-    [switch]$EnableArmTcpRouteClearanceGate,
     [double]$SelfTestMinArmTcpAmrRouteClearance = 0.25,
     [int]$SelfTestFrames = 12000,
     [int]$Cycles = 1
@@ -146,6 +145,7 @@ $RunnerArgs = @{
     SelfTestMinAmrRouteBollardHeight = 0.65
     SelfTestMaxLoadedRouteYError = 0.03
     SelfTestMinLoadedRouteGuardClearance = 0.30
+    SelfTestMinArmTcpAmrRouteClearance = $SelfTestMinArmTcpAmrRouteClearance
     SelfTestMaxCarriedPalletPoseError = 0.005
     SelfTestMaxCarriedPalletOrientationError = 0.01
     SelfTestMaxCarriedPayloadPoseError = 0.005
@@ -165,10 +165,6 @@ if ($AcceptEula) {
 
 if ($SelfTestDebugBins) {
     $RunnerArgs.SelfTestDebugBins = $true
-}
-
-if ($EnableArmTcpRouteClearanceGate) {
-    $RunnerArgs.SelfTestMinArmTcpAmrRouteClearance = $SelfTestMinArmTcpAmrRouteClearance
 }
 
 & $Runner @RunnerArgs

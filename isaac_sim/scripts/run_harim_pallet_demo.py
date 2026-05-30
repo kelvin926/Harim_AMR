@@ -3872,7 +3872,7 @@ def main():
         DfWaitState,
     )
     from isaacsim.cortex.framework.dfb import make_go_home
-    from isaacsim.cortex.framework.motion_commander import MotionCommand
+    from isaacsim.cortex.framework.motion_commander import ApproachParams, MotionCommand, PosePq
     from isaacsim.cortex.framework.robot import CortexUr10
     from isaacsim.cortex.behaviors.ur10 import bin_stacking_behavior as behavior
     from pxr import Gf, Sdf, UsdGeom, UsdPhysics
@@ -4596,6 +4596,68 @@ def main():
             self.entry_time = None
             self.target_pq = None
 
+    class DemoStableReachToPick(DfState):
+        def __init__(self, p_thresh=0.005, r_thresh=2.0):
+            self.p_thresh = p_thresh
+            self.r_thresh = r_thresh
+            self.target_p = None
+            self.target_R = None
+            self.target_ax = None
+            self.posture_config = np.array([-1.2654234, -2.9708025, -2.219733, 0.6445836, 1.5186214, 0.30098662])
+
+        def enter(self):
+            active_bin = getattr(self.context, "active_bin", None)
+            if active_bin is None or getattr(active_bin, "grasp_T", None) is None:
+                self.target_p = None
+                self.target_R = None
+                self.target_ax = None
+                return
+
+            target_R, target_p = cortex_math_util.unpack_T(active_bin.grasp_T)
+            target_ax, _target_ay, _target_az = cortex_math_util.unpack_R(target_R)
+            eff_R = get_measured_arm_fk_T(self.context)[:3, :3]
+            self.target_R = behavior.adjust_about_x_if_opposite(eff_R, target_R)
+            self.target_p = np.array(target_p, dtype=float)
+            self.target_ax = np.array(target_ax, dtype=float)
+            try:
+                self.context.flip_station_obs_monitor.activate_autotoggle()
+                self.context.navigation_obs_monitor.activate_autotoggle()
+            except Exception:
+                pass
+
+        def step(self):
+            if self.target_p is None or self.target_R is None or self.target_ax is None:
+                return None
+
+            current_p = get_measured_arm_fk_p(self.context)
+            distance_to_target = float(np.linalg.norm(self.target_p - current_p))
+            approach_length = min(0.10, distance_to_target)
+            command = MotionCommand(
+                target_pose=PosePq(self.target_p, cortex_math_util.matrix_to_quat(self.target_R)),
+                approach_params=ApproachParams(direction=approach_length * self.target_ax, std_dev=0.005),
+                posture_config=self.posture_config,
+            )
+            self.context.robot.arm.send(command)
+            fk_T = get_measured_arm_fk_T(self.context)
+            if cortex_math_util.transforms_are_close(
+                command.target_pose.to_T(),
+                fk_T,
+                p_thresh=self.p_thresh,
+                R_thresh=self.r_thresh,
+            ):
+                return None
+            return self
+
+        def exit(self):
+            try:
+                self.context.flip_station_obs_monitor.deactivate_autotoggle()
+                self.context.navigation_obs_monitor.deactivate_autotoggle()
+            except Exception:
+                pass
+            self.target_p = None
+            self.target_R = None
+            self.target_ax = None
+
     class DemoTimedArmJointSettle(DfState):
         def __init__(self, duration=POST_RELEASE_JOINT_SETTLE_DURATION):
             self.duration = duration
@@ -4751,7 +4813,7 @@ def main():
             super().__init__(
                 DfStateSequence(
                     [
-                        DemoTimedState(behavior.ReachToPick(), max_duration=REACH_PICK_MAX_DURATION, label="reach_pick"),
+                        DemoTimedState(DemoStableReachToPick(), max_duration=REACH_PICK_MAX_DURATION, label="reach_pick"),
                         DemoSettleBinAtGripper(min_duration=0.25, max_duration=1.10),
                         DfSetLockState(set_locked_to=True, decider=self),
                         DemoAttachBin(),

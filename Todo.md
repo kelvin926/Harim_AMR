@@ -1,6 +1,38 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 UR10 Pick Target 안정화 및 Route Clearance Gate 재승격
+
+- [x] 4번째 박스 이후 `reach_pick timed release`가 발생하며 pre-grip offset이 0.8m~1.3m까지 커지던 문제를 우선 처리했다.
+  - 원인 후보: 기본 `behavior.ReachToPick()`이 매 step마다 grasp target orientation을 다시 보정하면서 후반부에 목표 자세가 흔들리는 패턴.
+  - 변경: `DemoStableReachToPick`을 추가해 pick state 진입 시점에 grasp target pose와 approach axis를 한 번만 고정한다.
+  - 기존 `ReachToPick`의 suction/approach 구조는 유지하되, target pose jitter를 줄여 `DemoSettleBinAtGripper`가 박스를 큰 거리로 순간 이동시키지 않게 했다.
+
+- [x] 안정화 검증 1차 full strict 통과.
+  - 로그: `isaacsim_logs/harim_stable_pick_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_114828_37116.gif`
+  - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0048`, `max_return_ready_error=0.0393`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0304`, `min_arm_tcp_amr_route_clearance=0.2801`, `review_gif_frame_count=151`
+  - 8개 박스 모두 `pre-grip offset`이 약 0.0044m~0.0048m 범위로 유지됐다.
+
+- [x] 안정화 반복 full strict 통과.
+  - 로그: `isaacsim_logs/harim_stable_pick_repeat_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_115524_11924.gif`
+  - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0050`, `max_return_ready_error=0.0398`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0259`, `min_arm_tcp_amr_route_clearance=0.2813`, `review_gif_frame_count=151`
+
+- [x] AMR route/TCP clearance gate를 strict 기본 검증으로 재승격했다.
+  - `run_harim_strict_self_test.ps1`에서 `SelfTestMinArmTcpAmrRouteClearance = 0.25`를 기본 적용한다.
+  - route gate 적용 full strict 통과 로그: `isaacsim_logs/harim_stable_pick_route_gate_strict_full_e2e_12000.log`
+  - route gate 적용 GIF: `isaacsim_outputs/harim_amr_review_20260530_120259_9088.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0050`, `max_return_ready_error=0.0398`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0264`, `min_arm_tcp_amr_route_clearance=0.2808`, `review_gif_frame_count=151`
+
+- [ ] 다음 개선 후보.
+  - 같은 deterministic pick 방식으로 `ReachToPlace`도 target pose를 더 보수적으로 고정할지 검토한다.
+  - 현재는 scripted place가 최종 적재 pose를 보정하지만, 실제 로봇팔 경로 자체의 자세 변화를 더 자연스럽게 만들 여지가 있다.
+  - pre-grip offset이 threshold를 넘을 경우 attach를 거부하는 guard는 여전히 안전장치 후보로 남긴다.
+
 ## 2026-05-30 AMR Route/TCP Clearance Strict 승격 실험 및 보류
+
+> 참고: 이 섹션은 `DemoStableReachToPick` 적용 전의 실패 이력이다. 최신 상태에서는 위 섹션처럼 route clearance gate가 strict 기본 검증으로 다시 승격됐다.
 
 - [x] `min_arm_tcp_amr_route_clearance`를 strict gate로 승격할 수 있는지 실험했다.
   - 실험 기준: `SelfTestMinArmTcpAmrRouteClearance = 0.25`
@@ -21,7 +53,7 @@
   - `target_position`만 직접 주는 방식은 일부 stack hover에서 RMPflow가 더 크게 튀어 `max_attached_grasp_error=10.0880`, `max_arm_ee_frame_displacement=2.7924`까지 악화됐다.
   - 해당 코드 변경은 최종 작업 트리에서 제거했다.
 
-- [x] route clearance strict gate는 기본 strict에 상시 적용하지 않고, 필요할 때 명시적으로 켤 수 있게 했다.
+- [x] 당시에는 route clearance strict gate를 기본 strict에 상시 적용하지 않고, 필요할 때 명시적으로 켤 수 있게 했다.
   - `run_harim_strict_self_test.ps1`에 `-EnableArmTcpRouteClearanceGate` switch를 추가했다.
   - 기본값은 기존처럼 metric-only다.
   - 반복 검증이나 회귀 확인이 필요할 때만 `-EnableArmTcpRouteClearanceGate -SelfTestMinArmTcpAmrRouteClearance 0.25`로 실행한다.
@@ -58,11 +90,11 @@
   - orchestration 중 `WAIT_STACK_COMPLETE`와 `DONE_IDLE`을 제외한 AMR 이송 단계에서 실제 joint-state FK 기반 TCP 위치를 샘플링한다.
   - completion log에 `arm_tcp_amr_route_clearance_sample_count`, `min_arm_tcp_amr_route_clearance`를 남긴다.
 
-- [x] route clearance strict gate는 아직 켜지지 않도록 metric-only로 유지했다.
+- [x] 당시 route clearance strict gate는 아직 켜지지 않도록 metric-only로 유지했다.
   - 실패 실험에서 `SelfTestMinArmTcpAmrRouteClearance = 0.25`를 strict wrapper에 바로 넣었을 때, 로봇팔 자세 불안정/route 근접 문제가 같이 드러났다.
   - 같은 시도 중 `arm.soft_reset()` 기반 soft reset도 테스트했지만 motion policy 상태가 더 나빠져 폐기했다.
   - 최종 코드에는 soft reset 호출, reset count metric, 관련 테스트 assertion을 모두 제거했다.
-  - 현재 strict wrapper에는 route clearance threshold를 넣지 않고, wrapper 파라미터 기본값 `0.0`으로 필요 시 수동 활성화할 수 있게만 남겼다.
+  - 당시 strict wrapper에는 route clearance threshold를 넣지 않고, wrapper 파라미터 기본값 `0.0`으로 필요 시 수동 활성화할 수 있게만 남겼다.
 
 - [x] 이번 metric-only 변경 검증 완료.
   - py_compile 통과

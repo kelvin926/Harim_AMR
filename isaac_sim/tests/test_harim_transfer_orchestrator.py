@@ -1227,6 +1227,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("REACH_PLACE_MAX_DURATION", source)
         self.assertIn("RETURN_READY_DURATION", source)
         self.assertIn("RETURN_READY_POSITION_THRESHOLD", source)
+        self.assertIn("class DemoStableReachToPick", source)
+        self.assertIn("PosePq(self.target_p", source)
+        self.assertIn("ApproachParams(direction=approach_length * self.target_ax", source)
+        self.assertIn("behavior.adjust_about_x_if_opposite", source)
+        self.assertIn("DemoTimedState(DemoStableReachToPick()", source)
         self.assertIn("POST_RELEASE_JOINT_SETTLE_DURATION", source)
         self.assertIn("position_error", source)
         self.assertIn("_record_final_error", source)
@@ -2190,6 +2195,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinAmrRouteBollardHeight", source)
         self.assertIn("SelfTestMaxLoadedRouteYError", source)
         self.assertIn("SelfTestMinLoadedRouteGuardClearance", source)
+        self.assertIn("SelfTestMinArmTcpAmrRouteClearance", source)
         self.assertIn("SelfTestMaxCarriedPalletPoseError", source)
         self.assertIn("SelfTestMaxCarriedPalletOrientationError", source)
         self.assertIn("SelfTestMaxCarriedPayloadPoseError", source)
@@ -2198,13 +2204,12 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinDropDockArrivalCount", source)
         self.assertIn("SelfTestMaxDropDockFinalError", source)
 
-    def test_strict_runner_can_enable_arm_tcp_route_clearance_gate(self):
+    def test_strict_runner_requires_arm_tcp_route_clearance_by_default(self):
         source = STRICT_RUNNER_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("$EnableArmTcpRouteClearanceGate", source)
         self.assertIn("$SelfTestMinArmTcpAmrRouteClearance = 0.25", source)
-        self.assertIn("if ($EnableArmTcpRouteClearanceGate)", source)
-        self.assertIn("$RunnerArgs.SelfTestMinArmTcpAmrRouteClearance", source)
+        self.assertIn("SelfTestMinArmTcpAmrRouteClearance = $SelfTestMinArmTcpAmrRouteClearance", source)
+        self.assertNotIn("$EnableArmTcpRouteClearanceGate", source)
         self.assertIn('if (-not $ShowGui)', source)
         self.assertIn("Headless = $true", source)
 
