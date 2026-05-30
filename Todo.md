@@ -1,5 +1,42 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 GUI 카메라 기반 리뷰 GIF 저장
+
+- [x] 사용자가 요청한 기준을 반영해 기존 좌표/도식형 GIF가 아니라 Isaac Sim 카메라 프림에서 렌더된 화면을 GIF로 저장하도록 변경했다.
+  - 추가 클래스: `StoryCameraFrameProvider`
+  - 사용 API: `isaacsim.sensors.camera.Camera`
+  - 카메라 소스: 기존 스토리 카메라 rig의 `overview`, `palletizer`, `amr_route`, `drop_dock`
+  - 해상도: `960x540`
+  - 저장 파일명: `isaacsim_outputs/harim_amr_camera_YYYYMMDD_HHMMSS_PID.gif`
+  - 최신본: 기존과 동일하게 `isaacsim_outputs/latest_review.gif`로 갱신한다.
+
+- [x] self-test 기준을 강화했다.
+  - `--self-test-require-review-gif`가 켜진 실행에서는 GIF 파일 존재 여부만 보지 않는다.
+  - `review_gif_source=camera`가 아니면 `review GIF did not capture GUI camera frames`로 실패시킨다.
+  - 카메라 RGBA 버퍼가 아직 준비되지 않은 초기 프레임은 건너뛰고, 완전 검정 부트스트랩 프레임도 저장하지 않는다.
+  - headless 실행에서도 GIF 캡처 프레임과 초기 warmup 프레임에서는 `world.step(render=True)`가 호출되도록 했다.
+
+- [x] 빠른 검증 완료.
+  - py_compile 통과
+  - unittest 86개 통과
+  - 240-frame camera GIF smoke 통과
+    - 로그: `isaacsim_logs/harim_gui_camera_gif_smoke_240_retry3.log`
+    - GIF: `isaacsim_outputs/harim_amr_camera_20260530_141935_540.gif`
+    - 핵심값: `review_gif_source=camera`, `review_gif_frame_count=2`
+  - 1200-frame camera GIF smoke 통과
+    - 로그: `isaacsim_logs/harim_gui_camera_gif_smoke_1200.log`
+    - GIF: `isaacsim_outputs/harim_amr_camera_20260530_142118_39124.gif`
+    - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+    - 확인값: `review_gif_source=camera`, `review_gif_frame_count=25`, 저장 GIF는 `960x540`, 24 animated frames, 약 5.4MB
+
+- [x] 전체 strict full end-to-end 검증 완료.
+  - 실행: `.\run_harim_strict_self_test.ps1 -AcceptEula`
+  - 로그: `isaacsim_logs/harim_gui_camera_gif_strict_full_e2e.log`
+  - GIF: `isaacsim_outputs/harim_amr_camera_20260530_142915_17548.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `rejected_attach_count=0`, `reach_pick_timed_release_count=0`, `max_attached_grasp_error=0.0289`, `max_arm_ee_frame_displacement=0.0797`, `min_arm_tcp_amr_route_clearance=0.2814`, `camera_director_switch_count=5`, `camera_director_role_count=4`, `review_gif_frame_count=45`, `review_gif_source=camera`
+  - 저장 GIF 확인: `960x540`, 44 animated frames, 약 12.2MB, 첫/중간/마지막 프레임이 모두 비검정 실제 렌더 이미지다.
+
 ## 2026-05-30 Fixed-Frame 실행 GIF 자동 요구
 - [x] 사용자가 매 실행 결과를 바로 볼 수 있도록 fixed-frame self-test 실행에서는 `-SelfTestRequireReviewGif`를 직접 넘기지 않아도 자동으로 `--self-test-require-review-gif`가 붙도록 `run_harim_demo.ps1`를 보강했다.
   - 변경: `$RequireReviewGif = $SelfTestRequireReviewGif -or ($SelfTestFrames -gt 0)`

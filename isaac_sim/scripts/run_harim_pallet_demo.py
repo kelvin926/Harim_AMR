@@ -19,6 +19,8 @@ DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
 DEFAULT_GIF_OUTPUT_DIR = PROJECT_ROOT / "isaacsim_outputs"
 LATEST_REVIEW_GIF_NAME = "latest_review.gif"
 GIF_CANVAS_SIZE = (960, 540)
+CAMERA_GIF_RESOLUTION = GIF_CANVAS_SIZE
+CAMERA_GIF_SENSOR_WARMUP_RENDER_FRAMES = 6
 GIF_FRAME_STRIDE = 80
 GIF_MAX_FRAMES = 180
 GIF_FRAME_DURATION_MS = 80
@@ -2499,6 +2501,63 @@ def resolve_project_path(path_value):
     return path
 
 
+class StoryCameraFrameProvider:
+    def __init__(self, camera_paths_by_role, resolution=CAMERA_GIF_RESOLUTION):
+        self.camera_paths_by_role = dict(camera_paths_by_role or {})
+        self.resolution = tuple(int(v) for v in resolution)
+        self.cameras_by_role = {}
+        self.initialized = False
+
+    def initialize(self):
+        if self.initialized:
+            return
+        from isaacsim.sensors.camera import Camera
+
+        for role, camera_path in sorted(self.camera_paths_by_role.items()):
+            camera = Camera(
+                prim_path=str(camera_path),
+                name=f"harim_story_gif_camera_{role}",
+                resolution=self.resolution,
+            )
+            camera.initialize()
+            self.cameras_by_role[role] = camera
+        self.initialized = True
+        print(
+            f"[HarimDemo] GUI camera GIF capture ready: {len(self.cameras_by_role)} cameras; "
+            f"resolution={self.resolution[0]}x{self.resolution[1]}",
+            flush=True,
+        )
+
+    def capture(self, role):
+        from PIL import Image
+
+        if not self.initialized:
+            self.initialize()
+        camera = self.cameras_by_role.get(role) or self.cameras_by_role.get("overview")
+        if camera is None:
+            raise RuntimeError("no story camera is available for GUI camera GIF capture")
+        rgba = camera.get_rgba()
+        if rgba is None:
+            return None
+        rgba = np.asarray(rgba)
+        if rgba.size <= 0:
+            return None
+        if rgba.ndim != 3 or rgba.shape[2] < 3:
+            raise RuntimeError(f"camera RGBA data has unexpected shape {rgba.shape}")
+        if rgba.dtype != np.uint8:
+            if float(np.nanmax(rgba)) <= 1.0:
+                rgba = rgba * 255.0
+            rgba = np.clip(rgba, 0, 255).astype(np.uint8)
+        rgb = rgba[:, :, :3]
+        # The RTX camera can emit one all-black bootstrap frame before the first valid render.
+        if float(np.nanmax(rgb)) <= 2.0:
+            return None
+        image = Image.fromarray(rgb).convert("RGB")
+        if image.size != self.resolution:
+            image = image.resize(self.resolution)
+        return image
+
+
 class DemoGifRecorder:
     def __init__(
         self,
@@ -2508,6 +2567,7 @@ class DemoGifRecorder:
         max_frames=GIF_MAX_FRAMES,
         frame_duration_ms=GIF_FRAME_DURATION_MS,
         canvas_size=GIF_CANVAS_SIZE,
+        camera_frame_provider=None,
     ):
         self.requested_enabled = bool(enabled)
         self.enabled = self.requested_enabled
@@ -2516,24 +2576,35 @@ class DemoGifRecorder:
         self.max_frames = max(1, int(max_frames))
         self.frame_duration_ms = max(20, int(frame_duration_ms))
         self.canvas_size = tuple(canvas_size)
+        self.camera_frame_provider = camera_frame_provider
         self.frames = []
         self.saved_path = None
         self.latest_path = None
         self.last_captured_frame = None
         self.disabled_reason = None
+        self.captured_source = None
 
-    def maybe_capture(self, frame_index, orchestrator, context, args, force=False):
+    def wants_capture(self, frame_index, force=False):
         if not self.enabled:
-            return
+            return False
         if len(self.frames) >= self.max_frames and not force:
-            return
+            return False
         frame_index = int(frame_index)
         if not force and frame_index % self.frame_stride != 0:
-            return
+            return False
         if self.last_captured_frame == frame_index:
+            return False
+        return True
+
+    def maybe_capture(self, frame_index, orchestrator, context, args, force=False):
+        if not self.wants_capture(frame_index, force=force):
             return
+        frame_index = int(frame_index)
         try:
-            frame = self._draw_frame(frame_index, orchestrator, context, args)
+            frame = self._capture_frame(frame_index, orchestrator, context, args)
+            if frame is None:
+                self.disabled_reason = "camera frame not ready"
+                return
             if len(self.frames) >= self.max_frames:
                 self.frames[-1] = frame
             else:
@@ -2552,7 +2623,8 @@ class DemoGifRecorder:
         try:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             stamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = self.output_dir / f"harim_amr_review_{stamp}_{os.getpid()}.gif"
+            prefix = "harim_amr_camera" if self.captured_source == "camera" else "harim_amr_review"
+            output_path = self.output_dir / f"{prefix}_{stamp}_{os.getpid()}.gif"
             frames = list(self.frames)
             if not frames:
                 frames = [self._draw_fallback_frame()]
@@ -2580,6 +2652,17 @@ class DemoGifRecorder:
             print(f"[HarimDemo] review GIF save failed: {exc}", flush=True)
             self.enabled = False
             return None
+
+    def _capture_frame(self, frame_index, orchestrator, context, args):
+        if self.camera_frame_provider is not None:
+            role = getattr(orchestrator, "camera_director_last_role", None)
+            if role is None:
+                role = camera_role_for_transfer_state(getattr(orchestrator, "state", None))
+            frame = self.camera_frame_provider.capture(role)
+            self.captured_source = "camera"
+            return frame
+        self.captured_source = self.captured_source or "diagram"
+        return self._draw_frame(frame_index, orchestrator, context, args)
 
     def _draw_fallback_frame(self):
         from PIL import Image, ImageDraw
@@ -3861,6 +3944,8 @@ def main():
 
     if not enable_extension("isaacsim.robot.surface_gripper"):
         raise RuntimeError("Failed to enable required extension: isaacsim.robot.surface_gripper")
+    if not enable_extension("isaacsim.sensors.camera"):
+        raise RuntimeError("Failed to enable required extension: isaacsim.sensors.camera")
     simulation_app.update()
 
     from isaacsim.core.api.objects.cuboid import FixedCuboid, VisualCuboid
@@ -5165,6 +5250,7 @@ def main():
         return camera_paths_by_role
 
     camera_paths_by_role = create_camera_rig()
+    camera_frame_provider = StoryCameraFrameProvider(camera_paths_by_role, resolution=CAMERA_GIF_RESOLUTION)
 
     def set_story_camera(role):
         camera_path = camera_paths_by_role.get(role)
@@ -5918,6 +6004,7 @@ def main():
 
     world.reset()
     world.play()
+    camera_frame_provider.initialize()
     decider_network.context.stack_coordinates = clone_stack_coordinates(stack_coordinates)
     decider_network.context.demo_stack_coordinates = clone_stack_coordinates(stack_coordinates)
     decider_network.context.demo_sim_time = 0.0
@@ -5958,6 +6045,7 @@ def main():
         output_dir=args.gif_output_dir,
         frame_stride=args.gif_frame_stride,
         max_frames=args.gif_max_frames,
+        camera_frame_provider=camera_frame_provider,
     )
     motion_continuity = MotionContinuityTracker()
     demo_frame_index = 0
@@ -6057,7 +6145,11 @@ def main():
         hold_demo_released_bin_at_target(decider_network.context)
         infeed_motion_controller.update(decider_network.context.demo_sim_time)
         infeed_feed_carton_controller.update(decider_network.context.demo_sim_time)
-        world.step(render=not args.headless)
+        render_for_camera_gif = gif_recorder.wants_capture(demo_frame_index) or (
+            gif_recorder.camera_frame_provider is not None
+            and demo_frame_index < CAMERA_GIF_SENSOR_WARMUP_RENDER_FRAMES
+        )
+        world.step(render=(not args.headless) or render_for_camera_gif)
         sync_demo_attached_bin(decider_network.context)
         hold_demo_released_bin_at_target(decider_network.context)
         force_self_test_stack_complete()
@@ -7486,6 +7578,7 @@ def main():
             review_gif_frame_count = len(getattr(gif_recorder, "frames", []))
             review_gif_width = int(gif_recorder.canvas_size[0])
             review_gif_height = int(gif_recorder.canvas_size[1])
+            review_gif_source = getattr(gif_recorder, "captured_source", None) or ""
             if args.self_test_require_review_gif:
                 if not review_gif_path or not Path(review_gif_path).exists():
                     self_test_failures.append("review GIF was not saved")
@@ -7493,6 +7586,8 @@ def main():
                     self_test_failures.append("latest review GIF was not updated")
                 if review_gif_frame_count <= 0:
                     self_test_failures.append("review GIF captured no simulation frames")
+                if review_gif_source != "camera":
+                    self_test_failures.append("review GIF did not capture GUI camera frames")
 
             if self_test_failures:
                 self_test_failure_message = "; ".join(self_test_failures)
@@ -7683,6 +7778,7 @@ def main():
                     f"review_gif_canvas_width={review_gif_width}; "
                     f"review_gif_canvas_height={review_gif_height}; "
                     f"review_gif_frame_count={review_gif_frame_count}; "
+                    f"review_gif_source={review_gif_source}; "
                     f"review_gif_path={review_gif_path or ''}; "
                     f"latest_review_gif_path={review_gif_latest_path or ''}",
                     flush=True,
