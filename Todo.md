@@ -1,5 +1,20 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Strict Grasp/Arm Continuity 기준 재조정
+
+- [x] 실제 joint-state FK 적용 후 반복 strict에서 안정적으로 낮아진 metric을 기준으로 strict wrapper의 허용치를 더 좁혔다.
+  - `SelfTestMaxAttachedGraspError`: `0.23` -> `0.06`
+  - `SelfTestMaxArmEeFrameDisplacement`: `0.22` -> `0.08`
+  - `SelfTestMaxAttachedBinFrameDisplacement`: `0.08` -> `0.06`
+- [x] 새 strict 기준으로 12000-frame full end-to-end self-test를 다시 통과시켰다.
+- [x] 통과 GIF와 로그를 기록했다.
+  - py_compile 통과
+  - unittest 84개 통과
+  - 로그 파일: `isaacsim_logs/harim_tight_grasp_arm_continuity_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_093433_19516.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_attached_grasp_error=0.0321`, `max_arm_ee_frame_displacement=0.0508`, `max_attached_bin_frame_displacement=0.0500`, `review_gif_frame_count=151`
+
 ## 2026-05-30 실제 Joint-State FK 기반 Grasp/Arm Continuity 안정화
 
 - [x] 반복 strict에서 `reach_place` 중 `MotionCommander.get_fk_p()`가 latest applied action 기준으로 순간 점프하면서 attached box grasp gap과 arm EE continuity gate가 실패하는 문제를 확인했다.

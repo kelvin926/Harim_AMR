@@ -1,5 +1,17 @@
 # Harim AMR Isaac Sim Demo
 
+## 2026-05-30 Measured Arm FK 및 Strict Continuity 기준 강화
+
+- review GIF, attached carton follow, release separation, arm EE motion continuity가 이제 `MotionCommander`의 latest applied action FK가 아니라 실제 articulation joint position 기반 FK를 사용합니다.
+- 반복 strict 기준을 최신 안정값에 맞춰 강화했습니다.
+  - `SelfTestMaxAttachedGraspError = 0.06`
+  - `SelfTestMaxArmEeFrameDisplacement = 0.08`
+  - `SelfTestMaxAttachedBinFrameDisplacement = 0.06`
+- 검증 로그: `isaacsim_logs/harim_measured_arm_fk_repeat_strict_full_e2e_12000.log`
+- GIF: `isaacsim_outputs/harim_amr_review_20260530_092538_28668.gif`
+- 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+- 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_attached_grasp_error=0.0321`, `max_arm_ee_frame_displacement=0.0508`, `max_attached_bin_frame_displacement=0.0500`
+
 ## 2026-05-30 Attached Grasp Alignment Gate 및 Motion Group 분리
 
 - 흡착 운반 중 박스가 suction gripper target에서 얼마나 벌어지는지 `demo_max_attached_grasp_error`로 계측합니다.
