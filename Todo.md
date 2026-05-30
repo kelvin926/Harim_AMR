@@ -1,5 +1,31 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Fixed-Frame 실행 GIF 자동 요구
+- [x] 사용자가 매 실행 결과를 바로 볼 수 있도록 fixed-frame self-test 실행에서는 `-SelfTestRequireReviewGif`를 직접 넘기지 않아도 자동으로 `--self-test-require-review-gif`가 붙도록 `run_harim_demo.ps1`를 보강했다.
+  - 변경: `$RequireReviewGif = $SelfTestRequireReviewGif -or ($SelfTestFrames -gt 0)`
+  - 의미: `-SelfTestFrames`가 1 이상인 모든 검증 실행은 timestamp GIF와 `latest_review.gif`가 실제로 저장되지 않으면 실패한다.
+  - 기존 Python 경로는 계속 유지한다. 모든 실행은 `isaacsim_outputs/harim_amr_review_YYYYMMDD_HHMMSS_PID.gif`를 저장하고, 같은 내용을 `isaacsim_outputs/latest_review.gif`로 갱신한다.
+
+- [x] 실패 실행에서도 GIF가 남는 것을 확인했다.
+  - 로그: `isaacsim_logs/harim_always_gif_latest_strict_full_e2e_12000.log`
+  - 실패 GIF: `isaacsim_outputs/harim_amr_review_20260530_134932_1756.gif`
+  - 최신본 갱신 확인: `isaacsim_outputs/latest_review.gif`
+  - 실패 원인은 GIF 저장 문제가 아니라 별도 진단 실험 중 `reach_pick timed release`와 pre-grip guard 반복 발생이었다. 해당 진단 변경은 커밋하지 않고 되돌렸다.
+
+- [x] 자동 GIF 요구 smoke 검증 완료.
+  - 실행 조건: `-SelfTestFrames 900`만 지정하고 `-SelfTestRequireReviewGif`는 생략
+  - 로그: `isaacsim_logs/harim_auto_require_gif_smoke_900.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_135304_27156.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 핵심값: `self-test completed after 900 frames`, `placed_bins=1`, `rejected_attach_count=0`, `reach_pick_timed_release_count=0`, `review_gif_frame_count=13`
+
+- [x] 자동 GIF 요구 strict full end-to-end 검증 완료.
+  - 로그: `isaacsim_logs/harim_auto_require_gif_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_135952_25824.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0048`, `rejected_attach_count=0`, `reach_pick_timed_release_count=0`, `reach_place_timed_release_count=8`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0305`, `min_arm_tcp_amr_route_clearance=0.2795`, `review_gif_frame_count=151`
+  - 통과 로그에서 `self-test failed`, `attach rejected`, `reach_pick timed release`는 검출되지 않았다.
+
 ## 2026-05-30 Pre-Grip Attach Guard 및 Return-Ready 자세 안정화
 
 - [x] pre-grip 거리가 비현실적으로 벌어졌을 때 박스를 흡착 패드 위치로 순간이동시키지 않도록 attach guard를 추가했다.

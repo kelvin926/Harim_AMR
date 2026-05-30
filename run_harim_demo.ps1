@@ -336,7 +336,9 @@ if ($SelfTestDebugBins) {
     $ArgsList += "--self-test-debug-bins"
 }
 
-if ($SelfTestRequireReviewGif) {
+$RequireReviewGif = $SelfTestRequireReviewGif -or ($SelfTestFrames -gt 0)
+
+if ($RequireReviewGif) {
     $ArgsList += "--self-test-require-review-gif"
 }
 

@@ -1784,6 +1784,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestRequireGripperOpenAfterRelease", source)
         self.assertIn("--self-test-require-gripper-open-after-release", source)
         self.assertIn("$SelfTestRequireReviewGif", source)
+        self.assertIn("$RequireReviewGif = $SelfTestRequireReviewGif -or ($SelfTestFrames -gt 0)", source)
         self.assertIn("--self-test-require-review-gif", source)
         self.assertIn("$SelfTestMinAttachedGraspSampleCount", source)
         self.assertIn("--self-test-min-attached-grasp-sample-count", source)
