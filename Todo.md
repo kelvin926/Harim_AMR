@@ -1,5 +1,50 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 Pre-Grip Attach Guard 및 Return-Ready 자세 안정화
+
+- [x] pre-grip 거리가 비현실적으로 벌어졌을 때 박스를 흡착 패드 위치로 순간이동시키지 않도록 attach guard를 추가했다.
+  - 추가 상수: `MAX_SCRIPTED_ATTACH_PRE_GRIP_OFFSET = 0.05`
+  - `DemoSettleBinAtGripper` 진입 시 `demo_pre_grip_initial_offset`이 5cm를 넘으면 `reject_demo_attach()`로 즉시 거부한다.
+  - 거부 시 gripper를 open 상태로 강제하고, `active_bin`, `demo_carried_bin`, `demo_pre_grip_bin`, `demo_scripted_place_bin`을 정리한다.
+  - 이후 lift/place/release 단계는 no-op으로 지나가고, `return_ready` 후 `DemoMarkCarriedBinComplete`에서 stack count를 올리지 않는다.
+  - 목적: 좌표가 크게 틀어진 상태에서 박스를 강제로 붙여 적재하는 비현실적 teleport/관통 연출을 숨기지 않고, self-test에서 명확히 실패시키는 것.
+
+- [x] attach guard를 strict gate로 묶었다.
+  - Python 옵션: `--self-test-max-rejected-attach-count`
+  - PowerShell wrapper: `SelfTestMaxRejectedAttachCount`
+  - strict 기준: `SelfTestMaxRejectedAttachCount = 0`
+  - completion log에 `rejected_attach_count`, `max_rejected_attach_offset`를 추가했다.
+
+- [x] guard 적용 직후 12000-frame strict에서 숨겨져 있던 4번째 박스 pick 불안정이 드러났다.
+  - 실패 로그: `isaacsim_logs/harim_attach_guard_strict_full_e2e_12000.log`
+  - 실패 GIF: `isaacsim_outputs/harim_amr_review_20260530_124610_20468.gif`
+  - 실패 핵심값: `placed_bins=3`, `max_pre_grip_offset=0.2156`, `rejected_attach_count=12`
+  - 원인 패턴: `return_ready`가 위치 오차 0.038m 근처에서 바로 종료된 뒤 다음 `ReachToPick`이 충분히 안정된 자세에서 시작하지 못해 `reach_pick timed release`가 발생했다.
+
+- [x] `return_ready`가 target position에 닿자마자 종료되지 않고 최소 시간 동안 자세를 안정화하도록 보강했다.
+  - 추가 상수: `RETURN_READY_MIN_DURATION = 1.20`
+  - `DemoTimedArmMoveTo`에 `min_duration`을 추가하고, `return_ready`에는 `RETURN_READY_MIN_DURATION`을 적용했다.
+  - 위치 오차가 threshold 안에 들어와도 최소 1.2초 동안 같은 ready command를 유지해 다음 pick 시작 자세를 더 안정적으로 만든다.
+
+- [x] 검증 완료.
+  - py_compile 통과
+  - unittest 86개 통과
+  - 900-frame smoke self-test 통과
+    - 로그: `isaacsim_logs/harim_attach_guard_smoke_900.log`
+    - GIF: `isaacsim_outputs/harim_amr_review_20260530_124201_20932.gif`
+    - 핵심값: `placed_bins=1`, `max_pre_grip_offset=0.0048`, `rejected_attach_count=0`, `review_gif_frame_count=13`
+  - return-ready settle 적용 후 12000-frame strict full end-to-end self-test 통과
+    - 로그: `isaacsim_logs/harim_return_ready_settle_attach_guard_strict_full_e2e_12000.log`
+    - GIF: `isaacsim_outputs/harim_amr_review_20260530_125351_29052.gif`
+    - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+    - 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0049`, `rejected_attach_count=0`, `max_rejected_attach_offset=0.0000`, `max_return_ready_error=0.0399`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0305`, `min_arm_tcp_amr_route_clearance=0.2787`, `review_gif_frame_count=151`
+  - 통과 로그에서 `reach_pick timed release`, `attach rejected`, `self-test failed`가 검출되지 않았다.
+
+- [ ] 다음 개선 후보.
+  - `return_ready`는 현재 position-only command라, 더 현실적으로 만들려면 ready pose의 orientation/joint posture까지 명시적으로 수렴하는 상태로 분리할 수 있다.
+  - attach guard가 실제로 발동했을 때 rejected carton을 별도 reject lane으로 빼는 시각 연출을 추가할 수 있다.
+  - 현재 guard는 teleport를 막는 안전장치이며, 장기적으로는 `ReachToPick` timeout 자체를 metric으로 기록해 strict에서 0회 요구하는 방향도 검토할 수 있다.
+
 ## 2026-05-30 UR10 Place Target 안정화
 
 - [x] `ReachToPlace`도 deterministic target state로 교체했다.

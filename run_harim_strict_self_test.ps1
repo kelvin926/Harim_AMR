@@ -23,6 +23,7 @@ $RunnerArgs = @{
     SelfTestMinPlacedBins = 8
     SelfTestMinTransferCycles = 1
     SelfTestMaxPreGripOffset = 0.05
+    SelfTestMaxRejectedAttachCount = 0
     SelfTestMaxReturnReadyError = 0.05
     SelfTestMaxReleaseDrift = 0.005
     SelfTestMinReleaseRetreatLift = 0.20

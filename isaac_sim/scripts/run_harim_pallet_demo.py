@@ -36,11 +36,13 @@ SURFACE_GRIPPER_RELEASE_RETRIES = 3
 SCRIPTED_PLACE_DURATION = 0.70
 SCRIPTED_PLACE_EE_HOVER = 0.30
 ACTIVE_BIN_ATTACHED_MAX_FRAME_STEP = 0.05
+MAX_SCRIPTED_ATTACH_PRE_GRIP_OFFSET = 0.05
 POST_RELEASE_JOINT_SETTLE_DURATION = 0.65
 ARM_CLEAR_SETTLE_TIME = 1.8
 REACH_PICK_MAX_DURATION = 12.0
 REACH_PLACE_MAX_DURATION = 4.2
 RETURN_READY_DURATION = 10.0
+RETURN_READY_MIN_DURATION = 1.20
 RETURN_READY_POSITION_THRESHOLD = 0.04
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
@@ -403,6 +405,12 @@ def parse_args():
         type=float,
         default=0.0,
         help="Fail the fixed-frame self-test if any scripted pre-grip correction exceeds this distance in meters. 0 disables the check.",
+    )
+    parser.add_argument(
+        "--self-test-max-rejected-attach-count",
+        type=int,
+        default=-1,
+        help="Fail the fixed-frame self-test if the pre-grip attach guard rejects more than this many cartons. -1 disables the check.",
     )
     parser.add_argument(
         "--self-test-max-return-ready-error",
@@ -4060,6 +4068,35 @@ def main():
                 except Exception:
                     pass
 
+    def reject_demo_attach(context, active_bin, pre_grip_offset, reason):
+        context.demo_attach_rejected = True
+        context.demo_rejected_attach_count = int(getattr(context, "demo_rejected_attach_count", 0)) + 1
+        if pre_grip_offset is not None:
+            context.demo_max_rejected_attach_offset = max(
+                float(getattr(context, "demo_max_rejected_attach_offset", 0.0)),
+                float(pre_grip_offset),
+            )
+        if active_bin is not None:
+            active_bin.demo_attached = False
+            active_bin.demo_attach_T = None
+            active_bin.is_attached = False
+            active_bin.demo_force_released = False
+            active_bin.demo_pick_stationed = True
+            try:
+                active_bin.bin_obj.set_world_pose(position=PICK_STATION_BIN_POSITION, orientation=UPSIDE_DOWN_BIN_QUAT)
+                stop_dynamic_prim(active_bin.bin_obj)
+                set_kinematic_for_demo(active_bin.bin_obj, True)
+            except Exception:
+                pass
+        context.active_bin = None
+        context.demo_carried_bin = None
+        context.demo_pre_grip_bin = None
+        context.demo_scripted_place_bin = None
+        context.demo_pre_grip_initial_offset = pre_grip_offset
+        force_open_suction_gripper(context)
+        offset_text = "unknown" if pre_grip_offset is None else f"{float(pre_grip_offset):.4f} m"
+        print(f"[HarimDemo] attach rejected: {reason}; pre-grip offset={offset_text}", flush=True)
+
     def release_demo_bin_at_target(context, bin_state, target_position, target_orientation):
         if bin_state is None:
             return
@@ -4323,6 +4360,7 @@ def main():
 
         def enter(self):
             set_demo_motion_phase(self.context, "pre_grip_settle")
+            self.context.demo_attach_rejected = False
             self.entry_time = get_demo_time(self.context)
             active_bin = getattr(self.context, "active_bin", None)
             self.context.demo_pre_grip_bin = active_bin
@@ -4340,11 +4378,24 @@ def main():
                     float(getattr(self.context, "demo_max_pre_grip_offset", 0.0)),
                     float(offset),
                 )
+                if offset > MAX_SCRIPTED_ATTACH_PRE_GRIP_OFFSET:
+                    reject_demo_attach(
+                        self.context,
+                        active_bin,
+                        offset,
+                        f"pre-grip offset exceeded {MAX_SCRIPTED_ATTACH_PRE_GRIP_OFFSET:.4f} m",
+                    )
+                    self.entry_time = None
+                    self.start_position = None
+                    self.start_orientation = None
+                    return
             if args.self_test_debug_bins and offset is not None:
                 print(f"[HarimDemo] pre-grip offset {offset:.4f} m; settle={self.duration:.2f}s", flush=True)
 
         def step(self):
             set_demo_motion_phase(self.context, "pre_grip_settle")
+            if getattr(self.context, "demo_attach_rejected", False):
+                return None
             if self.entry_time is None:
                 return None
             active_bin = get_demo_pre_grip_bin(self.context) or getattr(self.context, "active_bin", None)
@@ -4366,6 +4417,11 @@ def main():
             return None
 
         def exit(self):
+            if getattr(self.context, "demo_attach_rejected", False):
+                self.entry_time = None
+                self.start_position = None
+                self.start_orientation = None
+                return
             active_bin = get_demo_pre_grip_bin(self.context)
             if active_bin is not None:
                 place_active_bin_grasp_at_effector(self.context, active_bin)
@@ -4377,6 +4433,11 @@ def main():
         def enter(self):
             set_demo_motion_phase(self.context, "attach_bin")
             print("<close gripper>", flush=True)
+            if getattr(self.context, "demo_attach_rejected", False):
+                force_open_suction_gripper(self.context)
+                if args.self_test_debug_bins:
+                    print("[HarimDemo] demo attach skipped: pre-grip guard already rejected carton", flush=True)
+                return
             active_bin = get_demo_pre_grip_bin(self.context) or getattr(self.context, "active_bin", None)
             if active_bin is None:
                 if args.self_test_debug_bins:
@@ -4426,6 +4487,9 @@ def main():
 
         def enter(self):
             set_demo_motion_phase(self.context, "scripted_place")
+            if getattr(self.context, "demo_attach_rejected", False):
+                self.entry_time = None
+                return
             self.entry_time = get_demo_time(self.context)
             active_bin = get_demo_carried_bin(self.context) or getattr(self.context, "active_bin", None)
             if active_bin is None:
@@ -4511,6 +4575,9 @@ def main():
 
         def enter(self):
             set_demo_motion_phase(self.context, "release_retreat")
+            if getattr(self.context, "demo_attach_rejected", False):
+                self.entry_time = None
+                return
             self.entry_time = get_demo_time(self.context)
             print("<open gripper>", flush=True)
             force_open_suction_gripper(self.context)
@@ -4580,6 +4647,10 @@ def main():
 
         def enter(self):
             set_demo_motion_phase(self.context, "post_pick_lift")
+            if getattr(self.context, "demo_attach_rejected", False):
+                self.entry_time = None
+                self.target_pq = None
+                return
             self.entry_time = get_demo_time(self.context)
             self.target_pq = self.context.robot.arm.get_fk_pq()
             self.target_pq.p[2] += self.height
@@ -4587,6 +4658,8 @@ def main():
         def step(self):
             set_demo_motion_phase(self.context, "post_pick_lift")
             hold_demo_released_bin_at_target(self.context)
+            if getattr(self.context, "demo_attach_rejected", False):
+                return None
             self.context.robot.arm.send(MotionCommand(self.target_pq))
             if get_demo_time(self.context) - self.entry_time < self.duration:
                 return self
@@ -4666,6 +4739,10 @@ def main():
             self.target_R = None
 
         def enter(self):
+            if getattr(self.context, "demo_attach_rejected", False):
+                self.target_p = None
+                self.target_R = None
+                return
             target_index = len(self.context.stacked_bins)
             self.target_p = get_demo_stack_coordinate(self.context, target_index).copy()
             target_ax = np.array([0.0, 0.0, -1.0])
@@ -4752,11 +4829,19 @@ def main():
             self.active = False
 
     class DemoTimedArmMoveTo(DfState):
-        def __init__(self, position, duration, label, position_threshold=RETURN_READY_POSITION_THRESHOLD):
+        def __init__(
+            self,
+            position,
+            duration,
+            label,
+            position_threshold=RETURN_READY_POSITION_THRESHOLD,
+            min_duration=0.0,
+        ):
             self.position = np.array(position, dtype=float)
             self.duration = duration
             self.label = label
             self.position_threshold = position_threshold
+            self.min_duration = min_duration
             self.entry_time = None
             self.target_position = None
 
@@ -4775,7 +4860,7 @@ def main():
             current_position = get_measured_arm_fk_p(self.context)
             position_error = float(np.linalg.norm(current_position - self.target_position))
             elapsed = get_demo_time(self.context) - self.entry_time
-            if position_error <= self.position_threshold:
+            if elapsed >= self.min_duration and position_error <= self.position_threshold:
                 self._record_final_error(position_error)
                 print(f"[HarimDemo] {self.label} reached; error={position_error:.4f} m", flush=True)
                 return None
@@ -4836,6 +4921,13 @@ def main():
         def enter(self):
             set_demo_motion_phase(self.context, "mark_bin_complete")
             hold_demo_released_bin_at_target(self.context)
+            if getattr(self.context, "demo_attach_rejected", False):
+                if args.self_test_debug_bins:
+                    print("[HarimDemo] stack-count skipped after rejected attach", flush=True)
+                clear_demo_carry_context(self.context)
+                self.context.demo_released_bin = None
+                self.context.demo_attach_rejected = False
+                return
             active_bin = (
                 getattr(self.context, "demo_released_bin", None)
                 or get_demo_carried_bin(self.context)
@@ -4883,6 +4975,7 @@ def main():
                             PICK_READY_EE_POSITION,
                             duration=RETURN_READY_DURATION,
                             label="return_ready",
+                            min_duration=RETURN_READY_MIN_DURATION,
                         ),
                         DemoMarkCarriedBinComplete(),
                         DfSetLockState(set_locked_to=False, decider=self),
@@ -5816,6 +5909,9 @@ def main():
     decider_network.context.demo_sim_time = 0.0
     decider_network.context.demo_motion_phase = "initializing"
     decider_network.context.demo_max_pre_grip_offset = 0.0
+    decider_network.context.demo_attach_rejected = False
+    decider_network.context.demo_rejected_attach_count = 0
+    decider_network.context.demo_max_rejected_attach_offset = 0.0
     decider_network.context.demo_max_return_ready_error = 0.0
     decider_network.context.demo_max_release_drift = 0.0
     decider_network.context.demo_max_release_retreat_lift = 0.0
@@ -5977,6 +6073,18 @@ def main():
                 self_test_failures.append(
                     f"max pre-grip offset {max_pre_grip_offset:.4f} m exceeded "
                     f"{args.self_test_max_pre_grip_offset:.4f} m"
+                )
+            rejected_attach_count = int(getattr(decider_network.context, "demo_rejected_attach_count", 0))
+            max_rejected_attach_offset = float(
+                getattr(decider_network.context, "demo_max_rejected_attach_offset", 0.0)
+            )
+            if (
+                args.self_test_max_rejected_attach_count >= 0
+                and rejected_attach_count > args.self_test_max_rejected_attach_count
+            ):
+                self_test_failures.append(
+                    f"rejected attach count {rejected_attach_count} exceeded "
+                    f"{args.self_test_max_rejected_attach_count}"
                 )
             max_return_ready_error = float(getattr(decider_network.context, "demo_max_return_ready_error", 0.0))
             if (
@@ -7366,6 +7474,8 @@ def main():
                     f"[HarimDemo] self-test completed after {args.self_test_frames} frames; "
                     f"placed_bins={placed_count}; transfer_cycles={transfer_cycles}; "
                     f"max_pre_grip_offset={max_pre_grip_offset:.4f}; "
+                    f"rejected_attach_count={rejected_attach_count}; "
+                    f"max_rejected_attach_offset={max_rejected_attach_offset:.4f}; "
                     f"max_return_ready_error={max_return_ready_error:.4f}; "
                     f"max_release_drift={max_release_drift:.4f}; "
                     f"max_release_retreat_lift={max_release_retreat_lift:.4f}; "
