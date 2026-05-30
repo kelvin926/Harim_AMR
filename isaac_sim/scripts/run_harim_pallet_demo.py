@@ -348,11 +348,6 @@ def parse_args():
     parser.add_argument("--drop-x", type=float, default=DEFAULT_DROP_X, help="Drop X for delivered pallet. Default is over 10 m from pickup.")
     parser.add_argument("--drop-y", type=float, default=DEFAULT_DROP_Y, help="Drop Y for delivered pallet.")
     parser.add_argument(
-        "--no-gif",
-        action="store_true",
-        help="Disable the always-on review GIF export.",
-    )
-    parser.add_argument(
         "--gif-output-dir",
         type=Path,
         default=DEFAULT_GIF_OUTPUT_DIR,
@@ -5729,7 +5724,7 @@ def main():
     decider_network.context.demo_active_bin_conveyor_lateral_error = 0.0
     orchestrator.reset_visual_state()
     gif_recorder = DemoGifRecorder(
-        enabled=not args.no_gif,
+        enabled=True,
         output_dir=args.gif_output_dir,
         frame_stride=args.gif_frame_stride,
         max_frames=args.gif_max_frames,

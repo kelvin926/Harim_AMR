@@ -1309,7 +1309,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
 
         self.assertIn("--self-test-min-placed-bins", source)
         self.assertIn("--self-test-min-transfer-cycles", source)
-        self.assertIn("--no-gif", source)
+        self.assertNotIn("--no-gif", source)
         self.assertIn("--gif-output-dir", source)
         self.assertIn("--gif-frame-stride", source)
         self.assertIn("--gif-max-frames", source)
@@ -1771,11 +1771,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("--self-test-max-released-bin-frame-displacement", source)
         self.assertIn("$SelfTestMaxCarriedPalletFrameDisplacement", source)
         self.assertIn("--self-test-max-carried-pallet-frame-displacement", source)
-        self.assertIn("$NoGif", source)
+        self.assertNotIn("$NoGif", source)
         self.assertIn("$GifOutputDir", source)
         self.assertIn("$GifFrameStride", source)
         self.assertIn("$GifMaxFrames", source)
-        self.assertIn("--no-gif", source)
+        self.assertNotIn("--no-gif", source)
         self.assertIn("--gif-output-dir", source)
         self.assertIn("--gif-frame-stride", source)
         self.assertIn("--gif-max-frames", source)
@@ -2197,6 +2197,14 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("SelfTestMinDropApproachStandoff", source)
         self.assertIn("SelfTestMinDropDockArrivalCount", source)
         self.assertIn("SelfTestMaxDropDockFinalError", source)
+
+    def test_strict_runner_can_enable_arm_tcp_route_clearance_gate(self):
+        source = STRICT_RUNNER_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("$EnableArmTcpRouteClearanceGate", source)
+        self.assertIn("$SelfTestMinArmTcpAmrRouteClearance = 0.25", source)
+        self.assertIn("if ($EnableArmTcpRouteClearanceGate)", source)
+        self.assertIn("$RunnerArgs.SelfTestMinArmTcpAmrRouteClearance", source)
         self.assertIn('if (-not $ShowGui)', source)
         self.assertIn("Headless = $true", source)
 

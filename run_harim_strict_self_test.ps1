@@ -2,6 +2,8 @@ param(
     [switch]$AcceptEula,
     [switch]$ShowGui,
     [switch]$SelfTestDebugBins,
+    [switch]$EnableArmTcpRouteClearanceGate,
+    [double]$SelfTestMinArmTcpAmrRouteClearance = 0.25,
     [int]$SelfTestFrames = 12000,
     [int]$Cycles = 1
 )
@@ -163,6 +165,10 @@ if ($AcceptEula) {
 
 if ($SelfTestDebugBins) {
     $RunnerArgs.SelfTestDebugBins = $true
+}
+
+if ($EnableArmTcpRouteClearanceGate) {
+    $RunnerArgs.SelfTestMinArmTcpAmrRouteClearance = $SelfTestMinArmTcpAmrRouteClearance
 }
 
 & $Runner @RunnerArgs

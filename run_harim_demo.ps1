@@ -8,7 +8,6 @@ param(
     [int]$SelfTestFrames = 0,
     [switch]$SelfTestForceStackComplete,
     [switch]$SelfTestDebugBins,
-    [switch]$NoGif,
     [string]$GifOutputDir = "",
     [int]$GifFrameStride = 80,
     [int]$GifMaxFrames = 180,
@@ -335,10 +334,6 @@ if ($SelfTestDebugBins) {
 
 if ($SelfTestRequireReviewGif) {
     $ArgsList += "--self-test-require-review-gif"
-}
-
-if ($NoGif) {
-    $ArgsList += "--no-gif"
 }
 
 if ($GifOutputDir -ne "") {

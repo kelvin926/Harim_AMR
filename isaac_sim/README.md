@@ -893,7 +893,6 @@ Useful runner options:
 ```powershell
 .\run_harim_demo.ps1 -AcceptEula
 .\run_harim_demo.ps1 -AcceptEula -GifOutputDir E:\Harim_AMR\isaacsim_outputs
-.\run_harim_demo.ps1 -AcceptEula -NoGif
 ```
 
 The strict self-test log also includes `review_gif_path=...` so the generated GIF can be found from the log.

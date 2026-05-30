@@ -1,12 +1,55 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 AMR Route/TCP Clearance Strict 승격 실험 및 보류
+
+- [x] `min_arm_tcp_amr_route_clearance`를 strict gate로 승격할 수 있는지 실험했다.
+  - 실험 기준: `SelfTestMinArmTcpAmrRouteClearance = 0.25`
+  - 1차 full strict는 통과했다.
+  - 통과 로그: `isaacsim_logs/harim_arm_route_clearance_strict_gate_full_e2e_12000.log`
+  - 통과 GIF: `isaacsim_outputs/harim_amr_review_20260530_102913_24996.gif`
+  - 통과 핵심값: `placed_bins=8`, `transfer_cycles=1`, `min_arm_tcp_amr_route_clearance=0.2787`, `max_pre_grip_offset=0.0050`, `max_return_ready_error=0.0399`, `max_attached_grasp_error=0.0000`, `review_gif_frame_count=151`
+
+- [x] 반복 full strict에서 팔레타이징 후반 divergence가 재현되어 strict 기본 승격은 보류했다.
+  - 반복 실패 로그: `isaacsim_logs/harim_arm_route_clearance_strict_gate_repeat_full_e2e_12000.log`
+  - 반복 실패 GIF: `isaacsim_outputs/harim_amr_review_20260530_103422_28656.gif`
+  - 실패 핵심값: `max_pre_grip_offset=1.2955`, `max_return_ready_error=1.1188`, `max_attached_grasp_error=2.1172`, `max_arm_ee_frame_displacement=2.7093`, `min_arm_tcp_amr_route_clearance=-0.5162`
+  - 같은 현상은 route gate 자체가 움직임을 바꿔서 생긴 것이 아니라, `ReachToPlace` 이후 로봇팔이 크게 벗어나며 `return_ready`와 다음 `reach_pick`이 연쇄적으로 무너지는 패턴이다.
+
+- [x] computed Cartesian pick/place로 `ReachToPick/ReachToPlace`를 대체하는 안정화 실험도 했지만 폐기했다.
+  - 실패 로그: `isaacsim_logs/harim_computed_pick_place_route_clearance_strict_full_e2e_12000.log`
+  - 실패 GIF: `isaacsim_outputs/harim_amr_review_20260530_104121_28864.gif`
+  - `target_position`만 직접 주는 방식은 일부 stack hover에서 RMPflow가 더 크게 튀어 `max_attached_grasp_error=10.0880`, `max_arm_ee_frame_displacement=2.7924`까지 악화됐다.
+  - 해당 코드 변경은 최종 작업 트리에서 제거했다.
+
+- [x] route clearance strict gate는 기본 strict에 상시 적용하지 않고, 필요할 때 명시적으로 켤 수 있게 했다.
+  - `run_harim_strict_self_test.ps1`에 `-EnableArmTcpRouteClearanceGate` switch를 추가했다.
+  - 기본값은 기존처럼 metric-only다.
+  - 반복 검증이나 회귀 확인이 필요할 때만 `-EnableArmTcpRouteClearanceGate -SelfTestMinArmTcpAmrRouteClearance 0.25`로 실행한다.
+
+- [x] route gate를 켜지 않은 기본 strict 재실행에서도 같은 팔레타이징 후반 divergence가 재현됨을 확인했다.
+  - 실패 로그: `isaacsim_logs/harim_optional_route_gate_default_strict_full_e2e_12000.log`
+  - 실패 GIF: `isaacsim_outputs/harim_amr_review_20260530_113305_37068.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 실패 핵심값: `placed_bins=8`, `transfer_cycles=0`, `max_pre_grip_offset=1.3476`, `max_return_ready_error=1.1044`, `max_attached_grasp_error=2.4827`, `max_arm_ee_frame_displacement=2.7093`
+  - 이 실행 당시 demo script에는 실험 코드가 남아 있지 않았으므로, 다음 작업은 route clearance gate가 아니라 UR10 `ReachToPlace`/`return_ready` 안정화가 우선이다.
+
+- [ ] 다음 개선 후보.
+  - `ReachToPlace` 후반 divergence가 시작되는 frame을 기준으로, UR10의 posture/orientation command를 더 보수적으로 제한한다.
+  - `return_ready`가 큰 error로 timed release될 경우 다음 박스를 attach하지 않고 recovery/home pose를 먼저 수행하는 guard를 추가한다.
+  - `max_pre_grip_offset`이 threshold를 넘는 경우 scripted attach를 진행하지 않고 recovery state로 보내는 편이 현실성에는 더 맞다.
+
 ## 2026-05-30 매 실행 Review GIF 저장 및 AMR Route/TCP Clearance 진단 Metric 추가
 
 - [x] 사용자가 매번 눈으로 확인할 수 있도록 Isaac/self-test 실행 경로에서 review GIF 저장을 계속 강제한다.
   - strict wrapper는 `SelfTestRequireReviewGif = $true`를 유지한다.
-  - Python 실행 경로는 `--no-gif`를 주지 않는 한 timestamp GIF를 `isaacsim_outputs/harim_amr_review_*.gif`로 저장한다.
+  - Python 실행 경로는 매번 timestamp GIF를 `isaacsim_outputs/harim_amr_review_*.gif`로 저장한다.
+  - 일반 PowerShell wrapper와 Python CLI에서 GIF 비활성화 옵션을 제거해 검증 실행 중 실수로 GIF 저장을 끄지 못하게 했다.
   - 매 실행 후 최신본은 `isaacsim_outputs/latest_review.gif`로 덮어써서, 사용자가 항상 같은 파일명으로 최신 결과를 열어볼 수 있게 한다.
   - self-test에서는 GIF 파일과 latest GIF가 실제로 만들어지지 않으면 실패하도록 `--self-test-require-review-gif` gate를 유지한다.
+  - smoke 검증 로그: `isaacsim_logs/harim_always_gif_smoke_60.log`
+  - smoke 검증 GIF: `isaacsim_outputs/harim_amr_review_20260530_113709_31368.gif`
+  - smoke 검증 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - smoke 검증 핵심값: `self-test completed after 60 frames`, `review_gif_frame_count=2`
 
 - [x] AMR이 팔레트를 싣고 이동하는 route와 로봇팔 TCP 사이의 수평 clearance를 계산하는 진단 metric을 추가했다.
   - 추가 함수: `compute_arm_tcp_amr_route_clearance(...)`
@@ -525,7 +568,7 @@
   - PowerShell wrapper와 strict wrapper에도 동일 gate를 연결했다.
 - [x] 사용자가 매번 확인할 수 있도록 기본 demo/self-test 실행은 review GIF를 `isaacsim_outputs`에 저장하게 유지한다.
   - 성공, 실패, 예외 종료 모두 `save_review_gif()`를 거치며 로그에 `review_gif_path`를 남긴다.
-  - 앞으로 검증 실행 시 `-NoGif`는 사용하지 않는다.
+  - 앞으로 검증 실행에서 누락이 없도록 `-NoGif` wrapper 옵션은 제거했다.
 - [x] 검증 완료
   - unittest 64개 통과
   - 12000-frame strict full end-to-end self-test 통과
@@ -3462,10 +3505,8 @@ GUI에서 로봇팔이 박스를 놓지 않는 것처럼 보이는 문제를 확
 - [x] `DemoGifRecorder` 추가
   - 기본 저장 위치: `E:\Harim_AMR\isaacsim_outputs`
   - 파일명 형식: `harim_amr_review_YYYYMMDD_HHMMSS_PID.gif`
-  - `--no-gif`로 비활성화 가능
   - `--gif-output-dir`, `--gif-frame-stride`, `--gif-max-frames` 지원
 - [x] `run_harim_demo.ps1`에 GIF 옵션 연결
-  - `-NoGif`
   - `-GifOutputDir`
   - `-GifFrameStride`
   - `-GifMaxFrames`
