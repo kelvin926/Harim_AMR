@@ -821,6 +821,25 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(metrics["pickup_dock_runner_clearance"], 0.05)
         self.assertLess(self.demo.PICKUP_DOCK_STOP_X_OFFSET, 0.0)
 
+    def test_arm_tcp_route_clearance_keeps_arm_out_of_loaded_amr_corridor(self):
+        clearance = self.demo.compute_arm_tcp_amr_route_clearance(
+            self.demo.PICK_READY_EE_POSITION,
+            Args.pickup_x,
+            Args.pickup_y,
+            Args.drop_x,
+            Args.drop_y,
+        )
+        inside_clearance = self.demo.compute_arm_tcp_amr_route_clearance(
+            [Args.pickup_x + 0.25, Args.pickup_y, 0.0],
+            Args.pickup_x,
+            Args.pickup_y,
+            Args.drop_x,
+            Args.drop_y,
+        )
+
+        self.assertGreater(clearance, 0.25)
+        self.assertLess(inside_clearance, 0.0)
+
     def test_review_gif_layout_has_readable_panel(self):
         map_rect, panel_rect = self.demo.compute_review_gif_layout()
 
@@ -1708,6 +1727,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("amr_route_bollard_height=", source)
         self.assertIn("max_loaded_route_y_error=", source)
         self.assertIn("min_loaded_route_guard_clearance=", source)
+        self.assertIn("arm_tcp_amr_route_clearance_sample_count=", source)
+        self.assertIn("min_arm_tcp_amr_route_clearance=", source)
         self.assertIn("max_carried_pallet_pose_error=", source)
         self.assertIn("max_carried_pallet_orientation_error=", source)
         self.assertIn("max_carried_payload_pose_error=", source)
@@ -1875,9 +1896,11 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("$SelfTestMinAmrRouteBollardHeight", source)
         self.assertIn("$SelfTestMaxLoadedRouteYError", source)
         self.assertIn("$SelfTestMinLoadedRouteGuardClearance", source)
+        self.assertIn("$SelfTestMinArmTcpAmrRouteClearance", source)
         self.assertIn("$SelfTestMaxCarriedPalletPoseError", source)
         self.assertIn("$SelfTestMaxCarriedPalletOrientationError", source)
         self.assertIn("--self-test-max-carried-pallet-orientation-error", source)
+        self.assertIn("--self-test-min-arm-tcp-amr-route-clearance", source)
         self.assertIn("$SelfTestMaxCarriedPayloadPoseError", source)
         self.assertIn("$SelfTestMaxCarriedPayloadOrientationError", source)
         self.assertIn("--self-test-max-carried-payload-orientation-error", source)

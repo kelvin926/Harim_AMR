@@ -1,5 +1,40 @@
 # Harim AMR Isaac Sim 구현 Todo
 
+## 2026-05-30 매 실행 Review GIF 저장 및 AMR Route/TCP Clearance 진단 Metric 추가
+
+- [x] 사용자가 매번 눈으로 확인할 수 있도록 Isaac/self-test 실행 경로에서 review GIF 저장을 계속 강제한다.
+  - strict wrapper는 `SelfTestRequireReviewGif = $true`를 유지한다.
+  - Python 실행 경로는 `--no-gif`를 주지 않는 한 timestamp GIF를 `isaacsim_outputs/harim_amr_review_*.gif`로 저장한다.
+  - 매 실행 후 최신본은 `isaacsim_outputs/latest_review.gif`로 덮어써서, 사용자가 항상 같은 파일명으로 최신 결과를 열어볼 수 있게 한다.
+  - self-test에서는 GIF 파일과 latest GIF가 실제로 만들어지지 않으면 실패하도록 `--self-test-require-review-gif` gate를 유지한다.
+
+- [x] AMR이 팔레트를 싣고 이동하는 route와 로봇팔 TCP 사이의 수평 clearance를 계산하는 진단 metric을 추가했다.
+  - 추가 함수: `compute_arm_tcp_amr_route_clearance(...)`
+  - 기준 route: pickup pose에서 drop pose까지의 AMR loaded route segment
+  - 기준 폭: 팔레트 deck 폭의 절반을 빼서, TCP가 팔레트 적재 통로에 얼마나 가까워지는지 clearance로 계산한다.
+  - orchestration 중 `WAIT_STACK_COMPLETE`와 `DONE_IDLE`을 제외한 AMR 이송 단계에서 실제 joint-state FK 기반 TCP 위치를 샘플링한다.
+  - completion log에 `arm_tcp_amr_route_clearance_sample_count`, `min_arm_tcp_amr_route_clearance`를 남긴다.
+
+- [x] route clearance strict gate는 아직 켜지지 않도록 metric-only로 유지했다.
+  - 실패 실험에서 `SelfTestMinArmTcpAmrRouteClearance = 0.25`를 strict wrapper에 바로 넣었을 때, 로봇팔 자세 불안정/route 근접 문제가 같이 드러났다.
+  - 같은 시도 중 `arm.soft_reset()` 기반 soft reset도 테스트했지만 motion policy 상태가 더 나빠져 폐기했다.
+  - 최종 코드에는 soft reset 호출, reset count metric, 관련 테스트 assertion을 모두 제거했다.
+  - 현재 strict wrapper에는 route clearance threshold를 넣지 않고, wrapper 파라미터 기본값 `0.0`으로 필요 시 수동 활성화할 수 있게만 남겼다.
+
+- [x] 이번 metric-only 변경 검증 완료.
+  - py_compile 통과
+  - unittest 85개 통과
+  - 12000-frame strict full end-to-end self-test 통과
+  - 로그 파일: `isaacsim_logs/harim_arm_route_clearance_metric_only_strict_full_e2e_12000.log`
+  - GIF: `isaacsim_outputs/harim_amr_review_20260530_101856_17068.gif`
+  - 최신본 GIF: `isaacsim_outputs/latest_review.gif`
+  - 완료 로그 핵심값: `placed_bins=8`, `transfer_cycles=1`, `max_pre_grip_offset=0.0049`, `max_return_ready_error=0.0400`, `max_attached_grasp_error=0.0000`, `max_arm_ee_frame_displacement=0.0353`, `measured_arm_fk_fallback_count=0`, `arm_tcp_amr_route_clearance_sample_count=1974`, `min_arm_tcp_amr_route_clearance=0.2816`, `review_gif_frame_count=151`
+
+- [ ] 다음 개선 후보.
+  - route clearance를 strict gate로 승격하려면 먼저 로봇팔 TCP가 AMR loaded corridor 바깥으로 충분히 머무르는지 여러 반복 run에서 안정성을 더 확인한다.
+  - AMR route와 팔레타이저 셀 사이의 시각적 여유를 더 크게 보이게 하려면 pickup/drop y 좌표 또는 안전 fence/guard 배치를 함께 조정한다.
+  - GUI 확인용 실행에서도 별도 timestamp GIF와 `latest_review.gif`가 남는지 유지한다.
+
 ## 2026-05-30 Measured Arm FK Fallback Gate 추가
 
 - [x] 실제 articulation joint-state FK helper가 실패해서 command/applied-action FK로 fallback되는 경우를 `measured_arm_fk_fallback_count`로 기록하도록 했다.

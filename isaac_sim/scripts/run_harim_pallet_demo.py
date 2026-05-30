@@ -1141,6 +1141,12 @@ def parse_args():
         help="Fail the fixed-frame self-test if the carried pallet leaves less side clearance to AMR route guards than this distance. 0 disables the check.",
     )
     parser.add_argument(
+        "--self-test-min-arm-tcp-amr-route-clearance",
+        type=float,
+        default=0.0,
+        help="Fail the fixed-frame self-test if the robot TCP comes closer than this horizontal clearance to the loaded AMR route. 0 disables the check.",
+    )
+    parser.add_argument(
         "--self-test-max-carried-pallet-pose-error",
         type=float,
         default=0.0,
@@ -2240,6 +2246,27 @@ def compute_loaded_route_guard_clearance(amr_y, pickup_y=DEFAULT_PICKUP_Y, drop_
     return float(AMR_ROUTE_GUARD_Y_OFFSET - guard_half_width - PALLET_DECK_SCALE[1] * 0.5 - lateral_error)
 
 
+def compute_arm_tcp_amr_route_clearance(
+    arm_position,
+    pickup_x=DEFAULT_PICKUP_X,
+    pickup_y=DEFAULT_PICKUP_Y,
+    drop_x=DEFAULT_DROP_X,
+    drop_y=DEFAULT_DROP_Y,
+):
+    point = np.array(arm_position, dtype=float)[:2]
+    start = np.array([float(pickup_x), float(pickup_y)], dtype=float)
+    end = np.array([float(drop_x), float(drop_y)], dtype=float)
+    route_vector = end - start
+    route_length_sq = float(np.dot(route_vector, route_vector))
+    if route_length_sq <= 1e-9:
+        closest = start
+    else:
+        t = clamp(float(np.dot(point - start, route_vector) / route_length_sq), 0.0, 1.0)
+        closest = start + t * route_vector
+    loaded_half_width = float(PALLET_DECK_SCALE[1]) * 0.5
+    return float(np.linalg.norm(point - closest) - loaded_half_width)
+
+
 def compute_drop_docking_metrics(pickup_x=DEFAULT_PICKUP_X, drop_x=DEFAULT_DROP_X):
     travel_direction = 1.0 if float(drop_x) >= float(pickup_x) else -1.0
     drop_approach_x = float(drop_x) - travel_direction * AMR_DROP_APPROACH_STANDOFF
@@ -2847,6 +2874,8 @@ class HarimTransferOrchestrator:
             args.pickup_y,
             args.drop_y,
         )
+        self.arm_tcp_amr_route_clearance_sample_count = 0
+        self.min_arm_tcp_amr_route_clearance = float("inf")
         self.max_carried_pallet_pose_error = 0.0
         self.max_carried_pallet_orientation_error = 0.0
         self.max_carried_payload_pose_error = 0.0
@@ -3008,6 +3037,23 @@ class HarimTransferOrchestrator:
             self.min_amr_cell_gate_clearance,
             compute_amr_cell_gate_clearance(amr_pos[1], self.args.pickup_y),
         )
+
+    def _record_arm_tcp_route_clearance(self):
+        if self.state in (TransferState.WAIT_STACK_COMPLETE, TransferState.DONE_IDLE):
+            return
+        try:
+            arm_position = get_measured_arm_fk_p(self.context)
+        except Exception:
+            return
+        clearance = compute_arm_tcp_amr_route_clearance(
+            arm_position,
+            self.args.pickup_x,
+            self.args.pickup_y,
+            self.args.drop_x,
+            self.args.drop_y,
+        )
+        self.arm_tcp_amr_route_clearance_sample_count += 1
+        self.min_arm_tcp_amr_route_clearance = min(self.min_arm_tcp_amr_route_clearance, clearance)
 
     def _record_amr_orientation(self):
         try:
@@ -3695,6 +3741,7 @@ class HarimTransferOrchestrator:
         self.state_time += dt
         self._set_lift_plate_pose()
         self._sync_payload_pose()
+        self._record_arm_tcp_route_clearance()
 
         if self.state == TransferState.WAIT_STACK_COMPLETE:
             if getattr(self.context, "stack_complete", False):
@@ -7089,6 +7136,14 @@ def main():
             max_carried_payload_orientation_error = float(
                 getattr(orchestrator, "max_carried_payload_orientation_error", 0.0)
             )
+            arm_tcp_amr_route_clearance_sample_count = int(
+                getattr(orchestrator, "arm_tcp_amr_route_clearance_sample_count", 0)
+            )
+            min_arm_tcp_amr_route_clearance = float(
+                getattr(orchestrator, "min_arm_tcp_amr_route_clearance", 0.0)
+            )
+            if not math.isfinite(min_arm_tcp_amr_route_clearance):
+                min_arm_tcp_amr_route_clearance = 0.0
             if (
                 args.self_test_max_loaded_route_y_error > 0
                 and max_loaded_route_y_error > args.self_test_max_loaded_route_y_error
@@ -7105,6 +7160,14 @@ def main():
                     f"loaded route guard clearance {min_loaded_route_guard_clearance:.4f} m was below "
                     f"{args.self_test_min_loaded_route_guard_clearance:.4f} m"
                 )
+            if args.self_test_min_arm_tcp_amr_route_clearance > 0:
+                if arm_tcp_amr_route_clearance_sample_count <= 0:
+                    self_test_failures.append("arm TCP AMR route clearance was not sampled")
+                elif min_arm_tcp_amr_route_clearance < args.self_test_min_arm_tcp_amr_route_clearance:
+                    self_test_failures.append(
+                        f"arm TCP AMR route clearance {min_arm_tcp_amr_route_clearance:.4f} m was below "
+                        f"{args.self_test_min_arm_tcp_amr_route_clearance:.4f} m"
+                    )
             if (
                 args.self_test_max_carried_pallet_pose_error > 0
                 and max_carried_pallet_pose_error > args.self_test_max_carried_pallet_pose_error
@@ -7351,6 +7414,8 @@ def main():
                     f"amr_route_bollard_height={amr_route_bollard_height:.4f}; "
                     f"max_loaded_route_y_error={max_loaded_route_y_error:.4f}; "
                     f"min_loaded_route_guard_clearance={min_loaded_route_guard_clearance:.4f}; "
+                    f"arm_tcp_amr_route_clearance_sample_count={arm_tcp_amr_route_clearance_sample_count}; "
+                    f"min_arm_tcp_amr_route_clearance={min_arm_tcp_amr_route_clearance:.4f}; "
                     f"max_carried_pallet_pose_error={max_carried_pallet_pose_error:.4f}; "
                     f"max_carried_pallet_orientation_error={max_carried_pallet_orientation_error:.4f}; "
                     f"max_carried_payload_pose_error={max_carried_payload_pose_error:.4f}; "
