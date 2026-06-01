@@ -6,5 +6,12 @@ isaacsim_logs/
 .omni_user/
 .omni_cache/
 .kit_cache/
+_video_frames/
+isaacsim_outputs/
+.pytest_cache/
 __pycache__/
 *.pyc
+*.gif
+*.mp4
+*.mov
+*.avi

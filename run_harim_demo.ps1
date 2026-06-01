@@ -11,17 +11,20 @@ param(
     [double]$PickupX = 0.82,
     [double]$PickupY = -0.31,
     [double]$DropX = 11.42,
-    [double]$DropY = -0.31
+    [double]$DropY = -0.31,
+    [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PythonExe = Join-Path $ProjectRoot ".conda\env_isaacsim_5_1_0\python.exe"
+if ([string]::IsNullOrWhiteSpace($PythonExe)) {
+    $PythonExe = Join-Path $ProjectRoot ".conda\env_isaacsim_5_1_0\python.exe"
+}
 $DemoScript = Join-Path $ProjectRoot "isaac_sim\scripts\run_harim_pallet_demo.py"
 
 if (-not (Test-Path -LiteralPath $PythonExe)) {
-    throw "Isaac Sim conda environment was not found: $PythonExe"
+    throw "Isaac Sim conda environment was not found: $PythonExe. Run setup first: powershell -ExecutionPolicy Bypass -File .\setup_isaacsim_env.ps1"
 }
 
 if (-not (Test-Path -LiteralPath $DemoScript)) {

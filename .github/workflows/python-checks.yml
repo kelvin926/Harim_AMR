@@ -1,0 +1,33 @@
+name: Python checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  lightweight-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lightweight test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-ci.txt
+
+      - name: Compile demo scripts
+        run: |
+          python -m py_compile isaac_sim/scripts/run_harim_pallet_demo.py isaac_sim/tests/test_harim_transfer_orchestrator.py
+
+      - name: Run orchestrator unit tests
+        run: |
+          python -m unittest isaac_sim.tests.test_harim_transfer_orchestrator

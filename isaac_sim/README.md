@@ -1,107 +1,52 @@
-# Harim AMR Isaac Sim Demo
+# Isaac Sim Demo Details
 
-이 폴더는 `E:\Harim_AMR` 내부에 설치한 Isaac Sim 5.1.0 pip 환경만 사용합니다.
-기존 `E:\isaac-sim-5.1.0`, `E:\IsaacLab`, 기존 conda env는 사용하지 않습니다.
+이 폴더는 Harim AMR 데모의 Isaac Sim 실행 코드와 테스트를 담고 있습니다.
+
+## 현재 구현
+
+- Isaac Sim 5.1 pip 환경을 사용합니다.
+- 공식 UR10 bin stacking/palletizing 예제 asset을 기반으로 컨베이어, UR10, suction gripper, 예제 팔레트를 사용합니다.
+- bin은 처음부터 upside-down orientation으로 스폰해서 flip station을 거치지 않고 바로 place합니다.
+- `pallet_holder`와 `flip` 관련 prim은 no-flip 흐름에 맞춰 비활성화합니다.
+- 예제 팔레트 prim 자체는 유지하고, AMR lift-up/down 및 이송 시퀀스에 맞춰 위치만 갱신합니다.
+- `iw_hub`는 Isaac Sim sample asset을 reference해서 사용합니다.
+- `iw_hub/chassis/lift` prim이 있으면 해당 lift prim을 함께 움직입니다.
+- 별도로 만든 visual pallet, lift plate, drop slide workstation은 현재 사용하지 않습니다.
+- self-test용 payload는 임의 cuboid가 아니라 UR10 예제의 `small_KLT.usd`를 reference합니다.
 
 ## 실행
 
-PowerShell에서 프로젝트 루트로 이동한 뒤 실행합니다.
+루트 디렉터리에서 실행합니다. 아래 `C:\Projects\Harim_AMR`는 예시이며, 실제 clone한 폴더로 바꿔도 됩니다.
 
 ```powershell
-cd E:\Harim_AMR
-powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1
+cd C:\Projects\Harim_AMR
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -AcceptEula -Cycles 1
 ```
 
-Headless 실행:
+Headless 초기화 확인:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless
-```
-
-NVIDIA Omniverse Kit EULA를 아직 수락하지 않은 환경에서는 첫 실행 때 확인 프롬프트가 뜹니다.
-headless 또는 자동 실행에서 프롬프트를 받을 수 없으면, 내용을 확인하고 동의하는 경우에만 `-AcceptEula`를 명시적으로 붙입니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -AcceptEula
-```
-
-초기화만 짧게 확인하려면 `-SelfTestFrames`를 사용합니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2
-```
-
-기본값은 `2 x 2 x 2` 적재 패턴이며, 한 사이클이 끝나면 계속 반복합니다.
-`-Cycles 1`처럼 지정하면 해당 횟수만 완료한 뒤 시뮬레이션은 열린 상태로 대기합니다.
-기본 하역 위치는 pickup 위치에서 X 방향으로 10.6 m 떨어진 지점입니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Cycles 1 -StackCols 3 -StackRows 2 -StackLayers 2
-```
-
-검증용으로 AMR 이송 시퀀스를 빠르게 보고 싶으면 적재 완료를 강제로 넣고 이동 속도를 높일 수 있습니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
-```
-
-## 구현 구조
-
-- 공식 UR10 palletizing Cortex 동작을 기반으로 컨베이어 유입, suction gripper pick, 팔레트 위 적재를 수행합니다.
-- pip 설치 환경에서 interactive sample import에 의존하지 않도록 필요한 UR10 asset 경로와 bin 공급 task를 이 스크립트 안에 최소 구현했습니다.
-- bin은 처음부터 upside-down orientation으로 스폰합니다. 공식 behavior의 `needs_flip` 경로를 타지 않도록 `NoFlipDispatch`로 `pick_bin -> place_bin`만 사용하고, stage 안의 flip 관련 prim은 invisible 처리합니다.
-- UR10/background 및 `iw_hub` USD reference 뒤에는 stage asset loading이 끝날 때까지 기다립니다.
-- Cortex behavior의 `stack_complete` 상태를 감시합니다.
-- 적재 완료 후 custom orchestrator가 `iw_hub`를 pickup pose로 이동시킵니다.
-- LiftUp 단계에서 팔레트와 적재물을 들어 올리는 연출을 수행합니다.
-- `iw_hub/chassis/lift` prim이 있으면 실제 asset lift prim도 함께 움직이고, 없으면 visual lift plate만 사용합니다.
-- 이동 중에는 팔레트와 적재된 bin assembly를 `iw_hub` 기준 offset으로 따라가게 합니다.
-- Drop pose에서 LiftDown 후 팔레트/박스 assembly pose를 고정하고, `iw_hub`만 전방으로 슬라이드 이탈합니다.
-- visual pallet은 중앙 하부 통로가 비어 있도록 배치해 AMR이 팔레트 밑으로 들어갈 때 뚫려 보이는 문제를 줄였습니다.
-- `--cycles 0` 기본값은 무한 반복입니다.
-
-## 주의
-
-첫 실행 시 NVIDIA Isaac asset 다운로드와 shader cache 생성 때문에 시간이 오래 걸릴 수 있습니다.
-NVIDIA EULA 확인이 필요한 환경에서는 Isaac Sim 첫 실행 단계에서 사용자 확인이 필요할 수 있습니다.
-
-## 로컬 검증
-
-Isaac Sim을 띄우지 않고 custom orchestrator FSM만 검증하려면 다음 unittest를 실행합니다.
-현재 검증 범위는 단일 사이클, 무한 반복 reset, 실제 `iw_hub` lift prim 연동, stage loading wait helper, extension/import 의존성, headless self-test loop, 10 m 이상 이동, no-flip dispatch, 슬라이드 하역입니다.
-또한 `CortexUr10` import 전에 `isaacsim.robot.surface_gripper` extension을 enable하는 순서를 검사합니다.
-
-```powershell
-cd E:\Harim_AMR
-.\.conda\env_isaacsim_5_1_0\python.exe -m unittest .\isaac_sim\tests\test_harim_transfer_orchestrator.py
-```
-
-문법 검사:
-
-```powershell
-cd E:\Harim_AMR
-.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
-```
-
-실제 Isaac Sim 5.1.0 headless 초기화 검증:
-
-```powershell
-cd E:\Harim_AMR
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1
 ```
 
-AMR transfer 시퀀스까지 빠르게 검증:
+AMR transfer 빠른 검증:
 
 ```powershell
-cd E:\Harim_AMR
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
 ```
 
-2026-05-29 기준 위 검증은 통과했습니다. headless 로그에서 `MOVE_TO_DROP`, `slide-released pallet assembly at drop pose`, `SLIDE_OUT_FROM_PALLET`, `completed transfer cycle 1`을 확인했습니다.
+## 테스트
 
-## 2026-05-29 경로/드롭 작업대 변경
+Isaac Sim을 띄우지 않고 orchestration FSM과 소스 구조를 검증합니다.
 
-- AMR은 이제 로봇팔 테이블 쪽에서 출발하지 않고 pickup 위치 기준 `+X` 방향의 먼 위치에서 접근합니다. 테이블 아래를 뚫고 지나가는 것처럼 보이는 경로를 피하기 위한 변경입니다.
-- UR10 기본 예제에 포함된 `flip`, `pallet`, `pallet_holder` 계열 프림은 stage 로드 직후 비활성화합니다. 새로 만든 visual pallet만 남도록 하여 팔레트 겹침을 줄였습니다.
-- 목표 위치에는 슬라이드형 팔레트 작업대를 추가했습니다. `DropSlideRail`, `DropSlideRoller`, `DropSlideLeg` 프림으로 구성되며, AMR이 팔레트를 내려놓고 앞으로 빠져나갈 때 팔레트가 작업대 위에 남는 장면을 보여줍니다.
-- 현재 검증 범위는 unittest 16개, Python compile, 260-frame headless transfer self-test입니다.
+```powershell
+.\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
+.\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+```
+
+## 파일
+
+- `scripts/run_harim_pallet_demo.py`: 데모 실행 본체
+- `tests/test_harim_transfer_orchestrator.py`: lightweight unit tests
+
+루트의 [README.md](../README.md)와 [CONTRIBUTING.md](../CONTRIBUTING.md)에 협업 절차와 환경 설치 방법이 정리되어 있습니다.

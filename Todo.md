@@ -1056,6 +1056,40 @@ headless transfer self-test 로그 확인:
 
 ---
 
+## 2026-06-01 GitHub 협업/다른 PC 실행 구성 메모
+
+다른 동료가 GitHub 기반으로 clone해서 실행할 수 있도록 저장소 운영 구성을 추가한다.
+
+- [x] 루트 `README.md` 추가
+- [x] `CONTRIBUTING.md` 추가
+- [x] PR 템플릿 추가
+- [x] bug/task issue template 추가
+- [x] GitHub Actions lightweight Python check 추가
+- [x] `.gitattributes` 추가로 Markdown/Python/PowerShell 줄바꿈 정책 정리
+- [x] `requirements-ci.txt` 추가
+- [x] `requirements-isaacsim.txt` 추가
+- [x] `setup_isaacsim_env.ps1` 추가
+- [x] `run_harim_demo.ps1`가 프로젝트 폴더 기준으로 Python 환경을 찾도록 유지
+- [x] 특수 환경에서는 `run_harim_demo.ps1 -PythonExe <path-to-python.exe>`로 다른 Python 실행 파일을 지정할 수 있게 보강
+- [x] 문서의 실행 예시는 `E:\Harim_AMR` 고정이 아니라 임의 clone 경로 예시로 정리
+
+다른 PC 실행 기준:
+
+```powershell
+git clone https://github.com/kelvin926/Harim_AMR.git C:\Projects\Harim_AMR
+cd C:\Projects\Harim_AMR
+powershell -ExecutionPolicy Bypass -File .\setup_isaacsim_env.ps1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -AcceptEula -Cycles 1
+```
+
+주의:
+
+- `.conda`, Isaac Sim cache, 로그, 렌더링 결과물은 GitHub에 올리지 않는다.
+- Isaac Sim 전체 GUI/headless 검증은 GitHub Actions에서 수행하지 않고 로컬 NVIDIA GPU PC에서 수행한다.
+- GitHub Actions는 `numpy` 기반 lightweight unit test와 py_compile만 수행한다.
+
+---
+
 ## 2026-05-30 예제 에셋 전용 구성 정리 메모
 
 사용자 확인 결과, 이전 구현에서 설명을 쉽게 하기 위해 추가했던 커스텀 시각 에셋들이 오히려 씬을 어색하게 만들었다.
