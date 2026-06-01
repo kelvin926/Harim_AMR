@@ -11,9 +11,7 @@
 - 예제 팔레트 prim 자체는 유지하고, AMR lift-up/down 및 이송 시퀀스에 맞춰 위치만 갱신합니다.
 - `iw_hub`는 Isaac Sim sample asset을 reference해서 사용합니다.
 - `iw_hub/chassis/lift` prim이 있으면 해당 lift prim을 함께 움직입니다.
-- pickup/drop 지점에는 `VisualCuboid` rail로 만든 slide station을 생성합니다. station은 중앙 AMR clearance lane을 남기는 tunnel형 구조이며 기존 `pallet_holder`를 다시 켜지 않습니다.
-- `iw_hub` 기본 Z는 로드된 asset의 USD bounding box로 바닥과 정렬하고, station top/pallet underside/AMR lift interface/stack Z는 스크립트 상수에서 함께 맞춥니다.
-- KLT/bin은 팔레트와 비슷하지만 구분되는 warm tan 계열 material/display color를 적용합니다.
+- 별도로 만든 visual pallet, lift plate, drop slide workstation은 현재 사용하지 않습니다.
 - self-test용 payload는 임의 cuboid가 아니라 UR10 예제의 `small_KLT.usd`를 reference합니다.
 
 ## 실행
