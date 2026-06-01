@@ -175,20 +175,68 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertNotIn('add_child("flip_bin"', source)
         self.assertNotIn("behavior.make_decider_network", source)
 
-    def test_demo_uses_example_assets_without_custom_visual_props(self):
+    def test_demo_creates_rail_style_slide_stations(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
 
         self.assertIn("collect_example_pallet_parts", source)
         self.assertIn("using {len(pallet_parts)} example pallet prims", source)
         self.assertIn("custom pallet creation is disabled", source)
-        self.assertNotIn("VisualCuboid", source)
-        self.assertNotIn("create_drop_slide_workstation", source)
-        self.assertNotIn("DropSlideRail", source)
-        self.assertNotIn("DropSlideRoller", source)
-        self.assertNotIn("DropSlideLeg", source)
-        self.assertNotIn("IwHubLiftPlate", source)
+        self.assertIn("def create_slide_station", source)
+        self.assertIn("PickupSlideStation", source)
+        self.assertIn("DropSlideStation", source)
+
+        pickup_specs = self.demo.slide_station_component_specs("/World/HarimDemo/PickupSlideStation", "Pickup", 0.0, 0.0)
+        drop_specs = self.demo.slide_station_component_specs("/World/HarimDemo/DropSlideStation", "Drop", 0.0, 0.0)
+        spec_names = {spec["name"] for spec in pickup_specs + drop_specs}
+        self.assertIn("PickupSlideRailLeft", spec_names)
+        self.assertIn("PickupSlideRailRight", spec_names)
+        self.assertIn("DropSlideRailLeft", spec_names)
+        self.assertIn("DropSlideRailRight", spec_names)
+
+        rail_specs = [spec for spec in pickup_specs if "SlideRail" in spec["name"]]
+        self.assertEqual(len(rail_specs), 2)
+        self.assertGreater(self.demo.SLIDE_STATION_CLEARANCE_Y, 0.5)
+        self.assertLess(max(spec["scale"][1] for spec in pickup_specs), self.demo.SLIDE_STATION_CLEARANCE_Y)
+        self.assertGreater(max(spec["position"][1] for spec in rail_specs), 0.0)
+        self.assertLess(min(spec["position"][1] for spec in rail_specs), 0.0)
         self.assertNotIn("PalletDeck", source)
         self.assertNotIn("PalletBlock", source)
+
+    def test_box_material_helper_recolors_spawned_and_self_test_bins(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("def apply_box_material", source)
+        self.assertIn("BOX_MATERIAL_PATH", source)
+        self.assertIn("BOX_DISPLAY_COLOR", source)
+        self.assertGreaterEqual(source.count("apply_box_material("), 3)
+        self.assertIn("apply_box_material(self.stage, prim_path)", source)
+        self.assertIn("apply_box_material(stage, payload_path)", source)
+
+    def test_stack_z_base_is_derived_from_station_height(self):
+        self.assertAlmostEqual(
+            self.demo.make_stack_base_z(self.demo.PALLET_SUPPORT_TOP_Z),
+            self.demo.DEFAULT_STACK_Z_BASE,
+            places=6,
+        )
+        coords = self.demo.make_stack_coordinates(1, 1, 2)
+        self.assertAlmostEqual(coords[0][2], self.demo.DEFAULT_STACK_Z_BASE, places=6)
+        self.assertAlmostEqual(coords[1][2] - coords[0][2], self.demo.STACK_LAYER_SPACING_Z, places=6)
+
+        source = DEMO_PATH.read_text(encoding="utf-8")
+        self.assertIn("PALLET_SUPPORT_TOP_Z", source)
+        self.assertIn("BOX_STACK_CENTER_ABOVE_SUPPORT", source)
+        self.assertNotIn("z0 = -0.51", source)
+
+    def test_amr_default_z_is_derived_from_loaded_bounds(self):
+        source = DEMO_PATH.read_text(encoding="utf-8")
+
+        self.assertIsNone(self.demo.DEFAULT_AMR_Z)
+        self.assertIn("AMR_GROUND_CLEARANCE", source)
+        self.assertIn("WAREHOUSE_FLOOR_Z", source)
+        self.assertIn("compute_amr_ground_aligned_z", source)
+        self.assertIn("resolve_amr_z(stage", source)
+        self.assertIn("UsdGeom.BBoxCache", source)
+        self.assertNotIn("DEFAULT_AMR_Z = -1.05", source)
 
     def test_lift_up_moves_example_pallet_from_initial_pose(self):
         orchestrator, context, _world, _items = self.build_orchestrator(Args())
@@ -236,8 +284,8 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def test_actual_iw_hub_lift_prim_tracks_lift_offset(self):
         start_pose = np.array([Args.pickup_x + self.demo.AMR_START_STANDOFF, Args.pickup_y, Args.amr_z])
         lift_prim = FakePosePrim("asset_lift", start_pose + np.array([0.0, 0.0, 0.25]))
-        initial_lift_z = lift_prim.get_world_pose()[0][2]
         orchestrator, context, _world, _items = self.build_orchestrator(Args(), amr_lift_prim=lift_prim)
+        initial_lift_z = lift_prim.get_world_pose()[0][2]
         context.stack_complete = True
 
         self.run_until(orchestrator, lambda: orchestrator.state == self.demo.TransferState.MOVE_TO_DROP)

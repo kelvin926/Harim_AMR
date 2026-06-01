@@ -12,6 +12,7 @@ param(
     [double]$PickupY = -0.31,
     [double]$DropX = 11.42,
     [double]$DropY = -0.31,
+    [string]$AmrZ = "",
     [string]$PythonExe = ""
 )
 
@@ -55,6 +56,10 @@ if ($Headless) {
 
 if ($SelfTestForceStackComplete) {
     $ArgsList += "--self-test-force-stack-complete"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($AmrZ)) {
+    $ArgsList += @("--amr-z", $AmrZ)
 }
 
 & $PythonExe @ArgsList

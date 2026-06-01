@@ -18,6 +18,7 @@ PICKUP_X=0.82
 PICKUP_Y=-0.31
 DROP_X=11.42
 DROP_Y=-0.31
+AMR_Z=""
 
 usage() {
   cat <<'EOF'
@@ -37,6 +38,7 @@ Options:
   --pickup-y FLOAT
   --drop-x FLOAT
   --drop-y FLOAT
+  --amr-z FLOAT
   --python-exe PATH
 EOF
 }
@@ -95,6 +97,10 @@ while [[ $# -gt 0 ]]; do
       DROP_Y="$2"
       shift 2
       ;;
+    --amr-z)
+      AMR_Z="$2"
+      shift 2
+      ;;
     --python-exe)
       PYTHON_EXE="$2"
       shift 2
@@ -146,6 +152,10 @@ fi
 
 if [[ "$SELF_TEST_FORCE_STACK_COMPLETE" -eq 1 ]]; then
   ARGS+=("--self-test-force-stack-complete")
+fi
+
+if [[ -n "$AMR_Z" ]]; then
+  ARGS+=("--amr-z" "$AMR_Z")
 fi
 
 exec "$PYTHON_EXE" "${ARGS[@]}"

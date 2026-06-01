@@ -14,12 +14,33 @@ DEFAULT_PICKUP_X = 0.82
 DEFAULT_PICKUP_Y = -0.31
 DEFAULT_DROP_X = DEFAULT_PICKUP_X + 10.6
 DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
-DEFAULT_AMR_Z = -1.05
+WAREHOUSE_FLOOR_Z = -1.18180
+AMR_GROUND_CLEARANCE = 0.01
+DEFAULT_AMR_Z = None
+PALLET_SUPPORT_TOP_Z = -0.73
+LIFT_STATION_CLEARANCE = 0.02
+AMR_LIFT_INTERFACE_Z = PALLET_SUPPORT_TOP_Z - LIFT_STATION_CLEARANCE
+BOX_STACK_CENTER_ABOVE_SUPPORT = 0.19
+DEFAULT_STACK_Z_BASE = PALLET_SUPPORT_TOP_Z + BOX_STACK_CENTER_ABOVE_SUPPORT
 DEFAULT_LIFT_HEIGHT = 0.11
 DEFAULT_MOVE_SPEED = 0.65
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
 SLIDE_EXIT_DISTANCE = 1.8
+STACK_BASE_X = 1.05
+STACK_BASE_Y = -0.62
+STACK_COLUMN_SPACING_X = -0.21
+STACK_ROW_SPACING_Y = 0.31
+STACK_LAYER_SPACING_Z = 0.15
+SLIDE_STATION_LENGTH_X = 1.35
+SLIDE_STATION_CLEARANCE_Y = 0.72
+SLIDE_STATION_RAIL_WIDTH_Y = 0.16
+SLIDE_STATION_RAIL_HEIGHT = 0.08
+SLIDE_STATION_LEG_WIDTH_X = 0.12
+SLIDE_STATION_COLOR = (0.47, 0.43, 0.36)
+SLIDE_STATION_LEG_COLOR = (0.32, 0.33, 0.31)
+BOX_MATERIAL_PATH = "/World/HarimDemo/Materials/BoxMaterial"
+BOX_DISPLAY_COLOR = (0.72, 0.47, 0.25)
 UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
 
 
@@ -30,7 +51,12 @@ def parse_args():
     parser.add_argument("--stack-cols", type=int, default=2, help="Number of stack columns along X.")
     parser.add_argument("--stack-rows", type=int, default=2, help="Number of stack rows along Y.")
     parser.add_argument("--stack-layers", type=int, default=2, help="Number of stack layers along Z.")
-    parser.add_argument("--amr-z", type=float, default=DEFAULT_AMR_Z, help="World Z origin for the iw_hub actor.")
+    parser.add_argument(
+        "--amr-z",
+        type=float,
+        default=DEFAULT_AMR_Z,
+        help="Override the iw_hub world Z origin. By default this is derived from the loaded asset bounds.",
+    )
     parser.add_argument("--lift-height", type=float, default=DEFAULT_LIFT_HEIGHT, help="Visual lift height for pallet pickup.")
     parser.add_argument("--move-speed", type=float, default=DEFAULT_MOVE_SPEED, help="Scripted iw_hub movement speed in m/s.")
     parser.add_argument("--pickup-x", type=float, default=DEFAULT_PICKUP_X, help="Pickup X under the pallet stack.")
@@ -84,6 +110,190 @@ def deactivate_stage_prims_containing(stage, root_path, patterns):
             prim.SetActive(False)
 
 
+def compute_prim_world_bbox(stage, prim_path):
+    from pxr import Usd, UsdGeom
+
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim.IsValid():
+        raise RuntimeError(f"Cannot measure missing prim: {prim_path}")
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        includedPurposes=[UsdGeom.Tokens.default_, UsdGeom.Tokens.render, UsdGeom.Tokens.proxy],
+        useExtentsHint=True,
+    )
+    bbox_range = bbox_cache.ComputeWorldBound(prim).ComputeAlignedBox()
+    if bbox_range.IsEmpty():
+        raise RuntimeError(f"Cannot measure empty bounds for prim: {prim_path}")
+    return bbox_range
+
+
+def compute_prim_world_bottom_z(stage, prim_path):
+    bbox_range = compute_prim_world_bbox(stage, prim_path)
+    return float(bbox_range.GetMin()[2])
+
+
+def compute_prim_world_translation_z(stage, prim_path):
+    from pxr import Usd, UsdGeom
+
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim.IsValid():
+        raise RuntimeError(f"Cannot measure missing prim transform: {prim_path}")
+    xformable = UsdGeom.Xformable(prim)
+    if not xformable.GetPrim().IsValid():
+        return 0.0
+    matrix = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+    return float(matrix.ExtractTranslation()[2])
+
+
+def compute_amr_ground_aligned_z(
+    stage,
+    amr_prim_path,
+    floor_z=WAREHOUSE_FLOOR_Z,
+    ground_clearance=AMR_GROUND_CLEARANCE,
+):
+    root_z = compute_prim_world_translation_z(stage, amr_prim_path)
+    bottom_z = compute_prim_world_bottom_z(stage, amr_prim_path)
+    return root_z + (floor_z + ground_clearance - bottom_z)
+
+
+def resolve_amr_z(stage, amr_prim_path, requested_amr_z):
+    if requested_amr_z is not None:
+        return float(requested_amr_z)
+    return compute_amr_ground_aligned_z(stage, amr_prim_path)
+
+
+def make_stack_base_z(pallet_support_top_z=PALLET_SUPPORT_TOP_Z):
+    return float(pallet_support_top_z + BOX_STACK_CENTER_ABOVE_SUPPORT)
+
+
+def slide_station_component_specs(
+    station_root,
+    name_prefix,
+    center_x,
+    center_y,
+    support_top_z=PALLET_SUPPORT_TOP_Z,
+    floor_z=WAREHOUSE_FLOOR_Z,
+):
+    rail_center_z = support_top_z - SLIDE_STATION_RAIL_HEIGHT * 0.5
+    rail_offset_y = SLIDE_STATION_CLEARANCE_Y * 0.5 + SLIDE_STATION_RAIL_WIDTH_Y * 0.5
+    leg_height = max(0.05, rail_center_z - floor_z)
+    leg_center_z = floor_z + leg_height * 0.5
+    leg_x_offset = SLIDE_STATION_LENGTH_X * 0.5 - SLIDE_STATION_LEG_WIDTH_X * 0.5
+
+    specs = [
+        {
+            "name": f"{name_prefix}SlideRailLeft",
+            "path": f"{station_root}/{name_prefix}SlideRailLeft",
+            "position": np.array([center_x, center_y + rail_offset_y, rail_center_z], dtype=float),
+            "scale": np.array(
+                [SLIDE_STATION_LENGTH_X, SLIDE_STATION_RAIL_WIDTH_Y, SLIDE_STATION_RAIL_HEIGHT], dtype=float
+            ),
+            "color": np.array(SLIDE_STATION_COLOR, dtype=float),
+        },
+        {
+            "name": f"{name_prefix}SlideRailRight",
+            "path": f"{station_root}/{name_prefix}SlideRailRight",
+            "position": np.array([center_x, center_y - rail_offset_y, rail_center_z], dtype=float),
+            "scale": np.array(
+                [SLIDE_STATION_LENGTH_X, SLIDE_STATION_RAIL_WIDTH_Y, SLIDE_STATION_RAIL_HEIGHT], dtype=float
+            ),
+            "color": np.array(SLIDE_STATION_COLOR, dtype=float),
+        },
+    ]
+
+    for side_name, side_y in (("Left", center_y + rail_offset_y), ("Right", center_y - rail_offset_y)):
+        for end_name, end_x in (("Front", center_x - leg_x_offset), ("Back", center_x + leg_x_offset)):
+            name = f"{name_prefix}SlideLeg{side_name}{end_name}"
+            specs.append(
+                {
+                    "name": name,
+                    "path": f"{station_root}/{name}",
+                    "position": np.array([end_x, side_y, leg_center_z], dtype=float),
+                    "scale": np.array(
+                        [SLIDE_STATION_LEG_WIDTH_X, SLIDE_STATION_RAIL_WIDTH_Y, leg_height], dtype=float
+                    ),
+                    "color": np.array(SLIDE_STATION_LEG_COLOR, dtype=float),
+                }
+            )
+    return specs
+
+
+def create_slide_station(
+    stage,
+    scene,
+    VisualCuboid,
+    station_root,
+    name_prefix,
+    center_x,
+    center_y,
+    support_top_z=PALLET_SUPPORT_TOP_Z,
+):
+    from pxr import UsdGeom
+
+    UsdGeom.Xform.Define(stage, station_root)
+    station_parts = []
+    for spec in slide_station_component_specs(station_root, name_prefix, center_x, center_y, support_top_z):
+        cuboid = VisualCuboid(
+            spec["path"],
+            name=spec["name"],
+            position=spec["position"],
+            scale=spec["scale"],
+            size=1.0,
+            color=spec["color"],
+        )
+        station_parts.append(scene.add(cuboid) if scene is not None else cuboid)
+    return station_parts
+
+
+def ensure_box_material(stage, material_path=BOX_MATERIAL_PATH):
+    from pxr import Gf, Sdf, UsdGeom, UsdShade
+
+    materials_scope_path = material_path.rsplit("/", 1)[0]
+    UsdGeom.Scope.Define(stage, materials_scope_path)
+    material = UsdShade.Material.Define(stage, material_path)
+    shader = UsdShade.Shader.Define(stage, f"{material_path}/PreviewSurface")
+    shader.CreateIdAttr("UsdPreviewSurface")
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*BOX_DISPLAY_COLOR))
+    shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.68)
+    material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+    return material
+
+
+def apply_box_material(stage, prim_path):
+    from pxr import Gf, Usd, UsdGeom, UsdShade
+
+    root = stage.GetPrimAtPath(prim_path)
+    if not root.IsValid():
+        return False
+
+    material = ensure_box_material(stage)
+    display_color = Gf.Vec3f(*BOX_DISPLAY_COLOR)
+    applied_to_gprim = False
+    UsdShade.MaterialBindingAPI(root).Bind(material, UsdShade.Tokens.strongerThanDescendants)
+    for prim in Usd.PrimRange(root):
+        if prim.IsA(UsdGeom.Gprim):
+            UsdGeom.Gprim(prim).CreateDisplayColorAttr().Set([display_color])
+            UsdShade.MaterialBindingAPI(prim).Bind(material, UsdShade.Tokens.strongerThanDescendants)
+            applied_to_gprim = True
+    return applied_to_gprim
+
+
+def align_pallet_parts_to_support(stage, pallet_parts, support_top_z=PALLET_SUPPORT_TOP_Z):
+    bottom_z_values = []
+    for part in pallet_parts:
+        bottom_z_values.append(compute_prim_world_bottom_z(stage, str(part.prim.GetPath())))
+    if not bottom_z_values:
+        return 0.0
+
+    dz = float(support_top_z - min(bottom_z_values))
+    for part in pallet_parts:
+        position, _orientation = part.get_world_pose()
+        adjusted = np.array(position, dtype=float)
+        adjusted[2] += dz
+        part.set_world_pose(position=adjusted)
+    return dz
+
+
 class TransferState(Enum):
     WAIT_STACK_COMPLETE = auto()
     ARM_SETTLE = auto()
@@ -127,23 +337,28 @@ def quat_multiply(q1, q2):
     return quat / max(np.linalg.norm(quat), 1e-9)
 
 
-def make_stack_coordinates(cols, rows, layers):
+def make_stack_coordinates(cols, rows, layers, stack_z_base=None):
     cols = max(1, cols)
     rows = max(1, rows)
     layers = max(1, layers)
 
-    x0 = 1.05
-    y0 = -0.62
-    z0 = -0.51
-    dx = -0.21
-    dy = 0.31
-    dz = 0.15
+    if stack_z_base is None:
+        stack_z_base = make_stack_base_z(PALLET_SUPPORT_TOP_Z)
 
     coords = []
     for layer in range(layers):
         for row in range(rows):
             for col in range(cols):
-                coords.append(np.array([x0 + dx * col, y0 + dy * row, z0 + dz * layer], dtype=float))
+                coords.append(
+                    np.array(
+                        [
+                            STACK_BASE_X + STACK_COLUMN_SPACING_X * col,
+                            STACK_BASE_Y + STACK_ROW_SPACING_Y * row,
+                            stack_z_base + STACK_LAYER_SPACING_Z * layer,
+                        ],
+                        dtype=float,
+                    )
+                )
     return coords
 
 
@@ -246,7 +461,7 @@ class HarimTransferOrchestrator:
 
     def _lift_plate_position(self):
         amr_pos = self.get_amr_position()
-        return amr_pos + np.array([0.0, 0.0, 0.33 + self.lift_offset], dtype=float)
+        return np.array([amr_pos[0], amr_pos[1], AMR_LIFT_INTERFACE_Z + self.lift_offset], dtype=float)
 
     def _set_lift_plate_pose(self):
         if self.lift_plate is not None:
@@ -261,7 +476,8 @@ class HarimTransferOrchestrator:
             lift_pos, lift_orient = self.amr_lift.get_world_pose()
             self.amr_lift_base_offset = np.array(lift_pos, dtype=float) - amr_pos
             self.amr_lift_orientation = lift_orient
-        target = amr_pos + self.amr_lift_base_offset + np.array([0.0, 0.0, self.lift_offset], dtype=float)
+        target = amr_pos + self.amr_lift_base_offset
+        target[2] = AMR_LIFT_INTERFACE_Z + self.lift_offset
         self.amr_lift.set_world_pose(position=target, orientation=self.amr_lift_orientation)
 
     def _reset_pallet_pose(self):
@@ -539,6 +755,7 @@ def main():
     simulation_app.update()
 
     from isaacsim.core.api.objects.capsule import VisualCapsule
+    from isaacsim.core.api.objects.cuboid import VisualCuboid
     from isaacsim.core.api.objects.sphere import VisualSphere
     from isaacsim.core.api.tasks.base_task import BaseTask
     from isaacsim.core.prims import SingleXFormPrim
@@ -566,10 +783,11 @@ def main():
             self.background_usd = root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
 
     class BinStackingTask(BaseTask):
-        def __init__(self, env_path, assets) -> None:
+        def __init__(self, env_path, assets, stage) -> None:
             super().__init__("bin_stacking")
             self.assets = assets
             self.env_path = env_path
+            self.stage = stage
             self.bins = []
             self.on_conveyor = None
 
@@ -600,6 +818,7 @@ def main():
                 name = f"bin_{len(self.bins)}"
                 prim_path = f"{self.env_path}/bins/{name}"
                 add_reference_to_stage(usd_path=self.assets.small_klt_usd, prim_path=prim_path)
+                apply_box_material(self.stage, prim_path)
                 self.on_conveyor = self.scene.add(CortexRigidPrim(name=name, prim_path=prim_path))
                 self._spawn_bin(self.on_conveyor)
                 self.bins.append(self.on_conveyor)
@@ -636,7 +855,8 @@ def main():
     add_reference_to_stage(ur10_assets.background_usd, "/World/Background")
     wait_for_stage_loading(simulation_app, usd_context, "UR10 palletizing scene")
     deactivate_stage_prims_containing(usd_context.get_stage(), "/World/Ur10Table", ("flip", "pallet_holder"))
-    SingleXFormPrim("/World/Background", position=[10.00, 2.00, -1.18180], orientation=[0.7071, 0, 0, 0.7071])
+    stage = usd_context.get_stage()
+    SingleXFormPrim("/World/Background", position=[10.00, 2.00, WAREHOUSE_FLOOR_Z], orientation=[0.7071, 0, 0, 0.7071])
 
     robot = world.add_robot(CortexUr10(name="robot", prim_path="/World/Ur10Table/ur10"))
 
@@ -693,7 +913,7 @@ def main():
     robot.register_obstacle(obs)
 
     stack_coordinates = make_stack_coordinates(args.stack_cols, args.stack_rows, args.stack_layers)
-    task = BinStackingTask("/World/Ur10Table", ur10_assets)
+    task = BinStackingTask("/World/Ur10Table", ur10_assets, stage)
     task.set_up_scene(world.scene)
     world.add_task(task)
 
@@ -703,10 +923,37 @@ def main():
 
     harim_root = "/World/HarimDemo"
     omni.kit.commands.execute("CreatePrim", prim_path=harim_root, prim_type="Xform")
+    create_slide_station(
+        stage,
+        world.scene,
+        VisualCuboid,
+        f"{harim_root}/PickupSlideStation",
+        "Pickup",
+        args.pickup_x,
+        args.pickup_y,
+    )
+    create_slide_station(
+        stage,
+        world.scene,
+        VisualCuboid,
+        f"{harim_root}/DropSlideStation",
+        "Drop",
+        args.drop_x,
+        args.drop_y,
+    )
 
     iw_hub_usd = assets_root + "/Isaac/Samples/AnimRobot/iw_hub.usd"
     add_reference_to_stage(iw_hub_usd, f"{harim_root}/iw_hub")
     wait_for_stage_loading(simulation_app, usd_context, "iw_hub")
+    if args.amr_z is None:
+        args.amr_z = resolve_amr_z(stage, f"{harim_root}/iw_hub", args.amr_z)
+        print(
+            f"[HarimDemo] aligned iw_hub bottom to floor: amr_z={args.amr_z:.4f}, "
+            f"floor_z={WAREHOUSE_FLOOR_Z:.4f}, clearance={AMR_GROUND_CLEARANCE:.4f}"
+        )
+    else:
+        args.amr_z = float(args.amr_z)
+        print(f"[HarimDemo] using explicit iw_hub z override: amr_z={args.amr_z:.4f}")
     amr = SingleXFormPrim(f"{harim_root}/iw_hub", name="harim_iw_hub")
     amr_lift_path = f"{harim_root}/iw_hub/chassis/lift"
     amr_lift = None
@@ -771,7 +1018,12 @@ def main():
     pallet_parts = collect_example_pallet_parts()
     if not pallet_parts:
         raise RuntimeError("No pallet prim was found in the UR10 example scene; custom pallet creation is disabled.")
+    pallet_dz = align_pallet_parts_to_support(stage, pallet_parts, PALLET_SUPPORT_TOP_Z)
     print(f"[HarimDemo] using {len(pallet_parts)} example pallet prims")
+    print(
+        f"[HarimDemo] aligned pallet underside to slide station: support_top_z={PALLET_SUPPORT_TOP_Z:.4f}, "
+        f"pallet_dz={pallet_dz:.4f}"
+    )
 
     class SelfTestBinState:
         def __init__(self, bin_obj):
@@ -786,6 +1038,7 @@ def main():
             payload_specs.append((idx, payload_path, coord))
         wait_for_stage_loading(simulation_app, usd_context, "self-test KLT payload")
         for idx, payload_path, coord in payload_specs:
+            apply_box_material(stage, payload_path)
             payload = world.scene.add(
                 CortexRigidPrim(name=f"harim_self_test_payload_{idx}", prim_path=payload_path)
             )
