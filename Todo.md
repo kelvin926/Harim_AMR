@@ -1090,6 +1090,37 @@ powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -AcceptEula -Cycle
 
 ---
 
+## 2026-06-01 Ubuntu 24.04 동료 실행 보강 메모
+
+Ubuntu 24.04 동료에게 그대로 전달하기에는 Windows PowerShell 래퍼만 있어 부족했다.
+Isaac Sim 5.1 자체는 Ubuntu 22.04/24.04를 지원하므로, 저장소에 Linux용 실행 경로를 추가했다.
+
+- [x] `setup_isaacsim_env.sh` 추가
+- [x] `run_harim_demo.sh` 추가
+- [x] `.gitattributes`에 shell script LF 정책 추가
+- [x] `README.md`에 Ubuntu 24.04 설치/실행 절차 추가
+- [x] `CONTRIBUTING.md`에 Ubuntu/Windows 검증 명령 분리
+- [x] `isaac_sim/README.md`에 Ubuntu/Windows 실행 명령 분리
+
+Ubuntu 동료에게 전달할 핵심 명령:
+
+```bash
+git clone https://github.com/kelvin926/Harim_AMR.git ~/projects/Harim_AMR
+cd ~/projects/Harim_AMR
+chmod +x setup_isaacsim_env.sh run_harim_demo.sh
+./setup_isaacsim_env.sh
+./run_harim_demo.sh --accept-eula --cycles 1
+```
+
+검증:
+
+- [x] Windows PowerShell script parse 통과
+- [x] Python compile 통과
+- [x] lightweight unittest 16개 통과
+- [ ] 현재 Windows 작업 PC에는 사용 가능한 Linux bash 환경이 없어 `.sh` 문법 검사는 로컬에서 수행하지 못함
+
+---
+
 ## 2026-05-30 예제 에셋 전용 구성 정리 메모
 
 사용자 확인 결과, 이전 구현에서 설명을 쉽게 하기 위해 추가했던 커스텀 시각 에셋들이 오히려 씬을 어색하게 만들었다.

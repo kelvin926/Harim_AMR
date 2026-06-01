@@ -5,9 +5,9 @@
 ## 기본 원칙
 
 - `.conda`, Isaac Sim cache, 렌더링 결과물, 로그는 커밋하지 않습니다.
-- 기존 `E:\isaac-sim-5.1.0`, `E:\IsaacLab`, 다른 conda env에 의존하지 않습니다.
 - 저장소는 임의의 로컬 폴더에 clone할 수 있습니다.
-- Isaac Sim 5.1 pip 환경은 프로젝트 폴더 안의 `.conda\env_isaacsim_5_1_0`에 둡니다.
+- Isaac Sim 5.1 pip 환경은 프로젝트 폴더 안의 `.conda/env_isaacsim_5_1_0`에 둡니다.
+- Ubuntu 24.04 동료는 `.sh` 스크립트를 사용하고, Windows 동료는 `.ps1` 스크립트를 사용합니다.
 - NVIDIA EULA 동의는 각 실행자가 직접 확인합니다.
 
 ## 브랜치 규칙
@@ -25,20 +25,27 @@ Codex 작업 브랜치가 필요하면 `codex/<short-name>`을 사용합니다.
 
 ## PR 전에 확인할 것
 
-가벼운 로컬 테스트:
+Ubuntu:
+
+```bash
+./.conda/env_isaacsim_5_1_0/bin/python -m py_compile ./isaac_sim/scripts/run_harim_pallet_demo.py ./isaac_sim/tests/test_harim_transfer_orchestrator.py
+./.conda/env_isaacsim_5_1_0/bin/python -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+./run_harim_demo.sh --headless --accept-eula --self-test-frames 2 --cycles 1
+```
+
+Windows:
 
 ```powershell
 .\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
 .\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
-```
-
-Isaac Sim 초기화 확인:
-
-```powershell
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1
 ```
 
-AMR transfer 시퀀스 확인:
+AMR transfer 시퀀스까지 바꾼 경우:
+
+```bash
+./run_harim_demo.sh --headless --accept-eula --self-test-frames 260 --self-test-force-stack-complete --cycles 1 --move-speed 20
+```
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20

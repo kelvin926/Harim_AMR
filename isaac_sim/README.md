@@ -16,28 +16,36 @@
 
 ## 실행
 
-루트 디렉터리에서 실행합니다. 아래 `C:\Projects\Harim_AMR`는 예시이며, 실제 clone한 폴더로 바꿔도 됩니다.
+루트 디렉터리에서 실행합니다.
+
+Ubuntu:
+
+```bash
+./run_harim_demo.sh --accept-eula --cycles 1
+./run_harim_demo.sh --headless --accept-eula --self-test-frames 2 --cycles 1
+./run_harim_demo.sh --headless --accept-eula --self-test-frames 260 --self-test-force-stack-complete --cycles 1 --move-speed 20
+```
+
+Windows:
 
 ```powershell
-cd C:\Projects\Harim_AMR
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -AcceptEula -Cycles 1
-```
-
-Headless 초기화 확인:
-
-```powershell
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1
-```
-
-AMR transfer 빠른 검증:
-
-```powershell
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
 ```
 
 ## 테스트
 
 Isaac Sim을 띄우지 않고 orchestration FSM과 소스 구조를 검증합니다.
+
+Ubuntu:
+
+```bash
+./.conda/env_isaacsim_5_1_0/bin/python -m py_compile ./isaac_sim/scripts/run_harim_pallet_demo.py ./isaac_sim/tests/test_harim_transfer_orchestrator.py
+./.conda/env_isaacsim_5_1_0/bin/python -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
+```
+
+Windows:
 
 ```powershell
 .\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py

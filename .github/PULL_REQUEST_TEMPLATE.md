@@ -13,6 +13,14 @@
 
 ## 실행 명령/로그
 
+Ubuntu:
+
+```bash
+
+```
+
+Windows:
+
 ```powershell
 
 ```
