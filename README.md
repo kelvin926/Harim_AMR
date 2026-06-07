@@ -1,5 +1,18 @@
 # Harim AMR Isaac Sim Demo
 
+Isaac Sim 5.1 demo connecting a UR10 suction palletizing scene with an `iw_hub` AMR pallet-transfer sequence.
+
+The current goal is an explainable simulation demo rather than real-robot control validation.
+
+## Scenario
+
+1. KLT/bin objects arrive through a conveyor.
+2. A UR10 suction gripper picks and palletizes objects.
+3. The AMR approaches the pallet.
+4. The AMR performs lift-up, transport, lift-down, and exit motions.
+
+---
+
 Isaac Sim 5.1 기반으로 UR10 suction 팔레타이징 예제와 `iw_hub` AMR 팔레트 이송 시퀀스를 연결한 데모입니다.
 
 현재 1차 목표는 실제 제어 검증보다 설명 가능한 시뮬레이션 데모입니다.
