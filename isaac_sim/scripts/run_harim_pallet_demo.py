@@ -126,6 +126,7 @@ V3_PUSHCART_YAW_DEG = 90.0
 V3_PUSHCART_PALLET_WORLD_X = 12.56
 V3_PUSHCART_PALLET_TRANSLATE_Z = -0.831
 V3_PUSHCART_PALLET_Z_OFFSET = -0.0079
+V3_AMR_DROP_STATION_BACKOFF = 0.08
 V3_DROP_ROBOT_HOME_JOINTS_DEG = DROP_UR10_FOLDED_HOME_JOINT_TARGETS_DEG
 V3_DROP_ROBOT_PICK_JOINTS_DEG = {
     "shoulder_pan_joint": -55.0,
@@ -145,9 +146,26 @@ V3_DROP_ROBOT_PLACE_JOINTS_DEG = {
 }
 V3_DROP_ROBOT_ITEM_SECONDS = 6.0
 V3_DROP_ROBOT_MAX_DT = 1.0 / 30.0
-V3_DROP_ROBOT_LIFT_ARC = 0.45
-V3_DROP_ROBOT_PICK_PHASE_END = 0.35
-V3_DROP_ROBOT_PLACE_PHASE_END = 0.70
+V3_DROP_ROBOT_PICK_APPROACH_DISTANCE = 0.10
+V3_DROP_ROBOT_PICK_LIFT_DISTANCE = 0.30
+V3_DROP_ROBOT_PLACE_APPROACH_DISTANCE = 0.35
+V3_DROP_ROBOT_PLACE_LIFT_DISTANCE = 0.10
+V3_DROP_ROBOT_PLACE_RELEASE_CLEARANCE = 0.006
+V3_DROP_ROBOT_PICK_APPROACH_PHASE_END = 0.20
+V3_DROP_ROBOT_PICK_REACH_PHASE_END = 0.32
+V3_DROP_ROBOT_PICK_WAIT_PHASE_END = 0.40
+V3_DROP_ROBOT_PICK_LIFT_PHASE_END = 0.50
+V3_DROP_ROBOT_PLACE_APPROACH_PHASE_END = 0.68
+V3_DROP_ROBOT_PLACE_REACH_PHASE_END = 0.78
+V3_DROP_ROBOT_PLACE_WAIT_PHASE_END = 0.84
+V3_DROP_ROBOT_PLACE_LIFT_PHASE_END = 0.92
+V3_DROP_ROBOT_GRIPPER_CLEARANCE = 0.035
+V3_DROP_ROBOT_IK_TOLERANCE = 0.018
+V3_DROP_ROBOT_IK_ROTATION_TOLERANCE = 0.18
+V3_DROP_ROBOT_IK_MAX_ITERATIONS = 45
+V3_DROP_ROBOT_IK_ROTATION_WEIGHT = 0.22
+V3_DROP_ROBOT_GRASP_COLLISION_RELATIVE_PATH = "Collision/Cube_03"
+V3_DROP_ROBOT_ORIGINAL_UPSIDE_DOWN_MARGIN = -0.0025
 BACKGROUND_CARD_BOX_PRIM_PATH = "/World/Background/SM_CardBoxA_02"
 BACKGROUND_CARD_BOX_NAME_PREFIX = "SM_CardBoxA_"
 SMALL_KLT_VISUAL_NAME_PREFIX = "SmallKLT_Visual_"
@@ -1033,6 +1051,25 @@ def get_prim_world_xform_components(stage, prim_path):
     return position, orientation, scale
 
 
+def transform_world_point_to_prim_local(stage, prim_path, world_position):
+    from pxr import Gf, Usd, UsdGeom
+
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim.IsValid():
+        raise RuntimeError(f"Prim is not valid for world-to-local transform: {prim_path}")
+
+    matrix = UsdGeom.XformCache(Usd.TimeCode.Default()).GetLocalToWorldTransform(prim)
+    local = matrix.GetInverse().Transform(Gf.Vec3d(*[float(value) for value in world_position]))
+    return np.array(local, dtype=float)
+
+
+def transform_world_rotation_to_prim_local(stage, prim_path, world_rotation):
+    position, orientation, _scale = get_prim_world_xform_components(stage, prim_path)
+    _ = position
+    root_rotation = matrix_from_quat_wxyz(orientation)
+    return root_rotation.T @ np.array(world_rotation, dtype=float)
+
+
 def mirrored_root_transform(source_position, source_orientation, source_scale, mirror_plane_x):
     source_position = np.array(source_position, dtype=float)
     source_scale = np.array(source_scale, dtype=float)
@@ -1062,6 +1099,29 @@ def reversed_static_root_transform(
     root_orientation = quat_multiply(yaw_to_quat(math.pi), np.array(source_orientation, dtype=float))
     root_scale = np.abs(np.array(source_scale, dtype=float))
     return root_position, root_orientation, root_scale
+
+
+def reversed_amr_drop_pose_from_pickup(pickup_pose, source_pallet_position, target_pallet_position, amr_z):
+    pickup_pose = np.array(pickup_pose, dtype=float)
+    source_pallet_position = np.array(source_pallet_position, dtype=float)
+    target_pallet_position = np.array(target_pallet_position, dtype=float)
+    pickup_offset_from_pallet = pickup_pose - source_pallet_position
+    drop_pose = target_pallet_position + rotate_yaw_180(pickup_offset_from_pallet)
+    drop_pose[2] = float(amr_z)
+    return drop_pose
+
+
+def backoff_amr_drop_pose_toward_reversed_pickup(nominal_drop_pose, reversed_drop_pose, backoff_distance):
+    nominal_drop_pose = np.array(nominal_drop_pose, dtype=float)
+    reversed_drop_pose = np.array(reversed_drop_pose, dtype=float)
+    delta = reversed_drop_pose - nominal_drop_pose
+    distance = float(np.linalg.norm(delta[:2]))
+    if distance <= 1.0e-9:
+        return nominal_drop_pose
+    step = min(float(backoff_distance), distance)
+    adjusted = nominal_drop_pose + delta * (step / distance)
+    adjusted[2] = nominal_drop_pose[2]
+    return adjusted
 
 
 def apply_mirror_root_transform(stage, prim_path, position, orientation, scale):
@@ -1384,7 +1444,7 @@ def make_stack_coordinates(cols, rows, layers):
     z0 = -0.51
     dx = -0.21
     dy = 0.31
-    dz = 0.15
+    dz = 0.135
     x0 = DEFAULT_PALLET_X - dx * (cols - 1) * 0.5
 
     coords = []
@@ -1420,6 +1480,7 @@ class HarimTransferOrchestrator:
         stage=None,
         amr_lift_path=None,
         lift_surface_z=None,
+        drop_pose_override=None,
     ):
         self.world = world
         self.context = context
@@ -1457,8 +1518,14 @@ class HarimTransferOrchestrator:
         self.start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         self.approach_pose = np.array([args.pickup_x + AMR_APPROACH_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         self.pickup_pose = np.array([args.pickup_x, args.pickup_y, args.amr_z], dtype=float)
-        self.drop_pose = np.array([args.drop_x, args.drop_y, args.amr_z], dtype=float)
-        self.exit_pose = np.array([args.drop_x - SLIDE_EXIT_DISTANCE, args.drop_y, args.amr_z], dtype=float)
+        if drop_pose_override is None:
+            self.drop_pose = np.array([args.drop_x, args.drop_y, args.amr_z], dtype=float)
+        else:
+            self.drop_pose = np.array(drop_pose_override, dtype=float)
+        self.exit_pose = np.array(
+            [self.drop_pose[0] - SLIDE_EXIT_DISTANCE, self.drop_pose[1], args.amr_z],
+            dtype=float,
+        )
 
         self.reset_visual_state()
 
@@ -1791,11 +1858,214 @@ def interpolate_joint_targets(start_targets, end_targets, t):
     }
 
 
-def arc_lerp_position(start_position, end_position, t, lift_arc):
+def catmull_rom_scalar(p0, p1, p2, p3, t):
     t = clamp(t, 0.0, 1.0)
-    position = lerp(np.array(start_position, dtype=float), np.array(end_position, dtype=float), t)
-    position[2] += math.sin(math.pi * t) * float(lift_arc)
-    return position
+    t2 = t * t
+    t3 = t2 * t
+    return 0.5 * (
+        (2.0 * p1)
+        + (-p0 + p2) * t
+        + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+        + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+    )
+
+
+def interpolate_joint_targets_catmull_rom(keyframes, t):
+    if not keyframes:
+        return dict(V3_DROP_ROBOT_HOME_JOINTS_DEG)
+    if t <= keyframes[0][0]:
+        return dict(keyframes[0][1])
+    if t >= keyframes[-1][0]:
+        return dict(keyframes[-1][1])
+
+    segment_index = 0
+    for index in range(len(keyframes) - 1):
+        if keyframes[index][0] <= t <= keyframes[index + 1][0]:
+            segment_index = index
+            break
+
+    t1, p1 = keyframes[segment_index]
+    t2, p2 = keyframes[segment_index + 1]
+    p0 = keyframes[max(0, segment_index - 1)][1]
+    p3 = keyframes[min(len(keyframes) - 1, segment_index + 2)][1]
+    local_t = 0.0 if abs(t2 - t1) < 1.0e-9 else (t - t1) / (t2 - t1)
+    targets = {}
+    for joint_name in UR10_IK_JOINT_NAMES:
+        start_value = float(p1[joint_name])
+        end_value = float(p2[joint_name])
+        value = catmull_rom_scalar(
+            float(p0[joint_name]),
+            start_value,
+            end_value,
+            float(p3[joint_name]),
+            local_t,
+        )
+        targets[joint_name] = clamp(value, min(start_value, end_value), max(start_value, end_value))
+    return targets
+
+
+UR10_IK_JOINT_NAMES = tuple(DROP_UR10_FOLDED_HOME_JOINT_TARGETS_DEG.keys())
+UR10_IK_SEEDS = (
+    V3_DROP_ROBOT_PICK_JOINTS_DEG,
+    V3_DROP_ROBOT_PLACE_JOINTS_DEG,
+    V3_DROP_ROBOT_HOME_JOINTS_DEG,
+)
+UR10_IK_LIMITS_DEG = {
+    "shoulder_pan_joint": (-360.0, 360.0),
+    "shoulder_lift_joint": (-270.0, 180.0),
+    "elbow_joint": (-270.0, 270.0),
+    "wrist_1_joint": (-360.0, 360.0),
+    "wrist_2_joint": (-180.0, 180.0),
+    "wrist_3_joint": (-360.0, 360.0),
+}
+
+
+def ur10_joint_targets_to_array(joint_targets):
+    return np.array([float(joint_targets[joint_name]) for joint_name in UR10_IK_JOINT_NAMES], dtype=float)
+
+
+def ur10_joint_array_to_targets(joint_values):
+    return {
+        joint_name: float(joint_values[index])
+        for index, joint_name in enumerate(UR10_IK_JOINT_NAMES)
+    }
+
+
+def clamp_ur10_joint_array(joint_values):
+    result = np.array(joint_values, dtype=float)
+    for index, joint_name in enumerate(UR10_IK_JOINT_NAMES):
+        lower, upper = UR10_IK_LIMITS_DEG[joint_name]
+        result[index] = clamp(result[index], lower, upper)
+    return result
+
+
+def compute_ur10_ee_local_position_from_array(joint_values):
+    joint_targets = ur10_joint_array_to_targets(joint_values)
+    return np.array(compute_ur10_link_matrices(joint_targets)["ee_link"][:3, 3], dtype=float)
+
+
+def compute_ur10_ee_local_pose_from_array(joint_values):
+    joint_targets = ur10_joint_array_to_targets(joint_values)
+    matrix = compute_ur10_link_matrices(joint_targets)["ee_link"]
+    return np.array(matrix[:3, 3], dtype=float), np.array(matrix[:3, :3], dtype=float)
+
+
+def rotation_error_vector(target_rotation, current_rotation):
+    error_rotation = np.array(target_rotation, dtype=float) @ np.array(current_rotation, dtype=float).T
+    return 0.5 * np.array(
+        [
+            error_rotation[2, 1] - error_rotation[1, 2],
+            error_rotation[0, 2] - error_rotation[2, 0],
+            error_rotation[1, 0] - error_rotation[0, 1],
+        ],
+        dtype=float,
+    )
+
+
+def orthonormal_rotation_from_axes(ax, ay):
+    target_ax = np.array(ax, dtype=float)
+    target_ax = target_ax / max(np.linalg.norm(target_ax), 1.0e-9)
+    target_ay = np.array(ay, dtype=float)
+    target_ay = target_ay - target_ax * float(np.dot(target_ax, target_ay))
+    target_ay = target_ay / max(np.linalg.norm(target_ay), 1.0e-9)
+    target_az = np.cross(target_ax, target_ay)
+    target_az = target_az / max(np.linalg.norm(target_az), 1.0e-9)
+    return np.column_stack((target_ax, target_ay, target_az))
+
+
+def original_place_target_rotation():
+    target_ax = np.array([0.0, 0.0, -1.0], dtype=float)
+    target_az = np.array([0.0, -1.0, 0.0], dtype=float)
+    target_ay = np.cross(target_az, target_ax)
+    return orthonormal_rotation_from_axes(target_ax, target_ay)
+
+
+def build_ur10_ik_seed_targets(target_local_position, seed_targets):
+    target = np.array(target_local_position, dtype=float)
+    seeds = [dict(seed_targets), *[dict(seed) for seed in UR10_IK_SEEDS]]
+    target_pan = math.degrees(math.atan2(float(target[1]), float(target[0])))
+    target_seed = dict(V3_DROP_ROBOT_PICK_JOINTS_DEG)
+    target_seed["shoulder_pan_joint"] = target_pan
+    seeds.append(target_seed)
+
+    unique_seeds = []
+    seen = set()
+    for seed in seeds:
+        key = tuple(round(float(seed[joint_name]), 3) for joint_name in UR10_IK_JOINT_NAMES)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_seeds.append(seed)
+    return unique_seeds
+
+
+def solve_ur10_pose_ik(target_local_position, target_local_rotation, seed_targets):
+    target = np.array(target_local_position, dtype=float)
+    target_rotation = np.array(target_local_rotation, dtype=float)
+    best_values = None
+    best_error_norm = float("inf")
+    best_position_error_norm = float("inf")
+    best_rotation_error_norm = float("inf")
+
+    for seed in build_ur10_ik_seed_targets(target, seed_targets):
+        values = clamp_ur10_joint_array(ur10_joint_targets_to_array(seed))
+        for _iteration in range(V3_DROP_ROBOT_IK_MAX_ITERATIONS):
+            current, current_rotation = compute_ur10_ee_local_pose_from_array(values)
+            position_error = target - current
+            rotation_error = rotation_error_vector(target_rotation, current_rotation)
+            error = np.concatenate(
+                [
+                    position_error,
+                    V3_DROP_ROBOT_IK_ROTATION_WEIGHT * rotation_error,
+                ]
+            )
+            error_norm = float(np.linalg.norm(error))
+            position_error_norm = float(np.linalg.norm(position_error))
+            rotation_error_norm = float(np.linalg.norm(rotation_error))
+            if error_norm < best_error_norm:
+                best_error_norm = error_norm
+                best_position_error_norm = position_error_norm
+                best_rotation_error_norm = rotation_error_norm
+                best_values = np.array(values, dtype=float)
+            if (
+                position_error_norm <= V3_DROP_ROBOT_IK_TOLERANCE
+                and rotation_error_norm <= V3_DROP_ROBOT_IK_ROTATION_TOLERANCE
+            ):
+                break
+
+            jacobian = np.zeros((6, len(UR10_IK_JOINT_NAMES)), dtype=float)
+            epsilon = 0.25
+            for joint_index in range(len(UR10_IK_JOINT_NAMES)):
+                perturbed = np.array(values, dtype=float)
+                perturbed[joint_index] += epsilon
+                perturbed = clamp_ur10_joint_array(perturbed)
+                perturbed_position, perturbed_rotation = compute_ur10_ee_local_pose_from_array(perturbed)
+                jacobian[:3, joint_index] = (perturbed_position - current) / epsilon
+                jacobian[3:, joint_index] = (
+                    V3_DROP_ROBOT_IK_ROTATION_WEIGHT
+                    * rotation_error_vector(perturbed_rotation, current_rotation)
+                    / epsilon
+                )
+
+            damping = 0.025
+            normal = jacobian @ jacobian.T + (damping * damping) * np.eye(jacobian.shape[0], dtype=float)
+            try:
+                delta = jacobian.T @ np.linalg.solve(normal, error)
+            except np.linalg.LinAlgError:
+                delta = jacobian.T @ error
+            values = clamp_ur10_joint_array(values + np.clip(delta, -7.0, 7.0))
+
+    return ur10_joint_array_to_targets(best_values), best_position_error_norm, best_rotation_error_norm
+
+
+def solve_ur10_position_ik(target_local_position, seed_targets):
+    target_rotation = compute_ur10_ee_local_pose_from_array(ur10_joint_targets_to_array(seed_targets))[1]
+    joint_targets, position_error, _rotation_error = solve_ur10_pose_ik(
+        target_local_position,
+        target_rotation,
+        seed_targets,
+    )
+    return joint_targets, position_error
 
 
 class V3DropRobotTransferController:
@@ -1803,48 +2073,316 @@ class V3DropRobotTransferController:
         self.stage = stage
         self.ur10_root_path = ur10_root_path
         self.target_pallet_root = target_pallet_root
+        self.reset_for_next_cycle()
+
+    def reset_for_next_cycle(self):
         self.started = False
         self.done = False
         self.item_index = 0
         self.item_time = 0.0
         self.items = []
         self.last_reported_item = None
+        self.ik_seed_joints = dict(V3_DROP_ROBOT_HOME_JOINTS_DEG)
 
-    def _build_target_positions(self):
+    def _get_object_prim_path(self, obj):
+        prim_path = getattr(obj, "prim_path", None)
+        if prim_path is None and hasattr(obj, "prim"):
+            prim_path = str(obj.prim.GetPath())
+        return prim_path
+
+    def _get_drop_source_pallet_bounds(self, orchestrator):
+        bounds = []
+        for part, _position, _orientation in orchestrator.dropped_pallet_poses.values():
+            prim_path = self._get_object_prim_path(part)
+            if prim_path is None:
+                continue
+            try:
+                bounds.append(compute_world_aligned_bounds(self.stage, prim_path))
+            except Exception as exc:
+                print(f"[HarimDemo] could not read dropped pallet bounds for V3 layout: {exc}")
+
+        if not bounds:
+            dropped_positions = [data["start_position"] for data in self.items]
+            if not dropped_positions:
+                raise RuntimeError("Cannot build V3 target layout without dropped pallet or item positions.")
+            positions = np.array(dropped_positions, dtype=float)
+            return positions.min(axis=0), positions.max(axis=0)
+
+        bounds_min = np.min(np.array([pair[0] for pair in bounds], dtype=float), axis=0)
+        bounds_max = np.max(np.array([pair[1] for pair in bounds], dtype=float), axis=0)
+        return bounds_min, bounds_max
+
+    def _measure_item_geometry(self, data):
+        prim_path = self._get_object_prim_path(data["item"])
+        if prim_path is None:
+            data["item_height"] = 0.135
+            data["item_bottom_offset"] = -0.0675
+            self._set_fallback_grasp_reference(data)
+            return
+        try:
+            item_min, item_max = compute_world_aligned_bounds(self.stage, prim_path)
+            start_position = np.array(data["start_position"], dtype=float)
+            data["item_height"] = max(0.08, float(item_max[2] - item_min[2]))
+            data["item_bottom_offset"] = float(item_min[2] - start_position[2])
+        except Exception as exc:
+            print(f"[HarimDemo] could not read V3 drop item geometry: {exc}")
+            data["item_height"] = 0.135
+            data["item_bottom_offset"] = -0.0675
+        self._set_original_grasp_reference(data, prim_path)
+
+    def _set_fallback_grasp_reference(self, data):
+        data["grasp_uses_original_collision"] = False
+        data["grasp_base_root_offset"] = np.zeros(3, dtype=float)
+        data["grasp_base_orientation"] = UPSIDE_DOWN_BIN_QUAT
+        data["grasp_margin"] = V3_DROP_ROBOT_ORIGINAL_UPSIDE_DOWN_MARGIN
+        data["grasp_target_axis"] = np.array([0.0, 0.0, -1.0], dtype=float)
+        data["pick_target_rotation"] = orthonormal_rotation_from_axes(
+            np.array([0.0, 0.0, -1.0], dtype=float),
+            np.array([-1.0, 0.0, 0.0], dtype=float),
+        )
+        data["place_target_rotation"] = original_place_target_rotation()
+
+    def _set_original_grasp_reference(self, data, prim_path):
+        collision_path = f"{prim_path}/{V3_DROP_ROBOT_GRASP_COLLISION_RELATIVE_PATH}"
+        collision_prim = self.stage.GetPrimAtPath(collision_path)
+        if not collision_prim.IsValid():
+            self._set_fallback_grasp_reference(data)
+            return
+        try:
+            base_position, base_orientation, _base_scale = get_prim_world_xform_components(self.stage, collision_path)
+        except Exception as exc:
+            print(f"[HarimDemo] could not read original V3 grasp reference: {exc}")
+            self._set_fallback_grasp_reference(data)
+            return
+
+        base_rotation = matrix_from_quat_wxyz(base_orientation)
+        bin_ax = np.array(base_rotation[:, 0], dtype=float)
+        bin_az = np.array(base_rotation[:, 2], dtype=float)
+        bin_az_norm = np.linalg.norm(bin_az)
+        if bin_az_norm < 1.0e-9:
+            self._set_fallback_grasp_reference(data)
+            return
+        bin_az = bin_az / bin_az_norm
+        needs_flip = float(np.dot(np.array([0.0, 0.0, 1.0], dtype=float), bin_az)) > 0.0
+        target_axis = -bin_az if needs_flip else bin_az
+        target_axis = target_axis / max(np.linalg.norm(target_axis), 1.0e-9)
+        target_ay = -bin_ax if float(bin_ax[1]) < 0.0 else bin_ax
+        target_rotation = orthonormal_rotation_from_axes(target_axis, target_ay)
+
+        data["grasp_uses_original_collision"] = True
+        data["grasp_base_root_offset"] = np.array(base_position, dtype=float) - np.array(data["start_position"], dtype=float)
+        data["grasp_base_orientation"] = np.array(base_orientation, dtype=float)
+        data["grasp_margin"] = 0.0025 if needs_flip else V3_DROP_ROBOT_ORIGINAL_UPSIDE_DOWN_MARGIN
+        data["grasp_target_axis"] = target_axis
+        data["grasp_bin_x_axis_points_to_robot"] = bool(float(bin_ax[1]) < 0.0)
+        data["pick_target_rotation"] = target_rotation
+        data["place_target_rotation"] = original_place_target_rotation()
+
+    def _estimate_items_per_layer(self, dropped_sequence):
+        z_values = sorted(float(position[2]) for _item, position, _orientation in dropped_sequence)
+        if not z_values:
+            return max(1, len(self.items))
+
+        groups = []
+        tolerance = 0.045
+        for z_value in z_values:
+            if not groups or abs(z_value - groups[-1][0]) > tolerance:
+                groups.append([z_value])
+            else:
+                groups[-1].append(z_value)
+        return max(1, max(len(group) for group in groups))
+
+    def _build_target_positions(self, orchestrator, dropped_sequence):
+        for data in self.items:
+            self._measure_item_geometry(data)
+
+        source_min, source_max = self._get_drop_source_pallet_bounds(orchestrator)
+        source_center = (source_min + source_max) * 0.5
+
         pallet_min, pallet_max = compute_world_aligned_bounds(self.stage, self.target_pallet_root)
         pallet_center = (pallet_min + pallet_max) * 0.5
-        x_offsets = (-0.17, 0.17)
-        y_offsets = (-0.14, 0.14)
+        target_top_z = float(pallet_max[2])
+        items_per_layer = self._estimate_items_per_layer(dropped_sequence)
+        layer_height = max(0.08, float(np.median([data["item_height"] for data in self.items])))
 
-        for index, data in enumerate(self.items):
-            item = data["item"]
-            item_path = getattr(item, "prim_path", None)
-            if item_path is None and hasattr(item, "prim"):
-                item_path = str(item.prim.GetPath())
-            item_min, item_max = compute_world_aligned_bounds(self.stage, item_path)
-            item_height = max(0.12, float(item_max[2] - item_min[2]))
-            layer = index // 4
-            cell = index % 4
-            target = np.array(
+        target_slots = []
+        for _item, position, _orientation in dropped_sequence:
+            source_position = np.array(position, dtype=float)
+            source_offset = source_position - source_center
+            target_slots.append(
+                np.array(
+                    [
+                        pallet_center[0] + source_offset[0],
+                        pallet_center[1] - source_offset[1],
+                    ],
+                    dtype=float,
+                )
+            )
+
+        if not target_slots:
+            target_slots = [np.array(pallet_center[:2], dtype=float) for _data in self.items]
+
+        for target_index, data in enumerate(self.items):
+            target_slot = target_slots[target_index % len(target_slots)]
+            layer = target_index // items_per_layer
+            target_bottom_z = target_top_z + layer * layer_height
+            data["target_position"] = np.array(
                 [
-                    pallet_center[0] + x_offsets[cell % 2],
-                    pallet_center[1] + y_offsets[(cell // 2) % 2],
-                    pallet_max[2] + item_height * 0.5 + layer * item_height,
+                    target_slot[0],
+                    target_slot[1],
+                    target_bottom_z - data["item_bottom_offset"],
                 ],
                 dtype=float,
             )
-            data["target_position"] = target
+            data["place_release_position"] = data["target_position"] + np.array(
+                [0.0, 0.0, V3_DROP_ROBOT_PLACE_RELEASE_CLEARANCE],
+                dtype=float,
+            )
+
+        print(
+            "[HarimDemo] mapped V3 drop robot targets from delivered pallet layout: "
+            f"source_center={source_center.tolist()}, target_center={pallet_center.tolist()}, "
+            f"items_per_layer={items_per_layer}, layer_height={layer_height:.6f}, "
+            f"target_y=mirrored_for_drop_robot, target_stack=bottom_first"
+        )
+
+    def _get_ee_world_position(self):
+        position, _orientation, _scale = get_prim_world_xform_components(self.stage, f"{self.ur10_root_path}/ee_link")
+        return np.array(position, dtype=float)
+
+    def _original_grasp_tcp_world(self, data, item_root_position):
+        root_position = np.array(item_root_position, dtype=float)
+        if data.get("grasp_uses_original_collision"):
+            base_position = root_position + np.array(data["grasp_base_root_offset"], dtype=float)
+            base_rotation = matrix_from_quat_wxyz(data["grasp_base_orientation"])
+            bin_az = np.array(base_rotation[:, 2], dtype=float)
+            bin_az = bin_az / max(np.linalg.norm(bin_az), 1.0e-9)
+            return base_position + float(data["grasp_margin"]) * bin_az
+        return root_position + np.array([0.0, 0.0, data["item_height"] * 0.5 + V3_DROP_ROBOT_GRIPPER_CLEARANCE])
+
+    def _prepare_item_arm_offsets(self, data):
+        previous_joints = dict(self.ik_seed_joints)
+        pick_tcp_world = self._original_grasp_tcp_world(data, data["start_position"])
+        place_tcp_world = self._original_grasp_tcp_world(data, data["target_position"])
+        pick_axis = np.array(data.get("grasp_target_axis", [0.0, 0.0, -1.0]), dtype=float)
+        pick_axis = pick_axis / max(np.linalg.norm(pick_axis), 1.0e-9)
+        pick_rotation = np.array(data["pick_target_rotation"], dtype=float)
+        place_rotation = np.array(data["place_target_rotation"], dtype=float)
+        waypoint_world_poses = {
+            "pick_approach_joints": (
+                pick_tcp_world - pick_axis * V3_DROP_ROBOT_PICK_APPROACH_DISTANCE,
+                pick_rotation,
+            ),
+            "pick_joints": (pick_tcp_world, pick_rotation),
+            "pick_lift_joints": (
+                pick_tcp_world + np.array([0.0, 0.0, V3_DROP_ROBOT_PICK_LIFT_DISTANCE], dtype=float),
+                pick_rotation,
+            ),
+            "place_approach_joints": (
+                place_tcp_world + np.array([0.0, 0.0, V3_DROP_ROBOT_PLACE_APPROACH_DISTANCE], dtype=float),
+                place_rotation,
+            ),
+            "place_joints": (place_tcp_world, place_rotation),
+            "place_lift_joints": (
+                place_tcp_world + np.array([0.0, 0.0, V3_DROP_ROBOT_PLACE_LIFT_DISTANCE], dtype=float),
+                place_rotation,
+            ),
+        }
+
+        waypoint_errors = {}
+        waypoint_rotation_errors = {}
+        for key, (world_position, world_rotation) in waypoint_world_poses.items():
+            local_position = transform_world_point_to_prim_local(self.stage, self.ur10_root_path, world_position)
+            local_rotation = transform_world_rotation_to_prim_local(self.stage, self.ur10_root_path, world_rotation)
+            joint_targets, position_error, rotation_error = solve_ur10_pose_ik(
+                local_position,
+                local_rotation,
+                previous_joints,
+            )
+            data[key] = joint_targets
+            waypoint_errors[key] = position_error
+            waypoint_rotation_errors[key] = rotation_error
+            previous_joints = joint_targets
+        self.ik_seed_joints = dict(previous_joints)
+        if os.environ.get("HARIM_V3_IK_DEBUG"):
+            root_position, _root_orientation, _root_scale = get_prim_world_xform_components(
+                self.stage, self.ur10_root_path
+            )
+            print(
+                "[HarimDemo] V3 drop robot IK debug: "
+                f"root={root_position.tolist()}, start={data['start_position'].tolist()}, "
+                f"target={data['target_position'].tolist()}, pick_tcp_world={pick_tcp_world.tolist()}, "
+                f"place_tcp_world={place_tcp_world.tolist()}"
+            )
+
+        set_ur10_visual_pose_from_joint_targets(self.stage, self.ur10_root_path, data["pick_joints"])
+        pick_ee_position = self._get_ee_world_position()
+        set_ur10_visual_pose_from_joint_targets(self.stage, self.ur10_root_path, data["place_joints"])
+        place_ee_position = self._get_ee_world_position()
+        data["pick_ee_position"] = pick_ee_position
+        data["place_ee_position"] = place_ee_position
+        data["pick_grip_offset"] = np.array(data["start_position"], dtype=float) - pick_ee_position
+        data["place_grip_offset"] = np.array(data["target_position"], dtype=float) - place_ee_position
+        data["gripper_closed"] = False
+        data["gripper_opened"] = False
+        data["arm_prepared"] = True
+        data["motion_keyframes"] = [
+            (0.0, V3_DROP_ROBOT_HOME_JOINTS_DEG),
+            (V3_DROP_ROBOT_PICK_APPROACH_PHASE_END, data["pick_approach_joints"]),
+            (V3_DROP_ROBOT_PICK_REACH_PHASE_END, data["pick_joints"]),
+            (V3_DROP_ROBOT_PICK_WAIT_PHASE_END, data["pick_joints"]),
+            (V3_DROP_ROBOT_PICK_LIFT_PHASE_END, data["pick_lift_joints"]),
+            (V3_DROP_ROBOT_PLACE_APPROACH_PHASE_END, data["place_approach_joints"]),
+            (V3_DROP_ROBOT_PLACE_REACH_PHASE_END, data["place_joints"]),
+            (V3_DROP_ROBOT_PLACE_WAIT_PHASE_END, data["place_joints"]),
+            (V3_DROP_ROBOT_PLACE_LIFT_PHASE_END, data["place_lift_joints"]),
+            (1.0, V3_DROP_ROBOT_HOME_JOINTS_DEG),
+        ]
+        grasp_mode = "original_collision_cube" if data.get("grasp_uses_original_collision") else "fallback_root_height"
+        print(
+            "[HarimDemo] prepared V3 drop robot grasp target: "
+            f"pick_error={waypoint_errors['pick_joints']:.4f}, "
+            f"pick_rot_error={waypoint_rotation_errors['pick_joints']:.4f}, "
+            f"place_error={waypoint_errors['place_joints']:.4f}, "
+            f"place_rot_error={waypoint_rotation_errors['place_joints']:.4f}, "
+            f"grasp={grasp_mode}, "
+            "process=pose_ik_reach_wait_close_lift_then_reach_wait_open_lift"
+        )
+        set_ur10_visual_pose_from_joint_targets(self.stage, self.ur10_root_path, V3_DROP_ROBOT_HOME_JOINTS_DEG)
 
     def _start(self, orchestrator):
         self.items = []
-        for name in sorted(orchestrator.dropped_item_poses):
-            item, position, orientation = orchestrator.dropped_item_poses[name]
+        dropped_sequence = list(getattr(orchestrator, "dropped_item_sequence", []))
+        if not dropped_sequence:
+            dropped_sequence = list(orchestrator.dropped_item_poses.values())
+
+        for item, position, orientation in reversed(dropped_sequence):
             self.items.append(
                 {
                     "item": item,
                     "start_position": np.array(position, dtype=float),
                     "orientation": orientation,
                     "target_position": None,
+                    "place_release_position": None,
+                    "pick_grip_offset": None,
+                    "place_grip_offset": None,
+                    "item_height": None,
+                    "item_bottom_offset": None,
+                    "grasp_uses_original_collision": False,
+                    "grasp_base_root_offset": None,
+                    "grasp_base_orientation": None,
+                    "grasp_margin": None,
+                    "grasp_target_axis": None,
+                    "pick_target_rotation": None,
+                    "place_target_rotation": None,
+                    "pick_approach_joints": None,
+                    "pick_joints": None,
+                    "pick_lift_joints": None,
+                    "place_approach_joints": None,
+                    "place_joints": None,
+                    "place_lift_joints": None,
+                    "motion_keyframes": None,
+                    "arm_prepared": False,
                 }
             )
 
@@ -1852,13 +2390,13 @@ class V3DropRobotTransferController:
             self.done = True
             return
 
-        self._build_target_positions()
+        self._build_target_positions(orchestrator, dropped_sequence)
         self.started = True
         self.item_index = 0
         self.item_time = 0.0
         print(
             "[HarimDemo] started V3 drop robot transfer after AMR exit: "
-            f"items={len(self.items)}, target_pallet={self.target_pallet_root}"
+            f"items={len(self.items)}, order=reverse_loaded, target_pallet={self.target_pallet_root}"
         )
 
     def _set_item_pose(self, data, position):
@@ -1870,36 +2408,56 @@ class V3DropRobotTransferController:
         except Exception:
             item.set_world_pose(position=np.array(position, dtype=float), orientation=data["orientation"])
 
-    def _hold_transferred_items(self):
+    def _hold_transfer_items(self):
         for index, data in enumerate(self.items):
-            if index >= self.item_index and not self.done:
+            if not self.done and index == self.item_index:
                 continue
-            self._set_item_pose(data, data["target_position"])
+            if self.done or index < self.item_index:
+                self._set_item_pose(data, data["target_position"])
+            else:
+                self._set_item_pose(data, data["start_position"])
 
-    def _set_drop_robot_motion_pose(self, t):
-        if t < 0.35:
-            joint_targets = interpolate_joint_targets(V3_DROP_ROBOT_HOME_JOINTS_DEG, V3_DROP_ROBOT_PICK_JOINTS_DEG, t / 0.35)
-        elif t < 0.70:
-            joint_targets = interpolate_joint_targets(
-                V3_DROP_ROBOT_PICK_JOINTS_DEG,
-                V3_DROP_ROBOT_PLACE_JOINTS_DEG,
-                (t - 0.35) / 0.35,
-            )
-        else:
-            joint_targets = interpolate_joint_targets(
-                V3_DROP_ROBOT_PLACE_JOINTS_DEG,
-                V3_DROP_ROBOT_HOME_JOINTS_DEG,
-                (t - 0.70) / 0.30,
-            )
+    def _set_drop_robot_motion_pose(self, data, t):
+        joint_targets = interpolate_joint_targets_catmull_rom(data["motion_keyframes"], t)
         set_ur10_visual_pose_from_joint_targets(self.stage, self.ur10_root_path, joint_targets)
+        return self._get_ee_world_position()
+
+    def _item_position_from_drop_robot(self, data, ee_position, t):
+        if t < V3_DROP_ROBOT_PICK_WAIT_PHASE_END:
+            return np.array(data["start_position"], dtype=float)
+        if t >= V3_DROP_ROBOT_PLACE_WAIT_PHASE_END:
+            return np.array(data["target_position"], dtype=float)
+
+        travel_t = (t - V3_DROP_ROBOT_PICK_WAIT_PHASE_END) / (
+            V3_DROP_ROBOT_PLACE_WAIT_PHASE_END - V3_DROP_ROBOT_PICK_WAIT_PHASE_END
+        )
+        travel_t = clamp(travel_t, 0.0, 1.0)
+        smooth_t = travel_t * travel_t * (3.0 - 2.0 * travel_t)
+        grip_offset = lerp(data["pick_grip_offset"], data["place_grip_offset"], smooth_t)
+        position = np.array(ee_position, dtype=float) + grip_offset
+        if t >= V3_DROP_ROBOT_PLACE_REACH_PHASE_END:
+            settle_t = (t - V3_DROP_ROBOT_PLACE_REACH_PHASE_END) / (
+                V3_DROP_ROBOT_PLACE_WAIT_PHASE_END - V3_DROP_ROBOT_PLACE_REACH_PHASE_END
+            )
+            settle_t = clamp(settle_t, 0.0, 1.0)
+            settle_t = settle_t * settle_t * (3.0 - 2.0 * settle_t)
+            position = lerp(position, data["place_release_position"], settle_t)
+        if t >= V3_DROP_ROBOT_PLACE_APPROACH_PHASE_END:
+            position[2] = max(float(position[2]), float(data["target_position"][2]))
+        return position
 
     def step(self, dt, orchestrator):
         if self.done:
-            self._hold_transferred_items()
+            self._hold_transfer_items()
             return
 
         if not self.started:
-            if orchestrator.state == TransferState.DONE_IDLE and orchestrator.completed_cycles > 0:
+            can_start_from_reset_gate = (
+                orchestrator.state == TransferState.RESET_CYCLE
+                and bool(getattr(orchestrator, "dropped_item_poses", {}))
+            )
+            can_start_from_done_idle = orchestrator.state == TransferState.DONE_IDLE and orchestrator.completed_cycles > 0
+            if can_start_from_reset_gate or can_start_from_done_idle:
                 self._start(orchestrator)
             return
 
@@ -1909,23 +2467,28 @@ class V3DropRobotTransferController:
             print("[HarimDemo] completed V3 drop robot transfer to pushcart pallet")
             return
 
-        self._hold_transferred_items()
+        self._hold_transfer_items()
+        data = self.items[self.item_index]
+        if not data.get("arm_prepared"):
+            print(f"[HarimDemo] V3 drop robot preparing box {self.item_index + 1}/{len(self.items)}")
+            self._prepare_item_arm_offsets(data)
+            return
+
         if self.last_reported_item != self.item_index:
             self.last_reported_item = self.item_index
             print(f"[HarimDemo] V3 drop robot moving box {self.item_index + 1}/{len(self.items)}")
 
         self.item_time += min(float(dt), V3_DROP_ROBOT_MAX_DT)
         t = clamp(self.item_time / V3_DROP_ROBOT_ITEM_SECONDS, 0.0, 1.0)
-        self._set_drop_robot_motion_pose(t)
-
-        data = self.items[self.item_index]
+        ee_position = self._set_drop_robot_motion_pose(data, t)
         item = data["item"]
-        position = arc_lerp_position(
-            data["start_position"],
-            data["target_position"],
-            t,
-            V3_DROP_ROBOT_LIFT_ARC,
-        )
+        if not data["gripper_closed"] and t >= V3_DROP_ROBOT_PICK_WAIT_PHASE_END:
+            data["gripper_closed"] = True
+            print(f"[HarimDemo] V3 drop robot closed gripper on box {self.item_index + 1}/{len(self.items)}")
+        if not data["gripper_opened"] and t >= V3_DROP_ROBOT_PLACE_WAIT_PHASE_END:
+            data["gripper_opened"] = True
+            print(f"[HarimDemo] V3 drop robot opened gripper on box {self.item_index + 1}/{len(self.items)}")
+        position = self._item_position_from_drop_robot(data, ee_position, t)
         try:
             self._set_item_pose(data, position)
             orchestrator._stop_dynamic_item(item)
@@ -2303,15 +2866,39 @@ def main():
         target_pallet_position=drop_pallet_position,
         drop_area_info=drop_area_info,
     )
+    amr_pickup_pose = np.array([args.pickup_x, args.pickup_y, args.amr_z], dtype=float)
+    nominal_amr_drop_pose = np.array([args.drop_x, args.drop_y, args.amr_z], dtype=float)
+    reversed_amr_drop_pose = reversed_amr_drop_pose_from_pickup(
+        amr_pickup_pose,
+        pickup_pallet_position,
+        drop_pallet_position,
+        args.amr_z,
+    )
+    amr_drop_pose = backoff_amr_drop_pose_toward_reversed_pickup(
+        nominal_amr_drop_pose,
+        reversed_amr_drop_pose,
+        V3_AMR_DROP_STATION_BACKOFF,
+    )
+    print(
+        "[HarimDemo] matched AMR pallet drop pose toward reversed pickup depth: "
+        f"pickup_pose={amr_pickup_pose.tolist()}, "
+        f"source_pallet={pickup_pallet_position.tolist()}, "
+        f"target_pallet={drop_pallet_position.tolist()}, "
+        f"nominal_drop_pose={nominal_amr_drop_pose.tolist()}, "
+        f"reversed_reference_drop_pose={reversed_amr_drop_pose.tolist()}, "
+        f"backoff={V3_AMR_DROP_STATION_BACKOFF:.3f}, "
+        f"drop_pose={amr_drop_pose.tolist()}"
+    )
 
     class SelfTestBinState:
         def __init__(self, bin_obj):
             self.bin_obj = bin_obj
 
     self_test_payload = []
+    self_test_payload_poses = []
     if args.self_test_force_stack_complete:
         payload_specs = []
-        for idx, coord in enumerate(stack_coordinates[: max(1, min(4, len(stack_coordinates)))]):
+        for idx, coord in enumerate(stack_coordinates):
             payload_path = f"{harim_root}/SelfTestPayload_{idx}"
             add_reference_to_stage(usd_path=ur10_assets.small_klt_usd, prim_path=payload_path)
             payload_specs.append((idx, payload_path, coord))
@@ -2325,6 +2912,7 @@ def main():
             payload.set_linear_velocity(np.zeros(3))
             payload.set_angular_velocity(np.zeros(3))
             self_test_payload.append(payload)
+            self_test_payload_poses.append(np.array(coord, dtype=float))
 
     orchestrator = HarimTransferOrchestrator(
         world=world,
@@ -2332,10 +2920,14 @@ def main():
         task=task,
         amr_prim=amr,
         amr_lift_prim=amr_lift,
+        stage=usd_context.get_stage(),
+        amr_lift_path=amr_lift_path if amr_lift is not None else None,
+        lift_surface_z=pallet_bottom_z,
         lift_plate=lift_plate,
         pallet_parts=pallet_parts,
         stack_coordinates=stack_coordinates,
         args=args,
+        drop_pose_override=amr_drop_pose,
     )
     v3_drop_robot_controller = None
     if v3_dropoff_info is not None:
@@ -2350,22 +2942,51 @@ def main():
     decider_network.context.stack_coordinates = stack_coordinates
     orchestrator.reset_visual_state()
 
+    def reset_cycle_visual_state():
+        styled_cardboard_box_paths.clear()
+        apply_cardboard_box_color("/World/Background")
+        apply_pallet_box_color()
+
     def force_self_test_stack_complete():
         if not args.self_test_force_stack_complete:
             return
         if self_test_payload:
+            for item, position in zip(self_test_payload, self_test_payload_poses):
+                item.set_world_pose(position=np.array(position, dtype=float), orientation=UPSIDE_DOWN_BIN_QUAT)
+                item.set_linear_velocity(np.zeros(3))
+                item.set_angular_velocity(np.zeros(3))
             decider_network.context.stacked_bins = [SelfTestBinState(item) for item in self_test_payload]
             decider_network.context.stack_coordinates = [
-                np.array(item.get_world_pose()[0], dtype=float) for item in self_test_payload
+                np.array(position, dtype=float) for position in self_test_payload_poses
             ]
 
     def step_demo_frame():
         world.step(render=not args.headless)
         apply_cardboard_box_color("/World/Ur10Table/bins")
         force_self_test_stack_complete()
-        orchestrator.step(world.get_physics_dt())
+        physics_dt = world.get_physics_dt()
+        if (
+            v3_drop_robot_controller is not None
+            and orchestrator.state == TransferState.RESET_CYCLE
+            and not v3_drop_robot_controller.done
+            and getattr(orchestrator, "dropped_item_poses", {})
+        ):
+            v3_drop_robot_controller.step(physics_dt, orchestrator)
+            return
+
+        completed_cycles_before_step = orchestrator.completed_cycles
+        orchestrator.step(physics_dt)
+        if (
+            orchestrator.completed_cycles != completed_cycles_before_step
+            and orchestrator.state == TransferState.WAIT_STACK_COMPLETE
+        ):
+            reset_cycle_visual_state()
+            if v3_drop_robot_controller is not None:
+                v3_drop_robot_controller.reset_for_next_cycle()
+            return
+
         if v3_drop_robot_controller is not None:
-            v3_drop_robot_controller.step(world.get_physics_dt(), orchestrator)
+            v3_drop_robot_controller.step(physics_dt, orchestrator)
 
     try:
         if args.self_test_frames > 0:
