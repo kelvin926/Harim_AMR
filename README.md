@@ -65,6 +65,12 @@ AMR 이송 시퀀스 빠른 검증:
 ./run_harim_demo.sh --headless --accept-eula --self-test-frames 260 --self-test-force-stack-complete --cycles 1 --move-speed 20
 ```
 
+slide station 캡처 생성:
+
+```bash
+./run_harim_demo.sh --headless --accept-eula --self-test-frames 2 --cycles 1 --capture-path isaacsim_logs/reference_station_capture.png
+```
+
 `--accept-eula`는 NVIDIA Omniverse/Isaac Sim EULA 내용을 확인하고 동의한 경우에만 사용합니다.
 
 ## Windows 설치 및 실행
@@ -93,6 +99,12 @@ AMR 이송 시퀀스 빠른 검증:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
+```
+
+slide station 캡처 생성:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1 -CapturePath isaacsim_logs\reference_station_capture.png
 ```
 
 ## 로컬 테스트

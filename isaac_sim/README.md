@@ -11,7 +11,8 @@
 - 예제 팔레트 prim 자체는 유지하고, AMR lift-up/down 및 이송 시퀀스에 맞춰 위치만 갱신합니다.
 - `iw_hub`는 Isaac Sim sample asset을 reference해서 사용합니다.
 - `iw_hub/chassis/lift` prim이 있으면 해당 lift prim을 함께 움직입니다.
-- 별도로 만든 visual pallet, lift plate, drop slide workstation은 현재 사용하지 않습니다.
+- 첨부 레퍼런스 정면 형상의 pickup/drop slide station을 생성합니다. 검정 벌키 좌우 지지대, 검정 중앙 브리지, 은색 상부 리니어 레일, 흰 전면 하단 패널, 노란 삼각 경고 라벨을 좌우 대칭으로 배치합니다.
+- 별도로 만든 visual pallet과 lift plate는 현재 사용하지 않습니다.
 - self-test용 payload는 임의 cuboid가 아니라 UR10 예제의 `small_KLT.usd`를 reference합니다.
 
 ## 실행
@@ -24,6 +25,7 @@ Ubuntu:
 ./run_harim_demo.sh --accept-eula --cycles 1
 ./run_harim_demo.sh --headless --accept-eula --self-test-frames 2 --cycles 1
 ./run_harim_demo.sh --headless --accept-eula --self-test-frames 260 --self-test-force-stack-complete --cycles 1 --move-speed 20
+./run_harim_demo.sh --headless --accept-eula --self-test-frames 2 --cycles 1 --capture-path isaacsim_logs/reference_station_capture.png
 ```
 
 Windows:
@@ -32,6 +34,7 @@ Windows:
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -AcceptEula -Cycles 1
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 260 -SelfTestForceStackComplete -Cycles 1 -MoveSpeed 20
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1 -CapturePath isaacsim_logs\reference_station_capture.png
 ```
 
 ## 테스트

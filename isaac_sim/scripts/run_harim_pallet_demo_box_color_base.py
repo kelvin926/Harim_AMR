@@ -10,93 +10,17 @@ import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-DEFAULT_PICKUP_X = 1.25
+DEFAULT_PICKUP_X = 0.82
 DEFAULT_PICKUP_Y = -0.31
 DEFAULT_DROP_X = DEFAULT_PICKUP_X + 10.6
 DEFAULT_DROP_Y = DEFAULT_PICKUP_Y
-DEFAULT_PALLET_X = 0.98
-DEFAULT_AMR_Z = -1.18
-DEFAULT_AMR_SCALE = np.array([0.75, 1.0, 1.35], dtype=float)
+DEFAULT_AMR_Z = -1.05
 DEFAULT_LIFT_HEIGHT = 0.11
 DEFAULT_MOVE_SPEED = 0.65
 AMR_START_STANDOFF = 3.2
 AMR_APPROACH_STANDOFF = 1.05
 SLIDE_EXIT_DISTANCE = 1.8
 UPSIDE_DOWN_BIN_QUAT = np.array([0.0, 0.0, 1.0, 0.0], dtype=float)
-DROP_UR10_FOLDED_HOME_JOINT_TARGETS_DEG = {
-    "shoulder_pan_joint": math.degrees(-1.57),
-    "shoulder_lift_joint": math.degrees(-1.57),
-    "elbow_joint": math.degrees(-1.57),
-    "wrist_1_joint": math.degrees(-1.57),
-    "wrist_2_joint": math.degrees(1.57),
-    "wrist_3_joint": math.degrees(0.0),
-}
-UR10_FOLDED_LINK_CHAIN = (
-    (
-        "shoulder_pan_joint",
-        "base_link",
-        "shoulder_link",
-        (0.0, 0.0, 0.1273),
-        (-4.371139e-8, 0.0, 0.0, 1.0),
-        (0.0, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-    ),
-    (
-        "shoulder_lift_joint",
-        "shoulder_link",
-        "upper_arm_link",
-        (0.0, 0.0, 0.0),
-        (0.70710677, 0.70710677, 0.0, 0.0),
-        (0.0, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-    ),
-    (
-        "elbow_joint",
-        "upper_arm_link",
-        "forearm_link",
-        (-0.612, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-        (0.0, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-    ),
-    (
-        "wrist_1_joint",
-        "forearm_link",
-        "wrist_1_link",
-        (-0.5723, 0.0, 0.163941),
-        (1.0, 0.0, 0.0, 0.0),
-        (0.0, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-    ),
-    (
-        "wrist_2_joint",
-        "wrist_1_link",
-        "wrist_2_link",
-        (0.0, -0.1157, 0.0),
-        (0.70710677, 0.70710677, 0.0, 0.0),
-        (0.0, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-    ),
-    (
-        "wrist_3_joint",
-        "wrist_2_link",
-        "wrist_3_link",
-        (0.0, 0.0922, 0.0),
-        (0.70710677, -0.70710677, -6.181724e-8, 0.0),
-        (0.0, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-    ),
-)
-UR10_FOLDED_FIXED_LINKS = (
-    (
-        "ee_link",
-        "wrist_3_link",
-        (0.0, 0.0, 0.0),
-        (1.0, 0.0, 0.0, 0.0),
-        (0.0, 0.0, 0.0),
-        (6.123234e-17, 0.70710677, 4.3297803e-17, 0.70710677),
-    ),
-)
 REFERENCE_STATION_FLOOR_Z = -1.18180
 REFERENCE_STATION_WIDTH = 4.80
 REFERENCE_STATION_DEPTH = 0.58
@@ -107,47 +31,7 @@ REFERENCE_STATION_SILVER = np.array([0.70, 0.71, 0.68], dtype=float)
 REFERENCE_STATION_RAIL_GROOVE = np.array([0.42, 0.43, 0.41], dtype=float)
 REFERENCE_STATION_WHITE_PANEL = np.array([0.90, 0.90, 0.86], dtype=float)
 REFERENCE_STATION_WARNING_YELLOW = np.array([0.95, 0.72, 0.08], dtype=float)
-IMAGE_MATCHED_SLIDING_STATION_USD = Path(
-    os.environ.get("HARIM_SLIDING_STATION_USD", "/home/mh/Downloads/harim_v3.usd")
-)
-IMAGE_MATCHED_SLIDING_STATION_PRIM = os.environ.get(
-    "HARIM_SLIDING_STATION_PRIM",
-    "/World/HarimDemo/PickupSlideStation",
-)
-PICKUP_STATION_LEFT_Y = -0.19
-PICKUP_STATION_RIGHT_Y = 0.24
-V3_DROPOFF_CART_MODE = os.environ.get("HARIM_V3_DROPOFF_CART", "auto").lower()
-V3_PUSHCART_SOURCE_NAME = "SM_PushcartA_02_22"
-V3_PUSHCART_TARGET_ROOT = "/World/V3PushcartA_02_22"
-V3_PUSHCART_PALLET_ROOT = "/World/V3PushcartPallet"
-V3_PUSHCART_FALLBACK_RIGHT_OFFSET = np.array([0.0, -1.35, 0.0], dtype=float)
-V3_PUSHCART_WORLD_Y = -1.7
-V3_PUSHCART_YAW_DEG = 90.0
-V3_PUSHCART_PALLET_WORLD_X = 12.56
-V3_PUSHCART_PALLET_TRANSLATE_Z = -0.831
-V3_PUSHCART_PALLET_Z_OFFSET = -0.0079
-V3_DROP_ROBOT_HOME_JOINTS_DEG = DROP_UR10_FOLDED_HOME_JOINT_TARGETS_DEG
-V3_DROP_ROBOT_PICK_JOINTS_DEG = {
-    "shoulder_pan_joint": -55.0,
-    "shoulder_lift_joint": -92.0,
-    "elbow_joint": -118.0,
-    "wrist_1_joint": -72.0,
-    "wrist_2_joint": 90.0,
-    "wrist_3_joint": 0.0,
-}
-V3_DROP_ROBOT_PLACE_JOINTS_DEG = {
-    "shoulder_pan_joint": -135.0,
-    "shoulder_lift_joint": -88.0,
-    "elbow_joint": -112.0,
-    "wrist_1_joint": -76.0,
-    "wrist_2_joint": 90.0,
-    "wrist_3_joint": 0.0,
-}
-V3_DROP_ROBOT_ITEM_SECONDS = 6.0
-V3_DROP_ROBOT_MAX_DT = 1.0 / 30.0
-V3_DROP_ROBOT_LIFT_ARC = 0.45
-V3_DROP_ROBOT_PICK_PHASE_END = 0.35
-V3_DROP_ROBOT_PLACE_PHASE_END = 0.70
+IMAGE_MATCHED_SLIDING_STATION_USD = PROJECT_ROOT / "sliding_station.usd"
 BACKGROUND_CARD_BOX_PRIM_PATH = "/World/Background/SM_CardBoxA_02"
 BACKGROUND_CARD_BOX_NAME_PREFIX = "SM_CardBoxA_"
 SMALL_KLT_VISUAL_NAME_PREFIX = "SmallKLT_Visual_"
@@ -158,7 +42,6 @@ DYNAMIC_SMALL_KLT_VISUAL_ROOT_PREFIXES = (
     "/World/Ur10Table/bins/",
     "/World/HarimDemo/SelfTestPayload_",
 )
-KLT_MAGENTA_BOX_MESH_NAME = "FOF_Mesh_Magenta_Box"
 
 
 def parse_args():
@@ -222,184 +105,6 @@ def deactivate_stage_prims_containing(stage, root_path, patterns):
             prim.SetActive(False)
 
 
-def deactivate_stage_child_prims_containing(stage, root_path, patterns):
-    from pxr import Usd
-
-    root = stage.GetPrimAtPath(root_path)
-    if not root.IsValid():
-        return
-    lower_patterns = tuple(pattern.lower() for pattern in patterns)
-    for prim in Usd.PrimRange(root):
-        if prim == root:
-            continue
-        name = prim.GetName().lower()
-        if any(pattern in name for pattern in lower_patterns):
-            prim.SetActive(False)
-
-
-def matrix_from_quat_wxyz(quat):
-    quat = np.array(quat, dtype=float)
-    quat = quat / max(np.linalg.norm(quat), 1.0e-9)
-    w, x, y, z = quat
-    return np.array(
-        [
-            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
-            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
-            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
-        ],
-        dtype=float,
-    )
-
-
-def pose_matrix(position, orientation):
-    matrix = np.eye(4, dtype=float)
-    matrix[:3, :3] = matrix_from_quat_wxyz(orientation)
-    matrix[:3, 3] = np.array(position, dtype=float)
-    return matrix
-
-
-def z_axis_rotation_matrix(degrees):
-    radians = math.radians(float(degrees))
-    cos_value = math.cos(radians)
-    sin_value = math.sin(radians)
-    matrix = np.eye(4, dtype=float)
-    matrix[:3, :3] = np.array(
-        [
-            [cos_value, -sin_value, 0.0],
-            [sin_value, cos_value, 0.0],
-            [0.0, 0.0, 1.0],
-        ],
-        dtype=float,
-    )
-    return matrix
-
-
-def set_prim_local_matrix(stage, prim_path, matrix):
-    from pxr import Gf, UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_path)
-    if not prim.IsValid():
-        prim = stage.OverridePrim(prim_path)
-
-    gf_values = [float(value) for value in np.array(matrix, dtype=float).T.reshape(-1)]
-    gf_matrix = Gf.Matrix4d(*gf_values)
-
-    xformable = UsdGeom.Xformable(prim)
-    xformable.ClearXformOpOrder()
-    xformable.AddTransformOp(precision=UsdGeom.XformOp.PrecisionDouble).Set(gf_matrix)
-
-
-def compute_ur10_link_matrices(joint_targets_deg):
-    link_matrices = {"base_link": np.eye(4, dtype=float)}
-
-    for joint_name, body0, body1, local_pos0, local_rot0, local_pos1, local_rot1 in UR10_FOLDED_LINK_CHAIN:
-        link_matrices[body1] = (
-            link_matrices[body0]
-            @ pose_matrix(local_pos0, local_rot0)
-            @ z_axis_rotation_matrix(joint_targets_deg[joint_name])
-            @ np.linalg.inv(pose_matrix(local_pos1, local_rot1))
-        )
-
-    for body1, body0, local_pos0, local_rot0, local_pos1, local_rot1 in UR10_FOLDED_FIXED_LINKS:
-        link_matrices[body1] = (
-            link_matrices[body0]
-            @ pose_matrix(local_pos0, local_rot0)
-            @ np.linalg.inv(pose_matrix(local_pos1, local_rot1))
-        )
-
-    return link_matrices
-
-
-def compute_ur10_folded_home_link_matrices():
-    return compute_ur10_link_matrices(DROP_UR10_FOLDED_HOME_JOINT_TARGETS_DEG)
-
-
-def set_ur10_visual_pose_from_joint_targets(stage, ur10_root_path, joint_targets_deg, *, log_label=None):
-    link_matrices = compute_ur10_link_matrices(joint_targets_deg)
-    for link_name, matrix in link_matrices.items():
-        set_prim_local_matrix(stage, f"{ur10_root_path}/{link_name}", matrix)
-    wrist_position = link_matrices["wrist_3_link"][:3, 3]
-    if log_label is not None:
-        print(
-            f"[HarimDemo] set {log_label} visual pose for static drop UR10: "
-            f"root={ur10_root_path}, wrist_3_local={wrist_position.tolist()}"
-        )
-
-
-def set_ur10_folded_home_visual_pose(stage, ur10_root_path):
-    set_ur10_visual_pose_from_joint_targets(
-        stage,
-        ur10_root_path,
-        DROP_UR10_FOLDED_HOME_JOINT_TARGETS_DEG,
-        log_label="folded",
-    )
-
-
-def make_visual_only_static(stage, root_path):
-    from pxr import Gf, Sdf, Usd, UsdPhysics
-
-    root = stage.GetPrimAtPath(root_path)
-    if not root.IsValid():
-        return
-
-    for prim in Usd.PrimRange(root):
-        name = prim.GetName().lower()
-        type_name = prim.GetTypeName().lower()
-        if (
-            "collision" in name
-            or "surfacegripper" in name
-            or "surface_gripper" in name
-            or "suction_joint" in name
-        ):
-            prim.SetActive(False)
-            continue
-
-        if prim.IsA(UsdPhysics.Joint) or "joint" in name or "joint" in type_name:
-            UsdPhysics.Joint(prim).CreateJointEnabledAttr(False)
-            prim.CreateAttribute("physics:jointEnabled", Sdf.ValueTypeNames.Bool).Set(False)
-            continue
-
-        if prim.HasAPI(UsdPhysics.CollisionAPI):
-            UsdPhysics.CollisionAPI(prim).CreateCollisionEnabledAttr(False)
-        if prim.HasAPI(UsdPhysics.RigidBodyAPI):
-            rigid_body = UsdPhysics.RigidBodyAPI(prim)
-            rigid_body.CreateRigidBodyEnabledAttr(False)
-            rigid_body.CreateKinematicEnabledAttr(False)
-            rigid_body.CreateVelocityAttr(Gf.Vec3f(0.0, 0.0, 0.0))
-            rigid_body.CreateAngularVelocityAttr(Gf.Vec3f(0.0, 0.0, 0.0))
-
-
-def set_ur10_folded_home_joint_targets(stage, ur10_root_path):
-    from pxr import Sdf, UsdPhysics
-
-    try:
-        from pxr import PhysxSchema
-    except ImportError:
-        PhysxSchema = None
-
-    for joint_name, target_deg in DROP_UR10_FOLDED_HOME_JOINT_TARGETS_DEG.items():
-        joint_path = f"{ur10_root_path}/joints/{joint_name}"
-        joint_prim = stage.GetPrimAtPath(joint_path)
-        if not joint_prim.IsValid():
-            joint_prim = stage.OverridePrim(joint_path)
-        joint_prim.SetActive(True)
-        UsdPhysics.Joint(joint_prim).CreateJointEnabledAttr(True)
-        joint_prim.CreateAttribute("physics:jointEnabled", Sdf.ValueTypeNames.Bool).Set(True)
-        drive = UsdPhysics.DriveAPI.Apply(joint_prim, "angular")
-        drive.CreateTargetPositionAttr(float(target_deg))
-        drive.CreateTargetVelocityAttr(0.0)
-        drive.CreateStiffnessAttr(1.0e8)
-        drive.CreateDampingAttr(5.0e7)
-        drive.CreateMaxForceAttr(1.0e8)
-        if PhysxSchema is not None:
-            joint_state = PhysxSchema.JointStateAPI.Apply(joint_prim, "angular")
-            joint_state.CreatePositionAttr(float(target_deg))
-            joint_state.CreateVelocityAttr(0.0)
-        else:
-            joint_prim.CreateAttribute("state:angular:physics:position", Sdf.ValueTypeNames.Float).Set(float(target_deg))
-            joint_prim.CreateAttribute("state:angular:physics:velocity", Sdf.ValueTypeNames.Float).Set(0.0)
-
-
 def is_small_klt_visual_box_prim_name(name):
     if not name.startswith(SMALL_KLT_VISUAL_NAME_PREFIX):
         return False
@@ -421,16 +126,8 @@ def is_dynamic_small_klt_visual_root_path(path):
 
 
 def is_cardboard_box_style_target_prim(prim):
-    path = str(prim.GetPath()).lower()
-    if "/pallet" in path:
-        return False
-
     name = prim.GetName()
-    if (
-        is_small_klt_visual_box_prim_name(name)
-        or is_background_card_box_prim_name(name)
-        or name == KLT_MAGENTA_BOX_MESH_NAME
-    ):
+    if is_small_klt_visual_box_prim_name(name) or is_background_card_box_prim_name(name):
         return True
     return name == SMALL_KLT_VISUAL_ROOT_NAME and is_dynamic_small_klt_visual_root_path(str(prim.GetPath()))
 
@@ -492,68 +189,6 @@ def apply_background_card_box_style_to_box_targets(
                 UsdGeom.Gprim(target).CreateDisplayColorAttr().Set(source_display_color)
 
         styled_paths.add(target_root_path)
-        applied_count += 1
-    return applied_count
-
-
-def capture_gprim_visual_styles(stage, root_path):
-    from pxr import Usd, UsdGeom, UsdShade
-
-    root = stage.GetPrimAtPath(root_path)
-    if not root.IsValid():
-        return {}
-
-    styles = {}
-    root_prefix = str(root.GetPath())
-    for prim in Usd.PrimRange(root):
-        if not prim.IsA(UsdGeom.Gprim):
-            continue
-        prim_path = str(prim.GetPath())
-        relative_path = prim_path[len(root_prefix) :]
-        material, _relationship = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
-        material_path = str(material.GetPrim().GetPath()) if material is not None and material.GetPrim().IsValid() else None
-        display_color_attr = UsdGeom.Gprim(prim).GetDisplayColorAttr()
-        has_display_color = display_color_attr.HasAuthoredValueOpinion()
-        display_color = display_color_attr.Get() if has_display_color else None
-        styles[relative_path] = (material_path, has_display_color, display_color)
-    return styles
-
-
-def restore_gprim_visual_styles(stage, root_path, styles):
-    from pxr import UsdGeom, UsdShade
-
-    if not styles:
-        return
-    for relative_path, (material_path, has_display_color, display_color) in styles.items():
-        prim = stage.GetPrimAtPath(f"{root_path}{relative_path}")
-        if not prim.IsValid() or not prim.IsA(UsdGeom.Gprim):
-            continue
-        if material_path is not None:
-            material_prim = stage.GetPrimAtPath(material_path)
-            if material_prim.IsValid():
-                UsdShade.MaterialBindingAPI.Apply(prim).Bind(UsdShade.Material(material_prim))
-        display_color_attr = UsdGeom.Gprim(prim).GetDisplayColorAttr()
-        if has_display_color:
-            display_color_attr.Set(display_color)
-        elif display_color_attr.HasAuthoredValueOpinion():
-            display_color_attr.Clear()
-
-
-def apply_box_style_to_all_gprims(stage, root_path, source_material, source_display_color):
-    from pxr import Usd, UsdGeom, UsdShade
-
-    root = stage.GetPrimAtPath(root_path)
-    if not root.IsValid():
-        return 0
-
-    applied_count = 0
-    for prim in Usd.PrimRange(root):
-        if not prim.IsA(UsdGeom.Gprim):
-            continue
-        if source_material is not None:
-            UsdShade.MaterialBindingAPI.Apply(prim).Bind(source_material)
-        if source_display_color is not None:
-            UsdGeom.Gprim(prim).CreateDisplayColorAttr().Set(source_display_color)
         applied_count += 1
     return applied_count
 
@@ -786,545 +421,30 @@ def place_image_matched_sliding_station(
     *,
     stage,
     station_root,
+    center_x,
+    center_y,
+    floor_z,
     name_prefix,
 ):
-    from pxr import UsdGeom
+    from pxr import Gf, UsdGeom
 
     if not IMAGE_MATCHED_SLIDING_STATION_USD.exists():
         raise RuntimeError(
-            "Sliding station source USD was not found: "
-            f"{IMAGE_MATCHED_SLIDING_STATION_USD}. Save the edited harim_v2.usd first."
+            "Image-matched sliding station USD was not found: "
+            f"{IMAGE_MATCHED_SLIDING_STATION_USD}. Run create_sliding_station.py first."
         )
 
     station_prim = UsdGeom.Xform.Define(stage, station_root).GetPrim()
-    station_prim.GetReferences().AddReference(str(IMAGE_MATCHED_SLIDING_STATION_USD), IMAGE_MATCHED_SLIDING_STATION_PRIM)
+    station_prim.GetReferences().AddReference(str(IMAGE_MATCHED_SLIDING_STATION_USD), "/World/SlidingStation")
+
+    xform = UsdGeom.Xformable(station_prim)
+    xform.ClearXformOpOrder()
+    xform.AddTranslateOp().Set(Gf.Vec3d(float(center_x), float(center_y), float(floor_z)))
 
     print(
         f"[HarimDemo] placed {name_prefix} image-matched sliding station: "
-        f"{IMAGE_MATCHED_SLIDING_STATION_USD}{IMAGE_MATCHED_SLIDING_STATION_PRIM}"
+        f"{IMAGE_MATCHED_SLIDING_STATION_USD}"
     )
-
-
-def set_slide_station_side_y_offsets(stage, station_root, *, left_y, right_y):
-    from pxr import Gf, Usd, UsdGeom
-
-    root = stage.GetPrimAtPath(station_root)
-    if not root.IsValid():
-        return
-
-    updated = 0
-    for prim in Usd.PrimRange(root):
-        name = prim.GetName()
-        if name.startswith("Left"):
-            target_y = left_y
-        elif name.startswith("Right"):
-            target_y = right_y
-        else:
-            continue
-
-        xformable = UsdGeom.Xformable(prim)
-        translate_op = None
-        for op in xformable.GetOrderedXformOps():
-            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                translate_op = op
-                break
-        if translate_op is None:
-            translate_op = xformable.AddTranslateOp(precision=UsdGeom.XformOp.PrecisionDouble)
-
-        current = translate_op.Get() or Gf.Vec3d(0.0, 0.0, 0.0)
-        value_type = Gf.Vec3f if translate_op.GetPrecision() == UsdGeom.XformOp.PrecisionFloat else Gf.Vec3d
-        translate_op.Set(value_type(float(current[0]), float(target_y), float(current[2])))
-        updated += 1
-
-    print(
-        "[HarimDemo] set slide station side Y offsets: "
-        f"root={station_root}, left_y={left_y:.3f}, right_y={right_y:.3f}, updated={updated}"
-    )
-
-
-def compute_world_z_bounds(stage, prim_or_path):
-    from pxr import Usd, UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_or_path) if isinstance(prim_or_path, str) else prim_or_path
-    if not prim.IsValid():
-        raise RuntimeError(f"Prim is not valid for Z bounds: {prim_or_path}")
-
-    cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
-    box = cache.ComputeWorldBound(prim).ComputeAlignedBox()
-    min_z = float(box.GetMin()[2])
-    max_z = float(box.GetMax()[2])
-    if not np.isfinite(min_z) or not np.isfinite(max_z) or min_z > max_z or abs(min_z) > 1.0e20:
-        raise RuntimeError(f"Could not compute finite Z bounds for prim: {prim.GetPath()}")
-    return min_z, max_z
-
-
-def compute_world_aligned_bounds(stage, prim_or_path):
-    from pxr import Usd, UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_or_path) if isinstance(prim_or_path, str) else prim_or_path
-    if not prim.IsValid():
-        raise RuntimeError(f"Prim is not valid for bounds: {prim_or_path}")
-
-    cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
-    box = cache.ComputeWorldBound(prim).ComputeAlignedBox()
-    bounds_min = np.array(box.GetMin(), dtype=float)
-    bounds_max = np.array(box.GetMax(), dtype=float)
-    if (
-        not np.all(np.isfinite(bounds_min))
-        or not np.all(np.isfinite(bounds_max))
-        or np.any(bounds_min > bounds_max)
-        or np.max(np.abs(bounds_min)) > 1.0e20
-    ):
-        raise RuntimeError(f"Could not compute finite bounds for prim: {prim.GetPath()}")
-    return bounds_min, bounds_max
-
-
-def set_prim_scale(stage, prim_path, scale):
-    from pxr import Gf, UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_path)
-    if not prim.IsValid():
-        raise RuntimeError(f"Prim is not valid for scale: {prim_path}")
-
-    xformable = UsdGeom.Xformable(prim)
-    scale_op = None
-    for op in xformable.GetOrderedXformOps():
-        if op.GetOpType() == UsdGeom.XformOp.TypeScale:
-            scale_op = op
-            break
-    if scale_op is None:
-        scale_op = xformable.AddScaleOp(precision=UsdGeom.XformOp.PrecisionDouble)
-    scale_value_type = Gf.Vec3f if scale_op.GetPrecision() == UsdGeom.XformOp.PrecisionFloat else Gf.Vec3d
-    scale_op.Set(scale_value_type(float(scale[0]), float(scale[1]), float(scale[2])))
-
-
-def set_prim_translate(stage, prim_path, position):
-    from pxr import Gf, UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_path)
-    if not prim.IsValid():
-        raise RuntimeError(f"Prim is not valid for translate: {prim_path}")
-
-    xformable = UsdGeom.Xformable(prim)
-    translate_op = None
-    for op in xformable.GetOrderedXformOps():
-        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-            translate_op = op
-            break
-    if translate_op is None:
-        translate_op = xformable.AddTranslateOp(precision=UsdGeom.XformOp.PrecisionDouble)
-
-    translate_value_type = Gf.Vec3f if translate_op.GetPrecision() == UsdGeom.XformOp.PrecisionFloat else Gf.Vec3d
-    translate_op.Set(translate_value_type(float(position[0]), float(position[1]), float(position[2])))
-
-
-def set_prim_translate_rotate_z_scale(stage, prim_path, position, yaw_degrees, scale):
-    from pxr import Gf, UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_path)
-    if not prim.IsValid():
-        raise RuntimeError(f"Prim is not valid for translate/rotateZ/scale: {prim_path}")
-
-    xformable = UsdGeom.Xformable(prim)
-    translate_op = None
-    rotate_z_op = None
-    scale_op = None
-    for op in xformable.GetOrderedXformOps():
-        op_type = op.GetOpType()
-        if op_type == UsdGeom.XformOp.TypeTranslate and translate_op is None:
-            translate_op = op
-        elif op_type == UsdGeom.XformOp.TypeRotateZ and rotate_z_op is None:
-            rotate_z_op = op
-        elif op_type == UsdGeom.XformOp.TypeScale and scale_op is None:
-            scale_op = op
-
-    xformable.ClearXformOpOrder()
-    if translate_op is None:
-        translate_op = xformable.AddTranslateOp(precision=UsdGeom.XformOp.PrecisionDouble)
-    if rotate_z_op is None:
-        rotate_z_op = xformable.AddRotateZOp(precision=UsdGeom.XformOp.PrecisionDouble)
-    if scale_op is None:
-        scale_op = xformable.AddScaleOp(precision=UsdGeom.XformOp.PrecisionDouble)
-    xformable.SetXformOpOrder([translate_op, rotate_z_op, scale_op])
-
-    translate_value_type = Gf.Vec3f if translate_op.GetPrecision() == UsdGeom.XformOp.PrecisionFloat else Gf.Vec3d
-    scale_value_type = Gf.Vec3f if scale_op.GetPrecision() == UsdGeom.XformOp.PrecisionFloat else Gf.Vec3d
-    translate_op.Set(translate_value_type(float(position[0]), float(position[1]), float(position[2])))
-    rotate_z_op.Set(float(yaw_degrees))
-    scale_op.Set(scale_value_type(float(scale[0]), float(scale[1]), float(scale[2])))
-
-
-def set_prim_pose(stage, prim_path, position, orientation):
-    from pxr import Gf, UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_path)
-    if not prim.IsValid():
-        raise RuntimeError(f"Prim is not valid for pose: {prim_path}")
-
-    xformable = UsdGeom.Xformable(prim)
-    translate_op = None
-    orient_op = None
-    for op in xformable.GetOrderedXformOps():
-        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate and translate_op is None:
-            translate_op = op
-        elif op.GetOpType() == UsdGeom.XformOp.TypeOrient and orient_op is None:
-            orient_op = op
-
-    if translate_op is None:
-        translate_op = xformable.AddTranslateOp(precision=UsdGeom.XformOp.PrecisionDouble)
-    if orient_op is None:
-        orient_op = xformable.AddOrientOp(precision=UsdGeom.XformOp.PrecisionFloat)
-
-    translate_value_type = Gf.Vec3f if translate_op.GetPrecision() == UsdGeom.XformOp.PrecisionFloat else Gf.Vec3d
-    orient_value_type = Gf.Quatd if orient_op.GetPrecision() == UsdGeom.XformOp.PrecisionDouble else Gf.Quatf
-    imag_value_type = Gf.Vec3d if orient_op.GetPrecision() == UsdGeom.XformOp.PrecisionDouble else Gf.Vec3f
-
-    translate_op.Set(translate_value_type(float(position[0]), float(position[1]), float(position[2])))
-    orient_op.Set(
-        orient_value_type(
-            float(orientation[0]),
-            imag_value_type(float(orientation[1]), float(orientation[2]), float(orientation[3])),
-        )
-    )
-
-
-def get_prim_xform_components(stage, prim_path):
-    from pxr import UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_path)
-    if not prim.IsValid():
-        raise RuntimeError(f"Prim is not valid for transform read: {prim_path}")
-
-    position = np.zeros(3, dtype=float)
-    orientation = yaw_to_quat(0.0)
-    scale = np.ones(3, dtype=float)
-    for op in UsdGeom.Xformable(prim).GetOrderedXformOps():
-        value = op.Get()
-        if value is None:
-            continue
-        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-            position = np.array(value, dtype=float)
-        elif op.GetOpType() == UsdGeom.XformOp.TypeOrient:
-            imag = value.GetImaginary()
-            orientation = np.array([value.GetReal(), imag[0], imag[1], imag[2]], dtype=float)
-        elif op.GetOpType() == UsdGeom.XformOp.TypeScale:
-            scale = np.array(value, dtype=float)
-    return position, orientation, scale
-
-
-def get_prim_world_xform_components(stage, prim_path):
-    from pxr import Usd, UsdGeom
-
-    prim = stage.GetPrimAtPath(prim_path)
-    if not prim.IsValid():
-        raise RuntimeError(f"Prim is not valid for world transform read: {prim_path}")
-
-    matrix = UsdGeom.XformCache(Usd.TimeCode.Default()).GetLocalToWorldTransform(prim)
-    position = np.array(matrix.ExtractTranslation(), dtype=float)
-    rotation = matrix.ExtractRotationQuat()
-    imag = rotation.GetImaginary()
-    orientation = np.array([rotation.GetReal(), imag[0], imag[1], imag[2]], dtype=float)
-    basis = np.array(
-        [[float(matrix[row][col]) for col in range(3)] for row in range(3)],
-        dtype=float,
-    )
-    scale = np.array([np.linalg.norm(basis[:, idx]) for idx in range(3)], dtype=float)
-    scale[scale < 1.0e-9] = 1.0
-    return position, orientation, scale
-
-
-def mirrored_root_transform(source_position, source_orientation, source_scale, mirror_plane_x):
-    source_position = np.array(source_position, dtype=float)
-    source_scale = np.array(source_scale, dtype=float)
-    root_position = np.array(source_position, dtype=float)
-    root_position[0] = 2.0 * mirror_plane_x - source_position[0]
-    root_scale = np.array(source_scale, dtype=float)
-    root_scale[0] *= -1.0
-    return root_position, np.array(source_orientation, dtype=float), root_scale
-
-
-def rotate_yaw_180(vector):
-    vector = np.array(vector, dtype=float)
-    return np.array([-vector[0], -vector[1], vector[2]], dtype=float)
-
-
-def reversed_static_root_transform(
-    source_position,
-    source_orientation,
-    source_scale,
-    source_anchor,
-    target_anchor,
-):
-    source_position = np.array(source_position, dtype=float)
-    source_anchor = np.array(source_anchor, dtype=float)
-    target_anchor = np.array(target_anchor, dtype=float)
-    root_position = target_anchor - rotate_yaw_180(source_anchor - source_position)
-    root_orientation = quat_multiply(yaw_to_quat(math.pi), np.array(source_orientation, dtype=float))
-    root_scale = np.abs(np.array(source_scale, dtype=float))
-    return root_position, root_orientation, root_scale
-
-
-def apply_mirror_root_transform(stage, prim_path, position, orientation, scale):
-    set_prim_pose(stage, prim_path, position, orientation)
-    set_prim_scale(stage, prim_path, scale)
-
-
-def place_reversed_drop_area(
-    *,
-    stage,
-    ur10_table_usd,
-    add_reference_to_stage,
-    wait_for_stage_loading,
-    simulation_app,
-    usd_context,
-    harim_root,
-    source_pallet_position,
-    target_pallet_position,
-):
-    mirror_plane_x = (float(source_pallet_position[0]) + float(target_pallet_position[0])) * 0.5
-    source_table_position, source_table_orientation, source_table_scale = get_prim_xform_components(
-        stage,
-        "/World/Ur10Table",
-    )
-    source_station_position, source_station_orientation, source_station_scale = get_prim_xform_components(
-        stage,
-        f"{harim_root}/PickupSlideStation",
-    )
-    drop_table_position, drop_table_orientation, drop_table_scale = reversed_static_root_transform(
-        source_table_position,
-        source_table_orientation,
-        source_table_scale,
-        source_pallet_position,
-        target_pallet_position,
-    )
-    drop_station_position, drop_station_orientation, drop_station_scale = mirrored_root_transform(
-        source_station_position,
-        source_station_orientation,
-        source_station_scale,
-        mirror_plane_x,
-    )
-    drop_table_root = f"{harim_root}/DropUr10Table"
-    drop_station_root = f"{harim_root}/DropSlideStation"
-
-    add_reference_to_stage(ur10_table_usd, drop_table_root)
-    wait_for_stage_loading(simulation_app, usd_context, "drop Ur10Table")
-    apply_mirror_root_transform(stage, drop_table_root, drop_table_position, drop_table_orientation, drop_table_scale)
-    deactivate_stage_child_prims_containing(
-        stage,
-        drop_table_root,
-        ("flip", "pallet_holder", "dolly", "conveyor", "bin", "pallet", "obstacle"),
-    )
-    simulation_app.update()
-    drop_table_position = align_prim_bottom_to_target_z(stage, drop_table_root, REFERENCE_STATION_FLOOR_Z)
-    simulation_app.update()
-    drop_table_min, drop_table_max = compute_world_aligned_bounds(stage, drop_table_root)
-    drop_ur10_prim = stage.GetPrimAtPath(f"{drop_table_root}/ur10")
-    if drop_ur10_prim.IsValid():
-        drop_ur10_prim.SetActive(True)
-        set_ur10_folded_home_joint_targets(stage, str(drop_ur10_prim.GetPath()))
-        set_ur10_folded_home_visual_pose(stage, str(drop_ur10_prim.GetPath()))
-        make_visual_only_static(stage, str(drop_ur10_prim.GetPath()))
-
-    place_image_matched_sliding_station(
-        stage=stage,
-        station_root=drop_station_root,
-        name_prefix="DropSlideStation",
-    )
-    wait_for_stage_loading(simulation_app, usd_context, "drop image-matched sliding station")
-    print("[HarimDemo] kept DropSlideStation source side spacing to preserve image-matched mesh shape")
-    apply_mirror_root_transform(stage, drop_station_root, drop_station_position, drop_station_orientation, drop_station_scale)
-    simulation_app.update()
-    drop_station_top_z = compute_world_z_bounds(stage, drop_station_root)[1]
-    station_z_shift = float(target_pallet_position[2] - drop_station_top_z)
-    if abs(station_z_shift) > 1e-6:
-        drop_station_position = np.array(drop_station_position, dtype=float)
-        drop_station_position[2] += station_z_shift
-        apply_mirror_root_transform(
-            stage,
-            drop_station_root,
-            drop_station_position,
-            drop_station_orientation,
-            drop_station_scale,
-        )
-        simulation_app.update()
-        drop_station_top_z = compute_world_z_bounds(stage, drop_station_root)[1]
-
-    print(
-        "[HarimDemo] placed reversed drop area: "
-        f"source_pallet={source_pallet_position.tolist()}, "
-        f"target_pallet={target_pallet_position.tolist()}, "
-        f"mirror_plane_x={mirror_plane_x:.6f}, "
-        f"table_root_translate={drop_table_position.tolist()}, "
-        f"table_root_orientation={drop_table_orientation.tolist()}, "
-        f"table_root_scale={drop_table_scale.tolist()}, "
-        f"table_bottom_z={drop_table_min[2]:.6f}, "
-        f"table_top_z={drop_table_max[2]:.6f}, "
-        f"station_root_translate={drop_station_position.tolist()}, "
-        f"station_root_scale={drop_station_scale.tolist()}, "
-        f"station_top_z={drop_station_top_z:.6f}, "
-        f"drop_ur10_active={drop_ur10_prim.IsValid() and drop_ur10_prim.IsActive()}, "
-        "mirror_axis=X"
-    )
-    return {
-        "drop_table_root": drop_table_root,
-        "drop_station_root": drop_station_root,
-        "drop_table_position": np.array(drop_table_position, dtype=float),
-        "drop_table_orientation": np.array(drop_table_orientation, dtype=float),
-        "drop_station_position": np.array(drop_station_position, dtype=float),
-        "drop_station_top_z": float(drop_station_top_z),
-        "mirror_plane_x": float(mirror_plane_x),
-    }
-
-
-def is_v3_dropoff_cart_enabled():
-    if V3_DROPOFF_CART_MODE in ("1", "true", "yes", "on"):
-        return True
-    if V3_DROPOFF_CART_MODE in ("0", "false", "no", "off"):
-        return False
-    return IMAGE_MATCHED_SLIDING_STATION_USD.name == "harim_v3.usd"
-
-
-def find_first_prim_path_by_name(stage, name, root_path="/World"):
-    from pxr import Usd
-
-    root = stage.GetPrimAtPath(root_path)
-    if not root.IsValid():
-        return None
-    for prim in Usd.PrimRange(root):
-        if prim.GetName() == name:
-            return str(prim.GetPath())
-    return None
-
-
-def delete_prim_if_present(stage, prim_path):
-    prim = stage.GetPrimAtPath(prim_path)
-    if prim.IsValid():
-        stage.RemovePrim(prim_path)
-
-
-def copy_prim_for_v3(stage, source_path, target_path):
-    import omni.kit.commands
-    import omni.usd
-
-    if not stage.GetPrimAtPath(source_path).IsValid():
-        raise RuntimeError(f"V3 source prim was not found: {source_path}")
-
-    delete_prim_if_present(stage, target_path)
-    omni.usd.duplicate_prim(stage, source_path, target_path, duplicate_layers=False)
-    copied = stage.GetPrimAtPath(target_path).IsValid()
-    try:
-        if not copied:
-            omni.kit.commands.execute(
-                "CopyPrimCommand",
-                path_from=source_path,
-                path_to=target_path,
-                duplicate_layers=False,
-                combine_layers=False,
-                exclusive_select=False,
-                flatten_references=False,
-            )
-            copied = stage.GetPrimAtPath(target_path).IsValid()
-    except Exception as exc:
-        print(f"[HarimDemo] CopyPrimCommand fallback for {source_path}: {exc}")
-
-    if not copied:
-        raise RuntimeError(f"Could not copy V3 prim: {source_path} -> {target_path}")
-    return stage.GetPrimAtPath(target_path)
-
-
-def align_prim_bottom_center_to_target(stage, prim_path, *, target_center_xy, target_bottom_z):
-    position, _orientation, _scale = get_prim_xform_components(stage, prim_path)
-    bounds_min, bounds_max = compute_world_aligned_bounds(stage, prim_path)
-    current_center = (bounds_min + bounds_max) * 0.5
-    adjusted = np.array(position, dtype=float)
-    adjusted[0] += float(target_center_xy[0] - current_center[0])
-    adjusted[1] += float(target_center_xy[1] - current_center[1])
-    adjusted[2] += float(target_bottom_z - bounds_min[2])
-    set_prim_translate(stage, prim_path, adjusted)
-    return adjusted
-
-
-def align_prim_bottom_to_target_z(stage, prim_path, target_bottom_z):
-    position, _orientation, _scale = get_prim_xform_components(stage, prim_path)
-    bounds_min, _bounds_max = compute_world_aligned_bounds(stage, prim_path)
-    adjusted = np.array(position, dtype=float)
-    adjusted[2] += float(target_bottom_z - bounds_min[2])
-    set_prim_translate(stage, prim_path, adjusted)
-    return adjusted
-
-
-def place_v3_dropoff_pushcart_target(
-    *,
-    stage,
-    simulation_app,
-    harim_root,
-    source_pallet_path,
-    source_pallet_position,
-    target_pallet_position,
-    drop_area_info,
-):
-    if not is_v3_dropoff_cart_enabled():
-        return None
-
-    source_pushcart_path = find_first_prim_path_by_name(stage, V3_PUSHCART_SOURCE_NAME, "/World/Background")
-    if source_pushcart_path is None:
-        raise RuntimeError(f"Could not find source pushcart prim in background: {V3_PUSHCART_SOURCE_NAME}")
-
-    copy_prim_for_v3(stage, source_pushcart_path, V3_PUSHCART_TARGET_ROOT)
-    _source_position, _source_orientation, pushcart_scale = get_prim_world_xform_components(stage, source_pushcart_path)
-
-    drop_table_position = np.array(drop_area_info["drop_table_position"], dtype=float)
-    pushcart_position = drop_table_position + V3_PUSHCART_FALLBACK_RIGHT_OFFSET
-    pushcart_position[1] = V3_PUSHCART_WORLD_Y
-
-    set_prim_translate_rotate_z_scale(
-        stage,
-        V3_PUSHCART_TARGET_ROOT,
-        pushcart_position,
-        V3_PUSHCART_YAW_DEG,
-        pushcart_scale,
-    )
-    simulation_app.update()
-    pushcart_position = align_prim_bottom_to_target_z(stage, V3_PUSHCART_TARGET_ROOT, REFERENCE_STATION_FLOOR_Z)
-    simulation_app.update()
-
-    copy_prim_for_v3(stage, source_pallet_path, V3_PUSHCART_PALLET_ROOT)
-    make_visual_only_static(stage, V3_PUSHCART_PALLET_ROOT)
-    cart_min, cart_max = compute_world_aligned_bounds(stage, V3_PUSHCART_TARGET_ROOT)
-    cart_center = (cart_min + cart_max) * 0.5
-    pallet_center_xy = np.array(cart_center[:2], dtype=float)
-    pallet_center_xy[0] = V3_PUSHCART_PALLET_WORLD_X
-    pallet_position = align_prim_bottom_center_to_target(
-        stage,
-        V3_PUSHCART_PALLET_ROOT,
-        target_center_xy=pallet_center_xy,
-        target_bottom_z=cart_max[2] + V3_PUSHCART_PALLET_Z_OFFSET,
-    )
-    pallet_position[2] = V3_PUSHCART_PALLET_TRANSLATE_Z
-    set_prim_translate(stage, V3_PUSHCART_PALLET_ROOT, pallet_position)
-    simulation_app.update()
-    pallet_min, pallet_max = compute_world_aligned_bounds(stage, V3_PUSHCART_PALLET_ROOT)
-
-    print(
-        "[HarimDemo] placed V3 dropoff pushcart target: "
-        f"source={source_pushcart_path}, target={V3_PUSHCART_TARGET_ROOT}, "
-        f"pushcart_translate={pushcart_position.tolist()}, "
-        f"pushcart_yaw_deg={V3_PUSHCART_YAW_DEG:.1f}, "
-        f"cart_bottom_z={cart_min[2]:.6f}, "
-        f"cart_top_z={cart_max[2]:.6f}, "
-        f"pallet={V3_PUSHCART_PALLET_ROOT}, pallet_translate={pallet_position.tolist()}, "
-        f"pallet_world_x={V3_PUSHCART_PALLET_WORLD_X:.3f}, "
-        f"pallet_translate_z={V3_PUSHCART_PALLET_TRANSLATE_Z:.4f}, "
-        f"pallet_z_offset={V3_PUSHCART_PALLET_Z_OFFSET:.4f}, "
-        f"pallet_bottom_z={pallet_min[2]:.6f}, "
-        f"pallet_top_z={pallet_max[2]:.6f}"
-    )
-    return {
-        "pushcart_root": V3_PUSHCART_TARGET_ROOT,
-        "pallet_root": V3_PUSHCART_PALLET_ROOT,
-        "pushcart_position": np.array(pushcart_position, dtype=float),
-        "pallet_position": np.array(pallet_position, dtype=float),
-    }
 
 
 class TransferState(Enum):
@@ -1380,12 +500,12 @@ def make_stack_coordinates(cols, rows, layers):
     rows = max(1, rows)
     layers = max(1, layers)
 
+    x0 = 1.05
     y0 = -0.62
     z0 = -0.51
     dx = -0.21
     dy = 0.31
     dz = 0.15
-    x0 = DEFAULT_PALLET_X - dx * (cols - 1) * 0.5
 
     coords = []
     for layer in range(layers):
@@ -1417,18 +537,12 @@ class HarimTransferOrchestrator:
         stack_coordinates,
         args,
         amr_lift_prim=None,
-        stage=None,
-        amr_lift_path=None,
-        lift_surface_z=None,
     ):
         self.world = world
         self.context = context
         self.task = task
         self.amr = amr_prim
         self.amr_lift = amr_lift_prim
-        self.stage = stage
-        self.amr_lift_path = amr_lift_path
-        self.lift_surface_z = None if lift_surface_z is None else float(lift_surface_z)
         self.lift_plate = lift_plate
         self.pallet_parts = pallet_parts
         self.stack_coordinates = stack_coordinates
@@ -1442,7 +556,6 @@ class HarimTransferOrchestrator:
         self.item_offsets = {}
         self.pallet_base_offsets = {}
         self.dropped_item_poses = {}
-        self.dropped_item_sequence = []
         self.dropped_pallet_poses = {}
         self.initial_pallet_poses = self._capture_pallet_poses()
 
@@ -1451,14 +564,13 @@ class HarimTransferOrchestrator:
         self.lift_offset = 0.0
         self.amr_lift_base_offset = None
         self.amr_lift_orientation = None
-        self.amr_lift_top_offset = None
         self.move_target = None
 
         self.start_pose = np.array([args.pickup_x + AMR_START_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         self.approach_pose = np.array([args.pickup_x + AMR_APPROACH_STANDOFF, args.pickup_y, args.amr_z], dtype=float)
         self.pickup_pose = np.array([args.pickup_x, args.pickup_y, args.amr_z], dtype=float)
         self.drop_pose = np.array([args.drop_x, args.drop_y, args.amr_z], dtype=float)
-        self.exit_pose = np.array([args.drop_x - SLIDE_EXIT_DISTANCE, args.drop_y, args.amr_z], dtype=float)
+        self.exit_pose = np.array([args.drop_x + SLIDE_EXIT_DISTANCE, args.drop_y, args.amr_z], dtype=float)
 
         self.reset_visual_state()
 
@@ -1487,7 +599,6 @@ class HarimTransferOrchestrator:
         self.item_offsets = {}
         self.pallet_base_offsets = {}
         self.dropped_item_poses = {}
-        self.dropped_item_sequence = []
         self.dropped_pallet_poses = {}
         self.lift_offset = 0.0
         self.set_amr_pose(self.start_pose)
@@ -1519,16 +630,6 @@ class HarimTransferOrchestrator:
             self.amr_lift_base_offset = np.array(lift_pos, dtype=float) - amr_pos
             self.amr_lift_orientation = lift_orient
         target = amr_pos + self.amr_lift_base_offset + np.array([0.0, 0.0, self.lift_offset], dtype=float)
-        if self.lift_surface_z is not None and self.stage is not None and self.amr_lift_path:
-            if self.amr_lift_top_offset is None:
-                self.amr_lift.set_world_pose(position=target, orientation=self.amr_lift_orientation)
-                _lift_min, lift_max = compute_world_aligned_bounds(self.stage, self.amr_lift_path)
-                self.amr_lift_top_offset = float(lift_max[2] - target[2])
-                print(
-                    "[HarimDemo] calibrated iw_hub lift top to pallet underside: "
-                    f"surface_z={self.lift_surface_z:.6f}, top_offset={self.amr_lift_top_offset:.6f}"
-                )
-            target[2] = self.lift_surface_z - self.amr_lift_top_offset + self.lift_offset
         self.amr_lift.set_world_pose(position=target, orientation=self.amr_lift_orientation)
 
     def _reset_pallet_pose(self):
@@ -1651,12 +752,10 @@ class HarimTransferOrchestrator:
 
     def _record_dropped_assembly(self):
         self.dropped_item_poses = {}
-        self.dropped_item_sequence = []
         for item in self.attached_items:
             try:
                 pos, orient = item.get_world_pose()
                 self.dropped_item_poses[item.name] = (item, np.array(pos, dtype=float), orient)
-                self.dropped_item_sequence.append((item, np.array(pos, dtype=float), orient))
             except Exception as exc:
                 print(f"[HarimDemo] could not record dropped item: {exc}")
 
@@ -1783,163 +882,6 @@ class HarimTransferOrchestrator:
             pass
 
 
-def interpolate_joint_targets(start_targets, end_targets, t):
-    t = clamp(t, 0.0, 1.0)
-    return {
-        joint_name: lerp(float(start_targets[joint_name]), float(end_targets[joint_name]), t)
-        for joint_name in start_targets
-    }
-
-
-def arc_lerp_position(start_position, end_position, t, lift_arc):
-    t = clamp(t, 0.0, 1.0)
-    position = lerp(np.array(start_position, dtype=float), np.array(end_position, dtype=float), t)
-    position[2] += math.sin(math.pi * t) * float(lift_arc)
-    return position
-
-
-class V3DropRobotTransferController:
-    def __init__(self, *, stage, ur10_root_path, target_pallet_root):
-        self.stage = stage
-        self.ur10_root_path = ur10_root_path
-        self.target_pallet_root = target_pallet_root
-        self.started = False
-        self.done = False
-        self.item_index = 0
-        self.item_time = 0.0
-        self.items = []
-        self.last_reported_item = None
-
-    def _build_target_positions(self):
-        pallet_min, pallet_max = compute_world_aligned_bounds(self.stage, self.target_pallet_root)
-        pallet_center = (pallet_min + pallet_max) * 0.5
-        x_offsets = (-0.17, 0.17)
-        y_offsets = (-0.14, 0.14)
-
-        for index, data in enumerate(self.items):
-            item = data["item"]
-            item_path = getattr(item, "prim_path", None)
-            if item_path is None and hasattr(item, "prim"):
-                item_path = str(item.prim.GetPath())
-            item_min, item_max = compute_world_aligned_bounds(self.stage, item_path)
-            item_height = max(0.12, float(item_max[2] - item_min[2]))
-            layer = index // 4
-            cell = index % 4
-            target = np.array(
-                [
-                    pallet_center[0] + x_offsets[cell % 2],
-                    pallet_center[1] + y_offsets[(cell // 2) % 2],
-                    pallet_max[2] + item_height * 0.5 + layer * item_height,
-                ],
-                dtype=float,
-            )
-            data["target_position"] = target
-
-    def _start(self, orchestrator):
-        self.items = []
-        for name in sorted(orchestrator.dropped_item_poses):
-            item, position, orientation = orchestrator.dropped_item_poses[name]
-            self.items.append(
-                {
-                    "item": item,
-                    "start_position": np.array(position, dtype=float),
-                    "orientation": orientation,
-                    "target_position": None,
-                }
-            )
-
-        if not self.items:
-            self.done = True
-            return
-
-        self._build_target_positions()
-        self.started = True
-        self.item_index = 0
-        self.item_time = 0.0
-        print(
-            "[HarimDemo] started V3 drop robot transfer after AMR exit: "
-            f"items={len(self.items)}, target_pallet={self.target_pallet_root}"
-        )
-
-    def _set_item_pose(self, data, position):
-        item = data["item"]
-        try:
-            item.set_world_pose(position=np.array(position, dtype=float), orientation=data["orientation"])
-            item.set_linear_velocity(np.zeros(3))
-            item.set_angular_velocity(np.zeros(3))
-        except Exception:
-            item.set_world_pose(position=np.array(position, dtype=float), orientation=data["orientation"])
-
-    def _hold_transferred_items(self):
-        for index, data in enumerate(self.items):
-            if index >= self.item_index and not self.done:
-                continue
-            self._set_item_pose(data, data["target_position"])
-
-    def _set_drop_robot_motion_pose(self, t):
-        if t < 0.35:
-            joint_targets = interpolate_joint_targets(V3_DROP_ROBOT_HOME_JOINTS_DEG, V3_DROP_ROBOT_PICK_JOINTS_DEG, t / 0.35)
-        elif t < 0.70:
-            joint_targets = interpolate_joint_targets(
-                V3_DROP_ROBOT_PICK_JOINTS_DEG,
-                V3_DROP_ROBOT_PLACE_JOINTS_DEG,
-                (t - 0.35) / 0.35,
-            )
-        else:
-            joint_targets = interpolate_joint_targets(
-                V3_DROP_ROBOT_PLACE_JOINTS_DEG,
-                V3_DROP_ROBOT_HOME_JOINTS_DEG,
-                (t - 0.70) / 0.30,
-            )
-        set_ur10_visual_pose_from_joint_targets(self.stage, self.ur10_root_path, joint_targets)
-
-    def step(self, dt, orchestrator):
-        if self.done:
-            self._hold_transferred_items()
-            return
-
-        if not self.started:
-            if orchestrator.state == TransferState.DONE_IDLE and orchestrator.completed_cycles > 0:
-                self._start(orchestrator)
-            return
-
-        if self.item_index >= len(self.items):
-            set_ur10_visual_pose_from_joint_targets(self.stage, self.ur10_root_path, V3_DROP_ROBOT_HOME_JOINTS_DEG)
-            self.done = True
-            print("[HarimDemo] completed V3 drop robot transfer to pushcart pallet")
-            return
-
-        self._hold_transferred_items()
-        if self.last_reported_item != self.item_index:
-            self.last_reported_item = self.item_index
-            print(f"[HarimDemo] V3 drop robot moving box {self.item_index + 1}/{len(self.items)}")
-
-        self.item_time += min(float(dt), V3_DROP_ROBOT_MAX_DT)
-        t = clamp(self.item_time / V3_DROP_ROBOT_ITEM_SECONDS, 0.0, 1.0)
-        self._set_drop_robot_motion_pose(t)
-
-        data = self.items[self.item_index]
-        item = data["item"]
-        position = arc_lerp_position(
-            data["start_position"],
-            data["target_position"],
-            t,
-            V3_DROP_ROBOT_LIFT_ARC,
-        )
-        try:
-            self._set_item_pose(data, position)
-            orchestrator._stop_dynamic_item(item)
-        except Exception as exc:
-            print(f"[HarimDemo] could not move V3 transferred box: {exc}")
-
-        if t >= 1.0:
-            data["start_position"] = np.array(data["target_position"], dtype=float)
-            self._set_item_pose(data, data["target_position"])
-            print(f"[HarimDemo] V3 drop robot placed box {self.item_index + 1}/{len(self.items)}")
-            self.item_index += 1
-            self.item_time = 0.0
-
-
 def main():
     args = parse_args()
     configure_local_runtime_dirs()
@@ -2062,13 +1004,13 @@ def main():
     add_reference_to_stage(ur10_assets.ur10_table_usd, "/World/Ur10Table")
     add_reference_to_stage(ur10_assets.background_usd, "/World/Background")
     wait_for_stage_loading(simulation_app, usd_context, "UR10 palletizing scene")
-    deactivate_stage_prims_containing(usd_context.get_stage(), "/World/Ur10Table", ("flip", "pallet_holder", "dolly"))
+    deactivate_stage_prims_containing(usd_context.get_stage(), "/World/Ur10Table", ("flip", "pallet_holder"))
     SingleXFormPrim("/World/Background", position=[10.00, 2.00, -1.18180], orientation=[0.7071, 0, 0, 0.7071])
 
     card_box_material, card_box_display_color = resolve_background_card_box_style(usd_context.get_stage())
     styled_cardboard_box_paths = set()
 
-    def apply_cardboard_box_color(root_path):
+    def apply_cardboard_box_color(root_path="/World"):
         applied_count = apply_background_card_box_style_to_box_targets(
             usd_context.get_stage(),
             root_path,
@@ -2079,18 +1021,7 @@ def main():
         if applied_count > 0:
             print(f"[HarimDemo] matched {applied_count} cardboard box visuals to background card box color")
 
-    def apply_pallet_box_color():
-        applied_count = apply_box_style_to_all_gprims(
-            usd_context.get_stage(),
-            "/World/Ur10Table/pallet",
-            card_box_material,
-            card_box_display_color,
-        )
-        if applied_count > 0:
-            print(f"[HarimDemo] matched {applied_count} pallet visuals to cardboard box color")
-
-    apply_cardboard_box_color("/World/Background")
-    apply_pallet_box_color()
+    apply_cardboard_box_color("/World")
 
     robot = world.add_robot(CortexUr10(name="robot", prim_path="/World/Ur10Table/ur10"))
 
@@ -2147,8 +1078,6 @@ def main():
     robot.register_obstacle(obs)
 
     stack_coordinates = make_stack_coordinates(args.stack_cols, args.stack_rows, args.stack_layers)
-    stack_center_x = float(np.array(stack_coordinates, dtype=float)[:, 0].mean())
-    print(f"[HarimDemo] set stack drop center X: {stack_center_x:.6f} for pallet X {DEFAULT_PALLET_X:.6f}")
     task = BinStackingTask("/World/Ur10Table", ur10_assets)
     task.set_up_scene(world.scene)
     world.add_task(task)
@@ -2163,22 +1092,24 @@ def main():
     place_image_matched_sliding_station(
         stage=usd_context.get_stage(),
         station_root=f"{harim_root}/PickupSlideStation",
+        center_x=args.pickup_x,
+        center_y=args.pickup_y,
+        floor_z=REFERENCE_STATION_FLOOR_Z,
         name_prefix="PickupSlideStation",
     )
-    wait_for_stage_loading(simulation_app, usd_context, "image-matched sliding station")
-    set_slide_station_side_y_offsets(
-        usd_context.get_stage(),
-        f"{harim_root}/PickupSlideStation",
-        left_y=PICKUP_STATION_LEFT_Y,
-        right_y=PICKUP_STATION_RIGHT_Y,
+    place_image_matched_sliding_station(
+        stage=usd_context.get_stage(),
+        station_root=f"{harim_root}/DropSlideStation",
+        center_x=args.drop_x,
+        center_y=args.drop_y,
+        floor_z=REFERENCE_STATION_FLOOR_Z,
+        name_prefix="DropSlideStation",
     )
-    station_top_z = compute_world_z_bounds(usd_context.get_stage(), f"{harim_root}/PickupSlideStation")[1]
+    wait_for_stage_loading(simulation_app, usd_context, "image-matched sliding stations")
 
     iw_hub_usd = assets_root + "/Isaac/Samples/AnimRobot/iw_hub.usd"
     add_reference_to_stage(iw_hub_usd, f"{harim_root}/iw_hub")
     wait_for_stage_loading(simulation_app, usd_context, "iw_hub")
-    set_prim_scale(usd_context.get_stage(), f"{harim_root}/iw_hub", DEFAULT_AMR_SCALE)
-    print(f"[HarimDemo] set iw_hub AMR scale: {DEFAULT_AMR_SCALE.tolist()}")
     amr = SingleXFormPrim(f"{harim_root}/iw_hub", name="harim_iw_hub")
     amr_lift_path = f"{harim_root}/iw_hub/chassis/lift"
     amr_lift = None
@@ -2244,65 +1175,6 @@ def main():
     if not pallet_parts:
         raise RuntimeError("No pallet prim was found in the UR10 example scene; custom pallet creation is disabled.")
     print(f"[HarimDemo] using {len(pallet_parts)} example pallet prims")
-    for part in pallet_parts:
-        position, _orientation = part.get_world_pose()
-        corrected_position = np.array(position, dtype=float)
-        original_x = corrected_position[0]
-        corrected_position[0] = DEFAULT_PALLET_X
-        part.set_world_pose(corrected_position)
-        print(
-            "[HarimDemo] set pallet initial X: "
-            f"{part.name} x={original_x:.6f} -> {DEFAULT_PALLET_X:.6f}"
-        )
-    original_pallet_bottom_z = min(compute_world_z_bounds(usd_context.get_stage(), part.prim)[0] for part in pallet_parts)
-    original_pallet_top_z = max(compute_world_z_bounds(usd_context.get_stage(), part.prim)[1] for part in pallet_parts)
-    pallet_z_shift = station_top_z - original_pallet_bottom_z
-    if abs(pallet_z_shift) > 1e-6:
-        for part in pallet_parts:
-            position, _orientation = part.get_world_pose()
-            corrected_position = np.array(position, dtype=float)
-            corrected_position[2] += pallet_z_shift
-            part.set_world_pose(corrected_position)
-        stack_coordinates = [
-            np.array(coord, dtype=float) + np.array([0.0, 0.0, pallet_z_shift], dtype=float)
-            for coord in stack_coordinates
-        ]
-        decider_network.context.stack_coordinates = stack_coordinates
-    pallet_bottom_z = original_pallet_bottom_z + pallet_z_shift
-    pallet_top_z = original_pallet_top_z + pallet_z_shift
-    pallet_height = max(0.0, pallet_top_z - pallet_bottom_z)
-    pickup_pallet_position = np.array(pallet_parts[0].get_world_pose()[0], dtype=float)
-    drop_pallet_position = pickup_pallet_position + np.array(
-        [args.drop_x - args.pickup_x, args.drop_y - args.pickup_y, 0.0],
-        dtype=float,
-    )
-    print(
-        "[HarimDemo] aligned pallet to PickupSlideStation top: "
-        f"station_top_z={station_top_z:.6f}, pallet_bottom_z={original_pallet_bottom_z:.6f}, "
-        f"pallet_height={pallet_height:.6f}, "
-        f"z_shift={pallet_z_shift:.6f}"
-    )
-    apply_pallet_box_color()
-    drop_area_info = place_reversed_drop_area(
-        stage=usd_context.get_stage(),
-        ur10_table_usd=ur10_assets.ur10_table_usd,
-        add_reference_to_stage=add_reference_to_stage,
-        wait_for_stage_loading=wait_for_stage_loading,
-        simulation_app=simulation_app,
-        usd_context=usd_context,
-        harim_root=harim_root,
-        source_pallet_position=pickup_pallet_position,
-        target_pallet_position=drop_pallet_position,
-    )
-    v3_dropoff_info = place_v3_dropoff_pushcart_target(
-        stage=usd_context.get_stage(),
-        simulation_app=simulation_app,
-        harim_root=harim_root,
-        source_pallet_path=str(pallet_parts[0].prim.GetPath()),
-        source_pallet_position=pickup_pallet_position,
-        target_pallet_position=drop_pallet_position,
-        drop_area_info=drop_area_info,
-    )
 
     class SelfTestBinState:
         def __init__(self, bin_obj):
@@ -2337,13 +1209,6 @@ def main():
         stack_coordinates=stack_coordinates,
         args=args,
     )
-    v3_drop_robot_controller = None
-    if v3_dropoff_info is not None:
-        v3_drop_robot_controller = V3DropRobotTransferController(
-            stage=usd_context.get_stage(),
-            ur10_root_path=f"{drop_area_info['drop_table_root']}/ur10",
-            target_pallet_root=v3_dropoff_info["pallet_root"],
-        )
 
     world.reset()
     world.play()
@@ -2364,8 +1229,6 @@ def main():
         apply_cardboard_box_color("/World/Ur10Table/bins")
         force_self_test_stack_complete()
         orchestrator.step(world.get_physics_dt())
-        if v3_drop_robot_controller is not None:
-            v3_drop_robot_controller.step(world.get_physics_dt(), orchestrator)
 
     try:
         if args.self_test_frames > 0:

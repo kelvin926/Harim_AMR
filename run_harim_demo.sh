@@ -14,10 +14,11 @@ STACK_LAYERS=2
 SELF_TEST_FRAMES=0
 SELF_TEST_FORCE_STACK_COMPLETE=0
 MOVE_SPEED=0.65
-PICKUP_X=0.82
+PICKUP_X=1.25
 PICKUP_Y=-0.31
-DROP_X=11.42
+DROP_X=11.85
 DROP_Y=-0.31
+CAPTURE_PATH=""
 
 usage() {
   cat <<'EOF'
@@ -37,6 +38,7 @@ Options:
   --pickup-y FLOAT
   --drop-x FLOAT
   --drop-y FLOAT
+  --capture-path PATH
   --python-exe PATH
 EOF
 }
@@ -95,6 +97,10 @@ while [[ $# -gt 0 ]]; do
       DROP_Y="$2"
       shift 2
       ;;
+    --capture-path)
+      CAPTURE_PATH="$2"
+      shift 2
+      ;;
     --python-exe)
       PYTHON_EXE="$2"
       shift 2
@@ -146,6 +152,10 @@ fi
 
 if [[ "$SELF_TEST_FORCE_STACK_COMPLETE" -eq 1 ]]; then
   ARGS+=("--self-test-force-stack-complete")
+fi
+
+if [[ -n "$CAPTURE_PATH" ]]; then
+  ARGS+=("--capture-path" "$CAPTURE_PATH")
 fi
 
 exec "$PYTHON_EXE" "${ARGS[@]}"

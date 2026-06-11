@@ -31,6 +31,7 @@ Ubuntu:
 ./.conda/env_isaacsim_5_1_0/bin/python -m py_compile ./isaac_sim/scripts/run_harim_pallet_demo.py ./isaac_sim/tests/test_harim_transfer_orchestrator.py
 ./.conda/env_isaacsim_5_1_0/bin/python -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
 ./run_harim_demo.sh --headless --accept-eula --self-test-frames 2 --cycles 1
+./run_harim_demo.sh --headless --accept-eula --self-test-frames 2 --cycles 1 --capture-path isaacsim_logs/reference_station_capture.png
 ```
 
 Windows:
@@ -39,6 +40,7 @@ Windows:
 .\.conda\env_isaacsim_5_1_0\python.exe -m py_compile .\isaac_sim\scripts\run_harim_pallet_demo.py .\isaac_sim\tests\test_harim_transfer_orchestrator.py
 .\.conda\env_isaacsim_5_1_0\python.exe -m unittest isaac_sim.tests.test_harim_transfer_orchestrator
 powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1
+powershell -ExecutionPolicy Bypass -File .\run_harim_demo.ps1 -Headless -AcceptEula -SelfTestFrames 2 -Cycles 1 -CapturePath isaacsim_logs\reference_station_capture.png
 ```
 
 AMR transfer 시퀀스까지 바꾼 경우:
