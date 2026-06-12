@@ -109,7 +109,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.demo = load_demo_module()
 
-    def build_orchestrator(self, args, amr_lift_prim=None):
+    def build_orchestrator(self, args, amr_lift_prim=None, stabilize_source_stack=False):
         items = [FakePosePrim(f"bin_{idx}", (0.7 + 0.1 * idx, -0.31, -0.50)) for idx in range(3)]
         context = FakeContext(items)
         world = FakeWorld()
@@ -123,6 +123,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             pallet_parts=[FakePosePrim("example_pallet", (Args.pickup_x, Args.pickup_y, -0.60))],
             stack_coordinates=self.demo.make_stack_coordinates(2, 2, 1),
             args=args,
+            stabilize_source_stack=stabilize_source_stack,
         )
         return orchestrator, context, world, items
 
@@ -163,6 +164,33 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
             local_z_in_world = rotate_vector_by_quat([0.0, 0.0, 1.0], orientation)
 
             self.assertLess(local_z_in_world[2], -0.99)
+
+    def test_newly_stacked_source_bins_are_stabilized_to_v3_stack_targets(self):
+        orchestrator, _context, _world, items = self.build_orchestrator(
+            Args(),
+            stabilize_source_stack=True,
+        )
+
+        for item in items:
+            item.set_world_pose(position=[9.0, 9.0, 9.0], orientation=[1.0, 0.0, 0.0, 0.0])
+        orchestrator._stabilize_newly_stacked_items()
+
+        for index, item in enumerate(items):
+            np.testing.assert_allclose(item.position, orchestrator.stack_coordinates[index])
+            np.testing.assert_allclose(item.orientation, self.demo.UPSIDE_DOWN_BIN_QUAT)
+            np.testing.assert_allclose(item.linear_velocity, np.zeros(3))
+            np.testing.assert_allclose(item.angular_velocity, np.zeros(3))
+
+    def test_source_stack_stabilization_is_off_by_default_for_v2(self):
+        orchestrator, _context, _world, items = self.build_orchestrator(Args())
+
+        for item in items:
+            item.set_world_pose(position=[9.0, 9.0, 9.0], orientation=[1.0, 0.0, 0.0, 0.0])
+        orchestrator._stabilize_newly_stacked_items()
+
+        for item in items:
+            np.testing.assert_allclose(item.position, np.array([9.0, 9.0, 9.0]))
+            np.testing.assert_allclose(item.orientation, np.array([1.0, 0.0, 0.0, 0.0]))
 
     def test_demo_uses_no_flip_dispatch(self):
         source = DEMO_PATH.read_text(encoding="utf-8")
@@ -257,14 +285,21 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("target_y=mirrored_for_drop_robot", source)
         self.assertIn("target_stack=bottom_first", source)
         self.assertIn("item_bottom_offset", source)
-        self.assertIn("target_bottom_z - data[\"item_bottom_offset\"]", source)
+        self.assertIn("item_top_offset", source)
+        self.assertIn("pick_surface_root_offset", source)
+        self.assertIn('target_bottom_offset = float(np.median([data["item_bottom_offset"] for data in self.items]))', source)
+        self.assertIn("target_bottom_z - target_bottom_offset", source)
+        self.assertIn('data["target_orientation"] = np.array(UPSIDE_DOWN_BIN_QUAT, dtype=float)', source)
         self.assertIn("V3_DROP_ROBOT_PICK_APPROACH_DISTANCE = 0.10", source)
         self.assertIn("V3_DROP_ROBOT_PICK_LIFT_DISTANCE = 0.30", source)
         self.assertIn("V3_DROP_ROBOT_PLACE_APPROACH_DISTANCE = 0.35", source)
         self.assertIn("V3_DROP_ROBOT_PLACE_LIFT_DISTANCE = 0.10", source)
         self.assertIn("V3_DROP_ROBOT_PLACE_RELEASE_CLEARANCE = 0.006", source)
+        self.assertIn("V3_DROP_ROBOT_PICK_SURFACE_CLEARANCE = 0.0025", source)
+        self.assertIn('V3_DROP_ROBOT_MOTION_COMMANDER_TARGET = "/World/v3_drop_motion_commander_target"', source)
         self.assertIn("V3_DROP_ROBOT_IK_ROTATION_TOLERANCE = 0.18", source)
         self.assertIn("V3_DROP_ROBOT_IK_ROTATION_WEIGHT = 0.22", source)
+        self.assertIn('V3_DROP_ROBOT_IK_END_EFFECTOR_LINK = "ee_suction_link"', source)
         self.assertIn('V3_DROP_ROBOT_GRASP_COLLISION_RELATIVE_PATH = "Collision/Cube_03"', source)
         self.assertIn("V3_DROP_ROBOT_ORIGINAL_UPSIDE_DOWN_MARGIN = -0.0025", source)
         self.assertIn("orthonormal_rotation_from_axes", source)
@@ -286,13 +321,53 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("catmull_rom_scalar", source)
         self.assertIn("targets[joint_name] = clamp(value, min(start_value, end_value), max(start_value, end_value))", source)
         self.assertIn("V3 drop robot preparing box", source)
-        self.assertIn("process=pose_ik_reach_wait_close_lift_then_reach_wait_open_lift", source)
-        self.assertIn('get_prim_world_xform_components(self.stage, f"{self.ur10_root_path}/ee_link")', source)
+        self.assertIn("process=motion_commander_target_pose_ik_reach_wait_close_lift_then_reach_wait_open_lift", source)
+        self.assertIn("compute_ur10_link_matrices(joint_targets)[V3_DROP_ROBOT_IK_END_EFFECTOR_LINK]", source)
+        self.assertIn('f"{self.ur10_root_path}/{V3_DROP_ROBOT_IK_END_EFFECTOR_LINK}"', source)
+        self.assertIn("def _get_ee_world_pose(self):", source)
+        self.assertIn("def _joint_targets_ee_world_pose(self, joint_targets):", source)
+        self.assertIn("local_matrix = compute_ur10_link_matrices(joint_targets)[V3_DROP_ROBOT_IK_END_EFFECTOR_LINK]", source)
+        self.assertIn("return self._joint_targets_ee_world_pose(joint_targets)", source)
         self.assertIn("_item_position_from_drop_robot", source)
         self.assertIn('data["place_release_position"]', source)
-        self.assertIn('position = lerp(position, data["place_release_position"], settle_t)', source)
-        self.assertIn('position[2] = max(float(position[2]), float(data["target_position"][2]))', source)
-        self.assertIn("transform_world_point_to_prim_local(self.stage, self.ur10_root_path, world_position)", source)
+        self.assertIn('data["grip_local_position"] = pick_ee_rotation.T @', source)
+        self.assertIn('data["grip_local_rotation"] = pick_ee_rotation.T @ item_start_rotation', source)
+        self.assertIn("def adjust_rotation_about_x_if_opposite(eff_rotation, target_rotation, threshold=-0.9):", source)
+        self.assertIn("place_rotation = adjust_rotation_about_x_if_opposite(", source)
+        self.assertIn('place_tcp_world = np.array(data["target_position"], dtype=float) - place_rotation @ data["grip_local_position"]', source)
+        self.assertIn("def solve_ur10_position_only_ik(target_local_position, seed_targets):", source)
+        self.assertIn("joint_targets, position_error = solve_ur10_position_only_ik(", source)
+        self.assertIn('data["place_attached_orientation"] = data["target_orientation"]', source)
+        self.assertIn('attached_position = np.array(ee_position, dtype=float) + np.array(ee_rotation, dtype=float) @ np.array(', source)
+        self.assertIn('attached_orientation = data["target_orientation"]', source)
+        self.assertIn('data["release_position"] = None', source)
+        self.assertIn('data["release_orientation"] = None', source)
+        self.assertIn('if data.get("release_position") is not None:', source)
+        self.assertIn('data["release_position"] = attached_position', source)
+        self.assertIn('data["release_orientation"] = data["target_orientation"]', source)
+        self.assertIn('final_position = data["release_position"] if data.get("release_position") is not None else data["target_position"]', source)
+        self.assertIn("return attached_position", source)
+        self.assertNotIn('lerp(data["pick_grip_offset"], data["place_grip_offset"]', source)
+        self.assertNotIn('position = lerp(position, data["place_release_position"], settle_t)', source)
+        self.assertIn("def quat_from_matrix_wxyz(matrix):", source)
+        self.assertIn("def _ensure_motion_commander_target(self):", source)
+        self.assertIn("def _set_motion_commander_target_pose(self, world_position, world_rotation):", source)
+        self.assertIn("set_prim_pose(self.stage, self.motion_target_path, world_position, target_quat)", source)
+        self.assertIn("target_position, target_rotation = self._set_motion_commander_target_pose(world_position, world_rotation)", source)
+        self.assertIn('data["grasp_target_axis"] = target_axis', source)
+        self.assertIn('data["pick_target_rotation"] = target_rotation', source)
+        self.assertIn('tcp_position[2] = max(float(tcp_position[2]), float(surface_position[2]))', source)
+        self.assertIn('data["pick_surface_world_z"] = float(surface_position[2])', source)
+        self.assertIn("motion_commander_target_pose_ik_reach_wait_close_lift_then_reach_wait_open_lift", source)
+        self.assertIn('position, orientation = self._item_pose_from_drop_robot(data, ee_position, ee_rotation, t)', source)
+        self.assertIn('data["place_attached_position"] = place_ee_position + place_ee_rotation @ data["grip_local_position"]', source)
+        self.assertIn("self._set_item_pose(data, final_position, final_orientation)", source)
+        self.assertIn("transform_world_point_to_prim_local(self.stage, self.ur10_root_path, target_position)", source)
+        self.assertIn('self.current_joint_targets = dict(V3_DROP_ROBOT_HOME_JOINTS_DEG)', source)
+        self.assertIn('data["motion_start_joints"] = motion_start_joints', source)
+        self.assertIn('(0.0, data["motion_start_joints"])', source)
+        self.assertIn('(1.0, data["place_lift_joints"])', source)
+        self.assertIn('self.current_joint_targets = dict(data["place_lift_joints"])', source)
         self.assertIn('data["pick_approach_joints"]', source)
         self.assertIn('data["pick_joints"]', source)
         self.assertIn('data["pick_lift_joints"]', source)
@@ -307,6 +382,7 @@ class HarimTransferOrchestratorTests(unittest.TestCase):
         self.assertIn("not v3_drop_robot_controller.done", source)
         self.assertIn("def reset_for_next_cycle(self):", source)
         self.assertIn("v3_drop_robot_controller.reset_for_next_cycle()", source)
+        self.assertNotIn('reset_context = getattr(self.context, "reset", None)', source)
         self.assertIn("styled_cardboard_box_paths.clear()", source)
         controller_source = source[source.index("class V3DropRobotTransferController"):]
         self.assertNotIn("def _prepare_arm_offsets", controller_source)
